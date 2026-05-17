@@ -47,6 +47,25 @@ STOOQ_APIKEY = os.environ.get("STOOQ_APIKEY", "").strip()
 ARIVA_COOKIE = os.environ.get("ARIVA_COOKIE", "").strip()
 TIMEOUT = 30
 
+
+def sanitize_header(name, value):
+    """Headers must be latin-1 encodable. If the user pasted a cookie value
+    copied from DevTools that contained the literal ellipsis character
+    (U+2026 '…'), that means the value was visually truncated in the UI —
+    the secret will not authenticate. We strip non-latin-1 chars so the
+    request still goes out, and log a loud warning so the user knows."""
+    if not value:
+        return value
+    try:
+        value.encode("latin-1")
+        return value
+    except UnicodeEncodeError:
+        log(f"WARN {name}: contains non-ASCII chars (e.g. '\u2026'). "
+            f"DevTools truncated the cookie value when you copied it. "
+            f"Re-copy from Application \u2192 Storage \u2192 Cookies (not the visible Header text). "
+            f"Sending sanitized value; auth may fail.")
+        return value.encode("latin-1", errors="ignore").decode("latin-1")
+
 STOOQ_SOURCES = [
     # (output asset name, stooq symbol)
     ("momentum", "is3r.de"),   # iShares Edge MSCI World Momentum Factor (IE00BP3QZ825)
@@ -97,7 +116,7 @@ def fetch_stooq(symbol):
     url = f"https://stooq.com/q/d/l/?{qs}"
     headers = {"User-Agent": UA, "Accept": "text/csv,*/*;q=0.5"}
     if STOOQ_COOKIE and not STOOQ_APIKEY:
-        headers["Cookie"] = STOOQ_COOKIE
+        headers["Cookie"] = sanitize_header("STOOQ_COOKIE", STOOQ_COOKIE)
     r = requests.get(url, headers=headers, timeout=TIMEOUT)
     r.raise_for_status()
     body = r.text.strip()
@@ -143,7 +162,7 @@ def fetch_ariva_coiq():
         "Referer": "https://www.ariva.de/",
     }
     if ARIVA_COOKIE:
-        headers["Cookie"] = ARIVA_COOKIE
+        headers["Cookie"] = sanitize_header("ARIVA_COOKIE", ARIVA_COOKIE)
     log(f"ariva GET {url}")
     r = requests.get(url, headers=headers, timeout=TIMEOUT)
     log(f"ariva HTTP {r.status_code} · content-type={r.headers.get('content-type', '?')} · {len(r.text)} bytes")

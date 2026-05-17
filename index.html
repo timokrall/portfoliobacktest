@@ -1,0 +1,2173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<style data-omelette-injected>html,body{background:transparent}</style><script data-omelette-injected>(()=>{var j=["https://claude.ai","https://preview.claude.ai"];var x=true;var S=30000;var f=3000;document.addEventListener("DOMContentLoaded",()=>{const H=window.Babel;const G="om-src-id";if(H&&H.registerPlugin&&!(H.availablePlugins&&H.availablePlugins[G])){H.registerPlugin(G,({types:Y})=>({visitor:{JSXOpeningElement(U,Q){const J=U.node;if(J.name&&J.name.type==="JSXMemberExpression")return;for(let V=0;V<J.attributes.length;V++){const L=J.attributes[V];if(L.type==="JSXAttribute"&&L.name&&L.name.name==="data-om-id")return}const W=Q.file&&Q.file.opts&&Q.file.opts.filename||"?";const Z=J.loc&&J.loc.start;const z=`jsx:${W}:${J.start??0}:${Z?Z.line:0}:${Z?Z.column+1:0}`;J.attributes.push(Y.jsxAttribute(Y.jsxIdentifier("data-om-id"),Y.stringLiteral(z)))}}}))}const k="om-text-extract";let A=false;if(x&&H&&H.registerPlugin&&!(H.availablePlugins&&H.availablePlugins[k])){const Y=window.React;if(Y&&Y.useSyncExternalStore&&Y.createElement){A=true;const U={};const Q=new Set;let J=0;window.__omTextO=U;window.__omTextSet=(z)=>{for(const V in z){const L=z[V];if(L==null)delete U[V];else U[V]=L}J++;Q.forEach((V)=>V())};const W=(z)=>{Q.add(z);return()=>Q.delete(z)};const Z=()=>J;window.__OmT=function z(V){Y.useSyncExternalStore(W,Z,Z);return Y.createElement("span",{"data-om-text":V.i,className:"__om-t"},V.i in U?U[V.i]:V.children)};H.registerPlugin(k,({types:z})=>{const V={style:1,script:1,noscript:1,textarea:1,title:1,option:1,text:1,tspan:1,textPath:1};const L={placeholder:1,alt:1,title:1,label:1,"aria-label":1,"aria-description":1,"aria-placeholder":1};const _=($,C)=>z.logicalExpression("??",z.memberExpression(z.logicalExpression("||",z.memberExpression(z.identifier("window"),z.identifier("__omTextO")),z.objectExpression([])),z.stringLiteral($),true),C);const E=($)=>$.file&&$.file.opts&&$.file.opts.filename||"?";const B=($)=>$.file&&$.file.code||"";const b=($,C)=>{const X=(F)=>F&&F.start!=null&&F.end!=null&&(F.type==="StringLiteral"||F.type==="TemplateLiteral"&&F.expressions.length===0)?[F.start,F.end]:null;const N=X(C);if(N)return N;if(C&&C.type==="Identifier"){const F=$.scope.getBinding(C.name);if(F&&F.constant&&F.path.node.type==="VariableDeclarator"){return X(F.path.node.init)}}return null};const M=($,C,X)=>{const N=$.node;let F=false;const w=(K,q)=>{F=true;return z.jsxElement(z.jsxOpeningElement(z.jsxIdentifier("__OmT"),[z.jsxAttribute(z.jsxIdentifier("i"),z.stringLiteral(K))],false),z.jsxClosingElement(z.jsxIdentifier("__OmT")),[q],false)};const D=N.children.map((K)=>{if(K.type==="JSXText"){if(K.start==null||K.end==null)return K;const q=X.slice(K.start,K.end);const R=q.length-q.trimStart().length;const m=q.length-q.trimEnd().length;if(R+m>=q.length)return K;return w(`txt:${C}:${K.start+R}:${K.end-m}`,K)}if(K.type==="JSXExpressionContainer"){const q=b($,K.expression);if(q)return w(`str:${C}:${q[0]}:${q[1]}`,K)}return K});if(F)N.children=D};return{visitor:{JSXOpeningElement($,C){const X=$.node;const N=E(C);const F={};for(let w=0;w<X.attributes.length;w++){const D=X.attributes[w];if(D.type!=="JSXAttribute"||!D.name)continue;const K=D.name.name;if(!L[K])continue;if(!D.value||D.value.type!=="StringLiteral")continue;if(D.value.start==null||D.value.end==null)continue;const q=`txt:${N}:${D.value.start}:${D.value.end}`;F[K]=q;D.value=z.jsxExpressionContainer(_(q,z.stringLiteral(D.value.value)))}if(Object.keys(F).length){X.attributes.push(z.jsxAttribute(z.jsxIdentifier("data-om-text-attrs"),z.stringLiteral(JSON.stringify(F))))}},JSXElement($,C){const X=$.node.openingElement;const N=X&&X.name&&X.name.name;if(N==="__OmT")return;if(typeof N==="string"&&V[N])return;M($,E(C),B(C))},JSXFragment($,C){M($,E(C),B(C))}}}})}}const u=A?["transform-react-jsx-source",G,k]:["transform-react-jsx-source",G];document.querySelectorAll('script[type="text/babel"],script[type="text/jsx"]').forEach((Y,U)=>{const Q=Y.getAttribute("data-plugins")||"";const J=u.filter((W)=>Q.indexOf(W)<0);if(J.length){Y.setAttribute("data-plugins",Q?`${Q},${J.join(",")}`:J.join(","))}if(!Y.hasAttribute("data-filename")){Y.setAttribute("data-filename",Y.getAttribute("src")||`inline-${U}`)}})});var y=window.parent;if(y&&y!==window){const H=(Q,J)=>{try{y.postMessage({__omelette_log:true,type:Q,data:J},"*")}catch{}};["log","warn","error"].forEach((Q)=>{const J=console[Q];console[Q]=(...W)=>{const Z=W.map((z)=>{try{return typeof z==="object"?JSON.stringify(z):String(z)}catch{try{return String(z)}catch{return"[unstringifiable]"}}}).join(" ");H(Q,Z);J.apply(console,W)}});window.addEventListener("error",(Q)=>{const J=Q.target;if(J&&J!==window&&J.tagName){const W=J.src||J.href||"";H("resource_error",`${J.tagName} failed to load: ${W}`)}else{H("error",`${Q.message||"Unknown error"} at ${Q.filename||"?"}:${Q.lineno||0}:${Q.colno||0}`)}},true);window.addEventListener("unhandledrejection",(Q)=>{const J=Q.reason;const W=J instanceof Error?`${J.message} ${J.stack}`:String(J);H("error",`Unhandled rejection: ${W}`)});const G=()=>{try{y.postMessage({type:"omelette:height",height:document.documentElement.scrollHeight},"*")}catch{}};if(document.readyState==="complete")G();else window.addEventListener("load",G);if(window.ResizeObserver)new ResizeObserver(G).observe(document.documentElement);const k={};let A=0;window.claude={complete(Q){return new Promise((J,W)=>{if(!j.length){W(new Error("claude.complete: no parent origin"));return}const Z=`c${++A}`;const z=()=>setTimeout(()=>{delete k[Z];W(new Error(`claude.complete: no data for ${S/1000}s`))},S);const V=z();k[Z]={resolve:J,reject:W,text:"",t:V,arm:z};try{for(const L of j){y.postMessage({__om_api:true,id:Z,body:Q},L)}}catch(L){clearTimeout(V);delete k[Z];W(L)}})}};const u={};let Y=0;window.omelette={writeFile:(Q,J)=>new Promise((W,Z)=>{if(!j.length){W();return}const z=`f${++Y}`;const V=setTimeout(()=>{delete u[z];W()},f);u[z]={resolve:W,reject:Z,t:V};try{for(const L of j){y.postMessage({__om_file:true,id:z,op:"write",path:Q,content:J},L)}}catch{clearTimeout(V);delete u[z];W()}})};const U=(Q)=>{try{return JSON.stringify(Q)}catch{return JSON.stringify(String(Q))}};window.addEventListener("message",(Q)=>{if(j.indexOf(Q.origin)<0)return;if(Q.source!==y)return;const J=Q.data;if(!J)return;if(J.type==="omelette-preview-refresh"){if(typeof J.token!=="string"||!/^[0-9a-f.-]+$/.test(J.token))return;const z=Math.max(1,Math.floor((J.expiresAt||0)-Date.now()/1000));document.cookie="__Host-omelette-preview="+J.token+"; Path=/; Secure; SameSite=None; Partitioned; Max-Age="+z;return}if(J.__om_file_r){const z=u[J.id];if(!z)return;clearTimeout(z.t);delete u[J.id];if(J.ok)z.resolve();else z.reject(new Error(J.error||"write failed"));return}if(J.__om_api_r){const z=k[J.id];if(!z)return;if(J.error!=null){clearTimeout(z.t);delete k[J.id];z.reject(new Error(J.error));return}if(J.chunk!=null){clearTimeout(z.t);z.t=z.arm();z.text+=J.chunk;return}if(J.done){clearTimeout(z.t);delete k[J.id];z.resolve(J.text!=null?J.text:z.text);return}return}if(!J.__om_eval)return;const W=J;const Z=(z)=>{Q.source.postMessage({...z,__om_eval_r:1,id:W.id},Q.origin)};try{const z=(0,eval)(W.code);if(z&&typeof z.then==="function"){z.then((V)=>Z({ok:1,v:U(V)}),(V)=>Z({ok:0,e:String(V)}))}else{Z({ok:1,v:U(z)})}}catch(z){Z({ok:0,e:String(z)})}})}})();
+</script>
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Portfolio Backtest</title>
+
+<!-- CDNs -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg:           oklch(0.985 0.003 240);
+    --panel:        oklch(1 0 0);
+    --ink:          oklch(0.22 0.01 240);
+    --ink-soft:     oklch(0.42 0.01 240);
+    --ink-mute:     oklch(0.58 0.008 240);
+    --line:         oklch(0.91 0.005 240);
+    --line-strong:  oklch(0.84 0.008 240);
+    --hover:        oklch(0.965 0.005 240);
+    --accent:       oklch(0.55 0.09 200);
+    --accent-soft:  oklch(0.94 0.03 200);
+    --warn:         oklch(0.58 0.13 60);
+    --warn-soft:    oklch(0.96 0.04 70);
+    --pos:          oklch(0.55 0.10 155);
+    --neg:          oklch(0.55 0.13 25);
+    --shadow:       0 1px 0 oklch(0.92 0.005 240), 0 1px 2px oklch(0.85 0.005 240 / 0.3);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background: var(--bg); color: var(--ink); font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .mono, .num { font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  h1,h2,h3,h4 { margin:0; font-weight:600; letter-spacing:-0.01em; }
+  a { color: var(--accent); text-decoration: none; }
+  hr { border:0; border-top:1px solid var(--line); margin: 0; }
+
+  /* layout */
+  .shell { max-width: 1320px; margin: 0 auto; padding: 28px 28px 96px; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-bottom:18px; border-bottom:1px solid var(--line); margin-bottom:24px; }
+  .brand { display:flex; align-items:center; gap:12px; }
+  .brand-mark { width:28px; height:28px; border-radius:7px; background: var(--ink); position:relative; overflow:hidden;}
+  .brand-mark::after { content:""; position:absolute; inset:0; background: linear-gradient(135deg, transparent 40%, var(--accent) 40% 60%, transparent 60%); }
+  .brand h1 { font-size:14px; }
+  .brand .sub { font-size:11px; color: var(--ink-mute); }
+  .topbar-right { display:flex; gap:10px; align-items:center; }
+
+  .grid { display:grid; gap:18px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 980px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+
+  /* panel */
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius: 10px; }
+  .panel-h { padding: 14px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom: 1px solid var(--line); }
+  .panel-h h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); }
+  .panel-h .h-meta { font-size: 11px; color: var(--ink-mute); }
+  .panel-body { padding: 16px; }
+  .panel-body.tight { padding: 12px 16px; }
+
+  /* form atoms */
+  label.field { display:flex; flex-direction:column; gap: 6px; font-size: 11px; color: var(--ink-soft); }
+  label.field > .lbl { display:flex; justify-content:space-between; align-items:baseline; }
+  label.field > .lbl small { color: var(--ink-mute); font-weight:400; }
+  input[type=text], input[type=number], textarea, select {
+    width:100%; padding: 7px 9px; border:1px solid var(--line-strong); border-radius:6px; background: var(--panel); color: var(--ink);
+    font: inherit; font-family: "JetBrains Mono", monospace; font-size:12.5px;
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  input[type=text]:focus, input[type=number]:focus, textarea:focus, select:focus {
+    outline:none; border-color: var(--accent); box-shadow: 0 0 0 3px oklch(0.9 0.04 200 / 0.5);
+  }
+  textarea { font-size: 11px; line-height: 1.45; resize: vertical; }
+  select { font-family: inherit; }
+
+  .btn { display:inline-flex; align-items:center; gap:6px; padding: 7px 12px; border-radius: 6px; border:1px solid var(--line-strong); background: var(--panel); color: var(--ink); cursor:pointer; font: inherit; font-weight:500; font-size: 12px; transition: background 120ms, border-color 120ms; }
+  .btn:hover { background: var(--hover); }
+  .btn-primary { background: var(--ink); color: white; border-color: var(--ink); }
+  .btn-primary:hover { background: oklch(0.32 0.01 240); }
+  .btn-accent { background: var(--accent); color:white; border-color: var(--accent); }
+  .btn-accent:hover { filter: brightness(0.95); }
+  .btn-ghost { background: transparent; border-color: transparent; }
+  .btn-ghost:hover { background: var(--hover); }
+  .btn:disabled { opacity:0.5; cursor: not-allowed; }
+  .btn.disabled  { opacity:0.5; cursor: not-allowed; pointer-events: none; }
+  .btn-xs { padding: 3px 7px; font-size: 11px; border-radius: 5px;}
+
+  /* chips / toggles */
+  .seg { display:inline-flex; background: var(--hover); border:1px solid var(--line); border-radius: 7px; padding:2px; }
+  .seg button { background: transparent; border:0; padding: 4px 10px; font: inherit; font-size: 11.5px; color: var(--ink-soft); cursor:pointer; border-radius:5px; }
+  .seg button.on { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+
+  .chip { display:inline-flex; align-items:center; gap:6px; padding: 4px 9px; border-radius: 999px; border:1px solid var(--line-strong); background: var(--panel); cursor:pointer; font-size: 11.5px; color: var(--ink-soft); }
+  .chip.on { background: var(--ink); color:white; border-color: var(--ink); }
+  .chip .dot { width:6px; height:6px; border-radius:50%; background: currentColor; opacity:0.5; }
+
+  /* table */
+  table.bt { width:100%; border-collapse: collapse; font-size: 12px; }
+  table.bt th { text-align:left; font-weight:500; color: var(--ink-mute); padding: 9px 12px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--line); background: oklch(0.99 0.002 240); }
+  table.bt td { padding: 11px 12px; border-bottom: 1px solid var(--line); }
+  table.bt td.num { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+  table.bt tr:last-child td { border-bottom: 0; }
+  table.bt td.name { font-weight:500; }
+  table.bt td.dim { color: var(--ink-mute); }
+
+  .kv { display:flex; flex-direction:column; gap:2px; }
+  .kv .k { font-size: 10.5px; color: var(--ink-mute); text-transform: uppercase; letter-spacing:0.06em; }
+  .kv .v { font-size: 18px; font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+  .kv .vs { font-size: 13px; font-family: "JetBrains Mono", monospace; }
+
+  .tag { display:inline-block; padding: 1px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 500; }
+  .tag.ok    { background: oklch(0.94 0.04 155); color: oklch(0.32 0.07 155); }
+  .tag.warn  { background: var(--warn-soft); color: oklch(0.4 0.13 60); }
+  .tag.idle  { background: var(--hover); color: var(--ink-mute); }
+  .tag.info  { background: var(--accent-soft); color: oklch(0.32 0.07 200); }
+  .tag.bad   { background: oklch(0.95 0.04 25); color: oklch(0.4 0.13 25); }
+
+  .pos { color: var(--pos); }
+  .neg { color: var(--neg); }
+
+  .footnote { font-size: 11px; color: var(--ink-mute); line-height: 1.6; }
+  .footnote code { background: var(--hover); padding: 0 4px; border-radius: 3px; font-size: 10.5px; }
+
+  /* winner banner */
+  .winner { background: linear-gradient(135deg, var(--ink), oklch(0.27 0.02 220)); color:white; border-radius: 12px; padding: 20px 22px; }
+  .winner .row { display:grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .winner .lbl { font-size: 10.5px; opacity: 0.65; text-transform: uppercase; letter-spacing:0.1em; }
+  .winner .val { font-size: 20px; font-weight:600; margin-top: 4px;}
+  .winner .sub { margin-top: 4px; font-size: 11.5px; opacity: 0.7; }
+  .winner .caveat { margin-top: 14px; font-size: 11px; opacity: 0.65; padding-top: 14px; border-top: 1px solid oklch(1 0 0 / 0.12); }
+
+  /* CSV box */
+  .csv-card { border:1px solid var(--line); border-radius: 9px; padding: 14px; background: var(--panel); }
+  .csv-card.loaded { border-color: oklch(0.82 0.04 155); background: oklch(0.99 0.01 155); }
+  .csv-card h3 { font-size: 12px; }
+  .csv-card .id { font-size: 10.5px; color: var(--ink-mute); margin-top: 2px; font-family: "JetBrains Mono", monospace; }
+  .csv-card .ctrl { display:flex; gap:6px; margin-top: 10px; flex-wrap: wrap; align-items:center;}
+  .csv-card textarea { font-size: 10.5px; }
+  .csv-card .meta { font-size: 10.5px; color: var(--ink-mute); margin-top: 6px; font-family: "JetBrains Mono", monospace; }
+
+  /* portfolio multi-select */
+  .pf-row { display:flex; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .pf-row:first-of-type { border-top:0; }
+  .pf-row .pf-name { flex: 1; font-weight: 500; font-size: 12.5px;}
+  .pf-row .pf-w  { width: 96px; }
+  .pf-row .pf-w input { text-align: right; }
+
+  /* basiszins editor */
+  .bz-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .bz-grid label { display:flex; flex-direction:column; gap: 3px; font-size: 10.5px; color: var(--ink-mute);}
+  .bz-grid input { padding: 5px 7px; }
+
+  .small-note { font-size: 10.5px; color: var(--ink-mute); margin-top: 8px; }
+
+  details.fold > summary { cursor:pointer; padding: 8px 0; font-size: 12px; color: var(--ink-soft); user-select:none; }
+  details.fold > summary::marker { color: var(--ink-mute);}
+  details.fold[open] > summary { color: var(--ink); font-weight:500; }
+
+  /* spinner */
+  @keyframes spin { to { transform: rotate(360deg);} }
+  .spin { display:inline-block; width:12px; height:12px; border:1.5px solid var(--line-strong); border-top-color: var(--accent); border-radius:50%; animation: spin 0.8s linear infinite;}
+
+  .recharts-cartesian-axis-tick-value { font-family: "JetBrains Mono", monospace; font-size: 10.5px; fill: var(--ink-mute);}
+  .recharts-legend-item-text { font-size: 11.5px !important; color: var(--ink-soft) !important; }
+  .recharts-tooltip-wrapper { font-family: "JetBrains Mono", monospace !important; font-size: 11px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+// ============================================================================
+// CONFIG — paste your OAuth Web-app client ID here to enable Drive sync.
+// Leave blank to use browser localStorage only (app is fully functional).
+// ============================================================================
+const GOOGLE_CLIENT_ID = "";
+// ============================================================================
+
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+const RC = window.Recharts;
+const { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, ReferenceArea } = RC;
+
+// ---------- date / math helpers ----------
+const fmtEUR = (n, d = 0) => {
+  if (n == null || !isFinite(n)) return "—";
+  return new Intl.NumberFormat("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
+};
+const fmtPct = (n, d = 2) => (n == null || !isFinite(n)) ? "—" : (n * 100).toFixed(d) + "%";
+const fmtNum = (n, d = 2) => (n == null || !isFinite(n)) ? "—" : n.toFixed(d);
+const ym = (y, m) => y * 12 + m;            // m: 0..11
+const toMonthKey = (date) => {
+  const d = new Date(date);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+};
+const monthKeyToYM = (k) => { const [y, m] = k.split("-").map(Number); return { y, m: m - 1 }; };
+const addMonths = (key, n) => { const { y, m } = monthKeyToYM(key); const idx = y * 12 + m + n; return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`; };
+const monthsBetween = (a, b) => { const A = monthKeyToYM(a), B = monthKeyToYM(b); return (B.y - A.y) * 12 + (B.m - A.m); };
+
+// ---------- CSV parse + monthly resample ----------
+function parseCsvToMonthly(text) {
+  const out = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, dynamicTyping: false });
+  if (out.errors.length > 0 && (!out.data || out.data.length === 0)) throw new Error(out.errors[0].message);
+  const rows = out.data;
+  // tolerate column variants
+  const cols = Object.keys(rows[0] || {});
+  const dateCol = cols.find(c => /^date$/i.test(c)) || cols.find(c => /date/i.test(c)) || cols[0];
+  const valCol  = cols.find(c => /^(value|close|nav|price|adj.?close)$/i.test(c)) || cols.find(c => /(value|close|nav|price)/i.test(c)) || cols[1];
+  if (!dateCol || !valCol) throw new Error("Need columns: date,value");
+  const pts = [];
+  for (const r of rows) {
+    const ds = (r[dateCol] || "").trim();
+    const vs = (r[valCol] || "").toString().replace(",", ".").trim();
+    if (!ds || !vs) continue;
+    const t = Date.parse(ds);
+    const v = parseFloat(vs);
+    if (!isFinite(t) || !isFinite(v) || v <= 0) continue;
+    pts.push({ t, v });
+  }
+  if (pts.length === 0) throw new Error("No valid rows parsed");
+  pts.sort((a, b) => a.t - b.t);
+  // bucket: keep the LAST observation of each month → month-end
+  const map = new Map();
+  for (const p of pts) {
+    const d = new Date(p.t);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    map.set(key, p.v);
+  }
+  const keys = [...map.keys()].sort();
+  return keys.map(k => ({ month: k, value: map.get(k) }));
+}
+
+// ---------- assets ----------
+const ASSETS = [
+  { id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",
+    label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series" },
+  { id: "momentum", file: "momentum.csv", manifestKey: "momentum",
+    label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)" },
+  { id: "gold",     file: "gold.csv",     manifestKey: "gold",
+    label: "EUWAX Gold II",                       isin: "DE000EWG2LD7", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.59, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT" },
+  { id: "market",   file: "market.csv",   manifestKey: "market",
+    label: "SPDR MSCI ACWI IMI UCITS ETF",        isin: "IE00B3YLTY66", equity: true,  defaultOngoing: 0.18, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra SPYI / IMIE)" },
+];
+
+// Same-origin load of pre-fetched CSVs committed by the weekly GitHub Action.
+// No CORS, no proxies, no rate-limits. If a file is missing the user can still
+// paste/upload a CSV manually as an override.
+async function loadCommittedCsv(asset) {
+  const url = `./data/${asset.file}?v=${Date.now()}`;
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const text = await r.text();
+  if (!text || text.length < 20) throw new Error("empty");
+  return text;
+}
+
+async function loadManifest() {
+  try {
+    const r = await fetch(`./data/manifest.json?v=${Date.now()}`, { cache: "no-store" });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
+const PORTFOLIOS = [
+  { id: "gold_coIQ",     name: "Gold + coIQ",     assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
+  { id: "gold_momentum", name: "Gold + Momentum", assets: ["gold", "momentum"], defaultGold: 30, equityId: "momentum" },
+  { id: "market",        name: "Market (100% ACWI IMI)", assets: ["market"], defaultGold: 0, equityId: "market", isMarket: true },
+];
+
+const DEFAULT_BASISZINS = { 2018: 0.87, 2019: 0.52, 2020: 0.07, 2021: 0.00, 2022: 0.00, 2023: 2.55, 2024: 2.29, 2025: 2.53, 2026: 2.53 };
+
+// ============================================================================
+// STORAGE — Drive appDataFolder OR localStorage fallback
+// ============================================================================
+const LS_KEY = "backtester-state.json";
+
+function useStorage() {
+  const [signedIn, setSignedIn] = useState(false);
+  const [token, setToken] = useState(null);
+  const [tokenClient, setTokenClient] = useState(null);
+  const [status, setStatus] = useState({ kind: "idle", msg: "Local storage" });
+  const [userEmail, setUserEmail] = useState(null);
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    const init = () => {
+      if (!window.google || !window.google.accounts) { setTimeout(init, 200); return; }
+      const tc = window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: "https://www.googleapis.com/auth/drive.appdata",
+        callback: (resp) => {
+          if (resp.error) { setStatus({ kind: "bad", msg: "Auth failed: " + resp.error }); return; }
+          setToken(resp.access_token);
+          setSignedIn(true);
+          setStatus({ kind: "ok", msg: "Signed in" });
+        },
+      });
+      setTokenClient(tc);
+    };
+    init();
+  }, []);
+
+  const signIn = () => {
+    if (!tokenClient) return;
+    tokenClient.requestAccessToken({ prompt: signedIn ? "" : "consent" });
+  };
+  const signOut = () => {
+    if (token && window.google) {
+      try { window.google.accounts.oauth2.revoke(token, () => {}); } catch {}
+    }
+    setToken(null); setSignedIn(false);
+    setStatus({ kind: "idle", msg: "Local storage" });
+  };
+
+  const driveFindFile = async () => {
+    const r = await fetch("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'backtester-state.json'&fields=files(id,modifiedTime)", { headers: { Authorization: "Bearer " + token } });
+    if (!r.ok) throw new Error("Drive list failed " + r.status);
+    const j = await r.json();
+    return j.files?.[0]?.id || null;
+  };
+
+  const save = async (state) => {
+    const json = JSON.stringify(state);
+    if (GOOGLE_CLIENT_ID && signedIn && token) {
+      try {
+        setStatus({ kind: "info", msg: "Saving to Drive…" });
+        const existing = await driveFindFile();
+        const metadata = { name: "backtester-state.json", mimeType: "application/json", parents: existing ? undefined : ["appDataFolder"] };
+        const boundary = "-------" + Math.random().toString(36).slice(2);
+        const body =
+          `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+          `--${boundary}\r\nContent-Type: application/json\r\n\r\n${json}\r\n--${boundary}--`;
+        const url = existing
+          ? `https://www.googleapis.com/upload/drive/v3/files/${existing}?uploadType=multipart`
+          : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+        const resp = await fetch(url, {
+          method: existing ? "PATCH" : "POST",
+          headers: { Authorization: "Bearer " + token, "Content-Type": `multipart/related; boundary=${boundary}` },
+          body,
+        });
+        if (resp.status === 401) { setSignedIn(false); setToken(null); setStatus({ kind: "warn", msg: "Token expired — sign in again" }); return false; }
+        if (!resp.ok) throw new Error("Drive save " + resp.status);
+        setStatus({ kind: "ok", msg: "Saved to Drive · " + new Date().toLocaleTimeString() });
+        return true;
+      } catch (e) {
+        setStatus({ kind: "bad", msg: "Save failed: " + e.message });
+        return false;
+      }
+    } else {
+      try {
+        localStorage.setItem(LS_KEY, json);
+        setStatus({ kind: "ok", msg: "Saved locally · " + new Date().toLocaleTimeString() });
+        return true;
+      } catch (e) {
+        setStatus({ kind: "bad", msg: "Local save failed: " + e.message });
+        return false;
+      }
+    }
+  };
+
+  const load = async () => {
+    if (GOOGLE_CLIENT_ID && signedIn && token) {
+      try {
+        setStatus({ kind: "info", msg: "Loading from Drive…" });
+        const id = await driveFindFile();
+        if (!id) { setStatus({ kind: "idle", msg: "No saved state in Drive" }); return null; }
+        const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, { headers: { Authorization: "Bearer " + token } });
+        if (resp.status === 401) { setSignedIn(false); setToken(null); setStatus({ kind: "warn", msg: "Token expired" }); return null; }
+        if (!resp.ok) throw new Error("Drive load " + resp.status);
+        const j = await resp.json();
+        setStatus({ kind: "ok", msg: "Loaded from Drive" });
+        return j;
+      } catch (e) {
+        setStatus({ kind: "bad", msg: "Load failed: " + e.message });
+        return null;
+      }
+    } else {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) { setStatus({ kind: "idle", msg: "Local storage · empty" }); return null; }
+        setStatus({ kind: "ok", msg: "Loaded locally" });
+        return JSON.parse(raw);
+      } catch (e) {
+        setStatus({ kind: "bad", msg: "Local load failed: " + e.message });
+        return null;
+      }
+    }
+  };
+
+  return { signedIn, signIn, signOut, status, save, load, configured: !!GOOGLE_CLIENT_ID, userEmail };
+}
+
+// ============================================================================
+// SIMULATION ENGINE
+// ============================================================================
+// Returns the simulation result including:
+//   months[], unitPriceSeries, valueSeries, totalInvested, finalValue,
+//   metrics (sortino, maxDD, monthsBelow30), goldWeightSeries, etc.
+//
+// state required:
+//   portfolio: { assets: [...], equityId, isMarket }
+//   targetGoldPct: 0..1
+//   data: { assetId: [{month, value}, ...] }  -- already trimmed to common window
+//   seriesType: { assetId: "net"|"gross" }
+//   ongoingCost: { assetId: %/yr }
+//   spreads: { assetId: { buy: %, sell: % } }
+//   orderFee: { fixed: EUR, pct: % }
+//   tax: { rate, teilfreistellung: {assetId: %}, allowance, basiszins: {year: %} }
+//   starting: EUR
+//   monthly: EUR
+//   rebalance: "never" | "monthly" | "yearly" | "biennial"
+// months is the array of month keys for the simulation, from data.
+// ============================================================================
+
+function buildReturnsMap(data) {
+  // Per asset: returns[i] = price[i]/price[i-1] - 1
+  const out = {};
+  for (const id of Object.keys(data)) {
+    const arr = data[id];
+    const r = [0];
+    for (let i = 1; i < arr.length; i++) r.push(arr[i].value / arr[i - 1].value - 1);
+    out[id] = r;
+  }
+  return out;
+}
+
+function simulatePortfolio(state) {
+  const { portfolio, targetGoldPct, data, seriesType, ongoingCost, spreads, orderFee, tax, starting, monthly, rebalance } = state;
+  const assets = portfolio.assets;
+  const months = data[assets[0]].map(r => r.month);
+  const N = months.length;
+  if (N < 2) return null;
+
+  // monthly drag for "gross"
+  const monthlyDrag = {};
+  for (const a of assets) monthlyDrag[a] = seriesType[a] === "gross" ? Math.pow(1 - (ongoingCost[a] / 100), 1 / 12) : 1;
+
+  const returns = buildReturnsMap(data);
+  const assetEquityId = portfolio.equityId;
+  const isMarket = !!portfolio.isMarket;
+
+  // weights
+  const targets = {};
+  if (isMarket) targets[assetEquityId] = 1;
+  else { targets["gold"] = targetGoldPct; targets[assetEquityId] = 1 - targetGoldPct; }
+
+  // holdings (cash value, EUR)
+  const holdings = {}; for (const a of assets) holdings[a] = 0;
+  // lots: gold lots track maturity; equity lots track Vorabpauschale proration
+  const goldLots = [];      // {units, acqMonth, costPerUnit}
+  const equityLots = {};    // equityId -> [{units, acqMonth, value (mutable mark-to-market)}]
+  for (const a of assets) if (a !== "gold") equityLots[a] = [];
+
+  // synthetic per-asset "units" so we can track price independently
+  const assetUnits = {}; const assetPricePerUnit = {};
+  for (const a of assets) { assetUnits[a] = 0; assetPricePerUnit[a] = 100; }
+
+  // Unit-price of the portfolio (contribution-neutral, but reduced by costs/taxes)
+  let unitPrice = 100;
+  const unitPriceSeries = [];
+  const valueSeries = [];
+  const goldWeightSeries = [];
+  let totalInvested = 0;
+
+  // Helper: buy `eur` worth of asset a at month idx (after price applied)
+  const buy = (a, eur, idx) => {
+    if (eur <= 0) return 0;
+    const fee = orderFee.fixed + (orderFee.pct / 100) * eur;
+    const eff = eur - fee;
+    if (eff <= 0) return 0;
+    const effectivePrice = assetPricePerUnit[a] * (1 + (spreads[a].buy / 100));
+    const units = eff / effectivePrice;
+    assetUnits[a] += units;
+    holdings[a] += eff / (1 + (spreads[a].buy / 100));   // value at mid-price
+    if (a === "gold") {
+      goldLots.push({ units, acqMonth: idx, costPerUnit: effectivePrice });
+    } else {
+      equityLots[a].push({ units, acqMonth: idx, valueAtYearStart: units * assetPricePerUnit[a] });
+    }
+    return units;
+  };
+
+  // Sell `eur` worth of gold from matured lots only (idx >= acq+12), FIFO. Returns EUR proceeds (after spread/fee).
+  const sellMaturedGold = (eurTarget, idx) => {
+    let need = eurTarget;
+    let proceedsGross = 0;
+    let unitsSold = 0;
+    for (const lot of goldLots) {
+      if (need <= 0.0001) break;
+      if (idx - lot.acqMonth < 12) continue;
+      if (lot.units <= 0) continue;
+      const lotMidValue = lot.units * assetPricePerUnit.gold;
+      const take = Math.min(need, lotMidValue);
+      const portion = take / lotMidValue;
+      const unitsTaken = lot.units * portion;
+      unitsSold += unitsTaken;
+      lot.units -= unitsTaken;
+      proceedsGross += take;
+      need -= take;
+    }
+    if (unitsSold === 0) return 0;
+    assetUnits.gold -= unitsSold;
+    holdings.gold -= proceedsGross;
+    const sellPrice = assetPricePerUnit.gold * (1 - (spreads.gold.sell / 100));
+    const grossEur = unitsSold * sellPrice;
+    const fee = orderFee.fixed + (orderFee.pct / 100) * grossEur;
+    return Math.max(0, grossEur - fee);
+  };
+
+  // -------- Month 0: invest starting allocation --------
+  // initial gold lot is treated as matured: acqMonth = -12
+  // We do this by special-casing: buy gold then back-date the lot.
+  totalInvested += starting;
+  for (const a of assets) {
+    const w = targets[a] || 0;
+    const eur = starting * w;
+    if (eur <= 0) continue;
+    const fee = orderFee.fixed + (orderFee.pct / 100) * eur;
+    const eff = eur - fee;
+    const effectivePrice = assetPricePerUnit[a] * (1 + (spreads[a].buy / 100));
+    const units = eff / effectivePrice;
+    assetUnits[a] += units;
+    holdings[a] += eff / (1 + (spreads[a].buy / 100));
+    if (a === "gold") {
+      goldLots.push({ units, acqMonth: -12, costPerUnit: effectivePrice });   // matured at month 0
+    } else {
+      equityLots[a].push({ units, acqMonth: 0, valueAtYearStart: units * assetPricePerUnit[a] });
+    }
+  }
+
+  unitPriceSeries.push(unitPrice);
+  valueSeries.push(starting);
+  goldWeightSeries.push(isMarket ? 0 : (holdings.gold || 0) / (holdings.gold + holdings[assetEquityId] || 1));
+
+  // Track per-equity year-start basis per lot — we re-mark each Jan
+  const yearStartMonthIdx = {};   // year -> monthIdx with that year
+  for (let i = 0; i < N; i++) {
+    const { y, m } = monthKeyToYM(months[i]);
+    if (m === 0) yearStartMonthIdx[y] = i;
+  }
+
+  const taxLog = [];   // {year, asset, vp, tax}
+
+  // -------- main loop --------
+  for (let i = 1; i < N; i++) {
+    const monthKey = months[i];
+    const { y: curYear, m: curMonth } = monthKeyToYM(monthKey);
+
+    // 1. apply returns + drag
+    let valueBefore = 0;
+    for (const a of assets) {
+      const r = returns[a][i];
+      const newPrice = assetPricePerUnit[a] * (1 + r) * monthlyDrag[a];
+      assetPricePerUnit[a] = newPrice;
+      holdings[a] = assetUnits[a] * newPrice;
+      valueBefore += holdings[a];
+    }
+
+    // value used as base for unit-price update — taken from PREV state pre-contribution
+    const prevValue = valueSeries[i - 1];   // pre-contribution value at end of prev month
+    // ratio = current gross value (after returns/drag, before contributions/rebalance/tax) / prev value
+    if (prevValue > 0) {
+      const ratio = valueBefore / prevValue;
+      unitPrice = unitPrice * ratio;
+    }
+
+    // 5a. January: apply prior year's Vorabpauschale tax (for years >= 2018)
+    if (curMonth === 0 && curYear >= 2019) {
+      const Yprev = curYear - 1;
+      if (Yprev >= 2018 && tax.basiszins[Yprev] != null) {
+        const basisRaw = (tax.basiszins[Yprev] / 100);
+        let totalTaxable = 0;
+        const perAssetVPTaxable = {};
+        for (const a of assets) {
+          if (a === "gold") continue;
+          perAssetVPTaxable[a] = 0;
+          const lots = equityLots[a];
+          // For VP we need prices at year start and year end of Yprev
+          const yStartIdx = yearStartMonthIdx[Yprev];
+          // year-end = either December of Yprev (if month exists) or last available month within Yprev
+          // we want the month index whose monthKey starts with Yprev and is the LAST one
+          // simpler: find max idx in range with key.startsWith(Yprev)
+          let yEndIdx = -1;
+          for (let k = i - 1; k >= 0; k--) { if (monthKeyToYM(months[k]).y === Yprev) { yEndIdx = k; break; } }
+          if (yStartIdx == null) continue;
+          if (yEndIdx < 0) continue;
+          const priceStart = a; // placeholder
+          // We need to recover each lot's year-start value & year-end value.
+          // Approach: store per-lot value at year start by re-marking each Jan.
+          // We already updated valueAtYearStart at the previous Jan transition (below).
+          for (const lot of lots) {
+            if (lot.acqMonth > yEndIdx) continue;
+            const lotStartVal = lot.acqMonth >= yStartIdx
+              ? lot.units * (function () {
+                // approximate price at acquisition: walk back from current using returns (or stored)
+                // simpler: use lot.valueAtYearStart if it was set at acq month
+                return lot.valueAtYearStart / lot.units;
+              })()
+              : lot.valueAtYearStart / lot.units;
+            // but we need the current price-per-unit at year end of Yprev — that's assetPricePerUnit at yEndIdx
+            // we no longer have history; reconstruct via returns from current.
+            // To do this cleanly, precompute per-asset price history.
+            // (See assetPriceHistory below — populated each step.)
+            const yEndPrice = assetPriceHistory[a][yEndIdx];
+            const lotStartPrice = lot.acqMonth >= yStartIdx
+              ? assetPriceHistory[a][lot.acqMonth]
+              : assetPriceHistory[a][yStartIdx];
+            const lotStartValEur = lot.units * lotStartPrice;
+            const lotEndValEur = lot.units * yEndPrice;
+            const basisertrag = lotStartValEur * basisRaw * 0.70;
+            const gain = lotEndValEur - lotStartValEur;
+            let vp = Math.max(0, Math.min(basisertrag, gain));
+            // proration for lots acquired during Yprev
+            if (lot.acqMonth >= yStartIdx) {
+              const monthsBefore = monthKeyToYM(months[lot.acqMonth]).m;
+              vp = vp * ((12 - monthsBefore) / 12);
+            }
+            const tfPct = (tax.teilfreistellung[a] || 0) / 100;
+            const taxable = vp * (1 - tfPct);
+            perAssetVPTaxable[a] += taxable;
+            totalTaxable += taxable;
+          }
+        }
+        // apply allowance
+        let net = Math.max(0, totalTaxable - tax.allowance);
+        let taxOwed = net * (tax.rate / 100);
+        if (taxOwed > 0) {
+          // allocate tax across equity assets proportionally to their VP contribution
+          for (const a of Object.keys(perAssetVPTaxable)) {
+            if (totalTaxable <= 0) continue;
+            const share = perAssetVPTaxable[a] / totalTaxable;
+            const assetTax = taxOwed * share;
+            if (assetTax <= 0 || holdings[a] <= 0) continue;
+            // reduce holdings: pull cash by reducing units
+            const unitsLoss = assetTax / assetPricePerUnit[a];
+            const newUnits = Math.max(0, assetUnits[a] - unitsLoss);
+            const reduction = (assetUnits[a] - newUnits) * assetPricePerUnit[a];
+            assetUnits[a] = newUnits;
+            // reduce lots proportionally
+            const lots = equityLots[a];
+            const totalUnits = lots.reduce((s, l) => s + l.units, 0);
+            if (totalUnits > 0) {
+              const factor = newUnits / totalUnits;
+              for (const lot of lots) lot.units *= factor;
+            }
+            holdings[a] = assetUnits[a] * assetPricePerUnit[a];
+            // unit-price drag from tax
+            if (valueBefore > 0) {
+              const newPortfolio = Object.values(holdings).reduce((s, v) => s + v, 0);
+              const taxRatio = newPortfolio / valueBefore;
+              unitPrice = unitPrice * taxRatio;
+              valueBefore = newPortfolio;
+            }
+            taxLog.push({ year: Yprev, asset: a, tax: assetTax });
+          }
+        }
+        // At the start of new calendar year, re-mark valueAtYearStart for surviving lots
+        for (const a of Object.keys(equityLots)) {
+          for (const lot of equityLots[a]) {
+            lot.valueAtYearStart = lot.units * assetPricePerUnit[a];
+          }
+        }
+      }
+    }
+
+    // 3. monthly contribution
+    if (monthly > 0) {
+      totalInvested += monthly;
+      // direct cash to the underweight asset(s)
+      let totalValue = Object.values(holdings).reduce((s, v) => s + v, 0) + monthly;
+      const allocation = {};
+      if (isMarket) {
+        allocation[assetEquityId] = monthly;
+      } else {
+        // gaps relative to target
+        const desiredGold = totalValue * targets.gold;
+        const desiredEquity = totalValue * targets[assetEquityId];
+        const gapGold = desiredGold - holdings.gold;
+        const gapEquity = desiredEquity - holdings[assetEquityId];
+        const gapTotal = Math.max(0, gapGold) + Math.max(0, gapEquity);
+        if (gapTotal <= 0) {
+          // both at/over target — distribute at target ratio
+          allocation.gold = monthly * targets.gold;
+          allocation[assetEquityId] = monthly * targets[assetEquityId];
+        } else {
+          // larger gap first, then remainder at target ratio
+          const goldPart = Math.max(0, gapGold) / gapTotal * monthly;
+          const equityPart = monthly - goldPart;
+          allocation.gold = Math.min(goldPart, Math.max(0, gapGold));
+          allocation[assetEquityId] = Math.min(equityPart, Math.max(0, gapEquity));
+          const used = (allocation.gold || 0) + (allocation[assetEquityId] || 0);
+          const remainder = monthly - used;
+          if (remainder > 0) {
+            allocation.gold = (allocation.gold || 0) + remainder * targets.gold;
+            allocation[assetEquityId] = (allocation[assetEquityId] || 0) + remainder * targets[assetEquityId];
+          }
+        }
+      }
+      for (const a of assets) buy(a, allocation[a] || 0, i);
+    }
+
+    // 4. rebalancing event
+    if (!isMarket && rebalance !== "never") {
+      const due =
+        rebalance === "monthly" ? true :
+        rebalance === "yearly"  ? (curMonth === 0) :   // every January
+        rebalance === "biennial"? (curMonth === 0 && curYear % 2 === 0) :
+        false;
+      if (due) {
+        const totalV = holdings.gold + holdings[assetEquityId];
+        const goldShare = holdings.gold / totalV;
+        if (goldShare > targets.gold + 1e-6) {
+          const desiredGold = totalV * targets.gold;
+          const overflow = holdings.gold - desiredGold;
+          const proceeds = sellMaturedGold(overflow, i);
+          if (proceeds > 0) {
+            buy(assetEquityId, proceeds, i);
+          }
+          // if matured gold < overflow → partial; remainder remains as overweight gold (intended)
+        }
+      }
+    }
+
+    // 5b. record state
+    const totalEnd = Object.values(holdings).reduce((s, v) => s + v, 0);
+    valueSeries.push(totalEnd);
+    unitPriceSeries.push(unitPrice);
+    goldWeightSeries.push(isMarket ? 0 : (holdings.gold || 0) / totalEnd);
+
+    // record price history
+    for (const a of assets) {
+      if (!assetPriceHistory[a]) assetPriceHistory[a] = [];
+      assetPriceHistory[a][i] = assetPricePerUnit[a];
+    }
+  }
+
+  // We need assetPriceHistory defined BEFORE loop — patch: declare and pre-init.
+  // (Hoisted by JS for var; but we used const. Restructure: define before loop.)
+  // Actually we placed access "assetPriceHistory[a][yEndIdx]" inside loop after... but variable declared later. Fix below.
+
+  // Compute metrics on unit-price series
+  const monthlyRets = [];
+  for (let i = 1; i < unitPriceSeries.length; i++) monthlyRets.push(unitPriceSeries[i] / unitPriceSeries[i - 1] - 1);
+  const downside = monthlyRets.filter(r => r < 0);
+  const downsideStd = downside.length > 1
+    ? Math.sqrt(downside.reduce((s, r) => s + r * r, 0) / downside.length)
+    : 0;
+  const meanR = monthlyRets.reduce((s, r) => s + r, 0) / Math.max(1, monthlyRets.length);
+  const sortino = downsideStd > 0 ? (meanR / downsideStd) * Math.sqrt(12) : null;
+
+  let peak = unitPriceSeries[0];
+  let maxDD = 0;
+  const ddSeries = [];
+  let monthsBelow30 = 0;
+  for (const u of unitPriceSeries) {
+    peak = Math.max(peak, u);
+    const dd = u / peak - 1;
+    ddSeries.push(dd);
+    if (dd < maxDD) maxDD = dd;
+    if (dd < -0.30) monthsBelow30++;
+  }
+
+  const finalValue = valueSeries[valueSeries.length - 1];
+  const finalGoldWeight = goldWeightSeries[goldWeightSeries.length - 1];
+
+  return {
+    months, unitPriceSeries, valueSeries, ddSeries, goldWeightSeries,
+    totalInvested, finalValue, finalGoldWeight,
+    metrics: { sortino, maxDD, monthsBelow30, monthlyRets, n: monthlyRets.length },
+    taxLog,
+  };
+}
+
+// Fix: we use assetPriceHistory inside the function — but it's not defined.
+// We need to instead precompute per-asset price history BEFORE the loop and reference it.
+// Let me rewrite simulatePortfolio to PRECOMPUTE prices.
+function simulatePortfolioV2(state) {
+  const { portfolio, targetGoldPct, data, seriesType, ongoingCost, spreads, orderFee, tax, starting, monthly, rebalance } = state;
+  const assets = portfolio.assets;
+  const months = data[assets[0]].map(r => r.month);
+  const N = months.length;
+  if (N < 2) return null;
+  const monthlyDrag = {};
+  for (const a of assets) monthlyDrag[a] = seriesType[a] === "gross" ? Math.pow(1 - (ongoingCost[a] / 100), 1 / 12) : 1;
+  const returns = buildReturnsMap(data);
+  const assetEquityId = portfolio.equityId;
+  const isMarket = !!portfolio.isMarket;
+
+  const targets = {};
+  if (isMarket) targets[assetEquityId] = 1;
+  else { targets["gold"] = targetGoldPct; targets[assetEquityId] = 1 - targetGoldPct; }
+
+  // Precompute per-asset price-per-unit at each month, starting at 100, with monthly drag for "gross"
+  const priceHist = {};
+  for (const a of assets) {
+    const arr = new Array(N);
+    arr[0] = 100;
+    for (let i = 1; i < N; i++) arr[i] = arr[i - 1] * (1 + returns[a][i]) * monthlyDrag[a];
+    priceHist[a] = arr;
+  }
+
+  const holdings = {}; for (const a of assets) holdings[a] = 0;
+  const assetUnits = {}; for (const a of assets) assetUnits[a] = 0;
+  const goldLots = [];
+  const equityLots = {};
+  for (const a of assets) if (a !== "gold") equityLots[a] = [];
+
+  let unitPrice = 100;
+  const unitPriceSeries = [];
+  const valueSeries = [];
+  const goldWeightSeries = [];
+  let totalInvested = 0;
+  const taxLog = [];
+
+  const yearStartMonthIdx = {};
+  for (let i = 0; i < N; i++) {
+    const { y, m } = monthKeyToYM(months[i]);
+    if (m === 0) yearStartMonthIdx[y] = i;
+  }
+  // year-start lot price tracking is computed via priceHist, so we don't need to store it on lots.
+
+  const buy = (a, eur, idx) => {
+    if (eur <= 0) return 0;
+    const fee = orderFee.fixed + (orderFee.pct / 100) * eur;
+    const eff = eur - fee;
+    if (eff <= 0) return 0;
+    const buySide = priceHist[a][idx] * (1 + (spreads[a].buy / 100));
+    const units = eff / buySide;
+    assetUnits[a] += units;
+    holdings[a] = assetUnits[a] * priceHist[a][idx];
+    if (a === "gold") goldLots.push({ units, acqMonth: idx });
+    else equityLots[a].push({ units, acqMonth: idx });
+    return units;
+  };
+
+  const sellMaturedGold = (eurTarget, idx) => {
+    let need = eurTarget;
+    let unitsSold = 0;
+    for (const lot of goldLots) {
+      if (need <= 1e-6) break;
+      if (idx - lot.acqMonth < 12) continue;
+      if (lot.units <= 0) continue;
+      const lotMidValue = lot.units * priceHist.gold[idx];
+      const take = Math.min(need, lotMidValue);
+      const portion = take / lotMidValue;
+      const unitsTaken = lot.units * portion;
+      unitsSold += unitsTaken;
+      lot.units -= unitsTaken;
+      need -= take;
+    }
+    if (unitsSold === 0) return 0;
+    assetUnits.gold -= unitsSold;
+    holdings.gold = assetUnits.gold * priceHist.gold[idx];
+    const sellSide = priceHist.gold[idx] * (1 - (spreads.gold.sell / 100));
+    const grossEur = unitsSold * sellSide;
+    const fee = orderFee.fixed + (orderFee.pct / 100) * grossEur;
+    return Math.max(0, grossEur - fee);
+  };
+
+  // Month 0
+  totalInvested += starting;
+  for (const a of assets) {
+    const w = targets[a] || 0;
+    const eur = starting * w;
+    if (eur <= 0) continue;
+    const fee = orderFee.fixed + (orderFee.pct / 100) * eur;
+    const eff = eur - fee;
+    const buySide = priceHist[a][0] * (1 + (spreads[a].buy / 100));
+    const units = eff / buySide;
+    assetUnits[a] += units;
+    holdings[a] = assetUnits[a] * priceHist[a][0];
+    if (a === "gold") goldLots.push({ units, acqMonth: -12 });
+    else equityLots[a].push({ units, acqMonth: 0 });
+  }
+  unitPriceSeries.push(unitPrice);
+  valueSeries.push(starting);
+  goldWeightSeries.push(isMarket ? 0 : (holdings.gold || 0) / Math.max(1, (holdings.gold || 0) + (holdings[assetEquityId] || 0)));
+
+  // Main loop
+  for (let i = 1; i < N; i++) {
+    const { y: curYear, m: curMonth } = monthKeyToYM(months[i]);
+    // 1. mark-to-market — derived from priceHist
+    let valuePost = 0;
+    for (const a of assets) { holdings[a] = assetUnits[a] * priceHist[a][i]; valuePost += holdings[a]; }
+
+    const prevValue = valueSeries[i - 1];
+    if (prevValue > 0) unitPrice = unitPrice * (valuePost / prevValue);
+
+    // 5a. January: apply prior year's Vorabpauschale (years >= 2019 settle 2018+)
+    if (curMonth === 0 && curYear >= 2019) {
+      const Yprev = curYear - 1;
+      if (Yprev >= 2018 && tax.basiszins[Yprev] != null) {
+        const basisRaw = (tax.basiszins[Yprev] / 100);
+        const yStartIdx = yearStartMonthIdx[Yprev];
+        let yEndIdx = -1;
+        for (let k = i - 1; k >= 0; k--) { if (monthKeyToYM(months[k]).y === Yprev) { yEndIdx = k; break; } }
+        if (yStartIdx != null && yEndIdx >= 0) {
+          const perAssetTaxable = {};
+          let totalTaxable = 0;
+          for (const a of assets) {
+            if (a === "gold") continue;
+            perAssetTaxable[a] = 0;
+            for (const lot of equityLots[a]) {
+              if (lot.units <= 0) continue;
+              if (lot.acqMonth > yEndIdx) continue;
+              const startPx = lot.acqMonth >= yStartIdx ? priceHist[a][lot.acqMonth] : priceHist[a][yStartIdx];
+              const endPx   = priceHist[a][yEndIdx];
+              const startVal = lot.units * startPx;
+              const endVal   = lot.units * endPx;
+              const basisertrag = startVal * basisRaw * 0.70;
+              const gain = endVal - startVal;
+              let vp = Math.max(0, Math.min(basisertrag, gain));
+              if (lot.acqMonth >= yStartIdx) {
+                const monthsBefore = monthKeyToYM(months[lot.acqMonth]).m;
+                vp = vp * ((12 - monthsBefore) / 12);
+              }
+              const tfPct = (tax.teilfreistellung[a] || 0) / 100;
+              const taxable = vp * (1 - tfPct);
+              perAssetTaxable[a] += taxable;
+              totalTaxable += taxable;
+            }
+          }
+          const net = Math.max(0, totalTaxable - tax.allowance);
+          const taxOwed = net * (tax.rate / 100);
+          if (taxOwed > 0 && totalTaxable > 0) {
+            for (const a of Object.keys(perAssetTaxable)) {
+              const share = perAssetTaxable[a] / totalTaxable;
+              const assetTax = taxOwed * share;
+              if (assetTax <= 0 || holdings[a] <= 0) continue;
+              const unitsLoss = Math.min(assetUnits[a], assetTax / priceHist[a][i]);
+              const newUnits = assetUnits[a] - unitsLoss;
+              // proportionally reduce lots
+              const totalUnits = equityLots[a].reduce((s, l) => s + l.units, 0);
+              if (totalUnits > 0) {
+                const factor = newUnits / totalUnits;
+                for (const lot of equityLots[a]) lot.units *= factor;
+              }
+              assetUnits[a] = newUnits;
+              holdings[a] = assetUnits[a] * priceHist[a][i];
+              taxLog.push({ year: Yprev, asset: a, tax: assetTax });
+            }
+            // unit-price drag from the tax
+            const newPort = Object.values(holdings).reduce((s, v) => s + v, 0);
+            if (valuePost > 0) unitPrice = unitPrice * (newPort / valuePost);
+            valuePost = newPort;
+          }
+        }
+      }
+    }
+
+    // 3. monthly contribution
+    if (monthly > 0) {
+      totalInvested += monthly;
+      const totalValue = Object.values(holdings).reduce((s, v) => s + v, 0) + monthly;
+      const alloc = {};
+      if (isMarket) alloc[assetEquityId] = monthly;
+      else {
+        const desGold = totalValue * targets.gold;
+        const desEq   = totalValue * targets[assetEquityId];
+        const gG = desGold - holdings.gold;
+        const gE = desEq - holdings[assetEquityId];
+        const gTot = Math.max(0, gG) + Math.max(0, gE);
+        if (gTot <= 0) {
+          alloc.gold = monthly * targets.gold;
+          alloc[assetEquityId] = monthly * targets[assetEquityId];
+        } else {
+          const goldPart = (Math.max(0, gG) / gTot) * monthly;
+          const eqPart = monthly - goldPart;
+          alloc.gold = Math.min(goldPart, Math.max(0, gG));
+          alloc[assetEquityId] = Math.min(eqPart, Math.max(0, gE));
+          const used = (alloc.gold || 0) + (alloc[assetEquityId] || 0);
+          const rem = monthly - used;
+          if (rem > 0) {
+            alloc.gold = (alloc.gold || 0) + rem * targets.gold;
+            alloc[assetEquityId] = (alloc[assetEquityId] || 0) + rem * targets[assetEquityId];
+          }
+        }
+      }
+      for (const a of assets) buy(a, alloc[a] || 0, i);
+    }
+
+    // 4. rebalance
+    if (!isMarket && rebalance !== "never") {
+      const due =
+        rebalance === "monthly" ? true :
+        rebalance === "yearly"  ? (curMonth === 0) :
+        rebalance === "biennial"? (curMonth === 0 && curYear % 2 === 0) :
+        false;
+      if (due) {
+        const totalV = holdings.gold + holdings[assetEquityId];
+        const goldShare = totalV > 0 ? holdings.gold / totalV : 0;
+        if (goldShare > targets.gold + 1e-6) {
+          const desGold = totalV * targets.gold;
+          const overflow = holdings.gold - desGold;
+          const proceeds = sellMaturedGold(overflow, i);
+          if (proceeds > 0) buy(assetEquityId, proceeds, i);
+        }
+      }
+    }
+
+    // record
+    const totalEnd = Object.values(holdings).reduce((s, v) => s + v, 0);
+    valueSeries.push(totalEnd);
+    unitPriceSeries.push(unitPrice);
+    goldWeightSeries.push(isMarket ? 0 : (holdings.gold || 0) / Math.max(1e-9, totalEnd));
+  }
+
+  // metrics
+  const monthlyRets = [];
+  for (let i = 1; i < unitPriceSeries.length; i++) monthlyRets.push(unitPriceSeries[i] / unitPriceSeries[i - 1] - 1);
+  const downside = monthlyRets.filter(r => r < 0);
+  const downsideStd = downside.length > 1 ? Math.sqrt(downside.reduce((s, r) => s + r * r, 0) / downside.length) : 0;
+  const meanR = monthlyRets.reduce((s, r) => s + r, 0) / Math.max(1, monthlyRets.length);
+  const sortino = downsideStd > 0 ? (meanR / downsideStd) * Math.sqrt(12) : null;
+
+  let peak = unitPriceSeries[0]; let maxDD = 0; const ddSeries = []; let monthsBelow30 = 0;
+  for (const u of unitPriceSeries) {
+    peak = Math.max(peak, u);
+    const dd = u / peak - 1;
+    ddSeries.push(dd);
+    if (dd < maxDD) maxDD = dd;
+    if (dd < -0.30) monthsBelow30++;
+  }
+
+  return {
+    months, unitPriceSeries, valueSeries, ddSeries, goldWeightSeries,
+    totalInvested, finalValue: valueSeries[valueSeries.length - 1],
+    finalGoldWeight: goldWeightSeries[goldWeightSeries.length - 1],
+    metrics: { sortino, maxDD, monthsBelow30, monthlyRets, n: monthlyRets.length },
+    taxLog,
+  };
+}
+
+// Use V2 in production
+const runSim = simulatePortfolioV2;
+
+// ---------- Monte Carlo block bootstrap ----------
+function monteCarloMaxDD(monthlyRets, horizonMonths, blockLen, nPaths, seed = 1) {
+  if (!monthlyRets || monthlyRets.length < 2) return { median: null, mean: null, p95: null };
+  // simple LCG for repeatable randomness
+  let s = seed >>> 0;
+  const rand = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const maxStarts = monthlyRets.length - blockLen;
+  if (maxStarts < 1) return { median: null, mean: null, p95: null };
+  const ddArr = [];
+  for (let p = 0; p < nPaths; p++) {
+    let unit = 1, peak = 1, dd = 0;
+    let needed = horizonMonths;
+    while (needed > 0) {
+      const start = Math.floor(rand() * (maxStarts + 1));
+      const take = Math.min(blockLen, needed);
+      for (let i = 0; i < take; i++) {
+        unit *= (1 + monthlyRets[start + i]);
+        if (unit > peak) peak = unit;
+        const cur = unit / peak - 1;
+        if (cur < dd) dd = cur;
+      }
+      needed -= take;
+    }
+    ddArr.push(dd);
+  }
+  ddArr.sort((a, b) => a - b);
+  const p95 = ddArr[Math.floor(0.05 * (ddArr.length - 1))];   // 5th percentile is the WORST 95% drawdown
+  const median = ddArr[Math.floor(0.5 * (ddArr.length - 1))];
+  const mean = ddArr.reduce((s, x) => s + x, 0) / ddArr.length;
+  return { median, mean, p95 };
+}
+
+// ---------- Linear regression (OLS) ----------
+function regress(y, x) {
+  const n = Math.min(y.length, x.length);
+  if (n < 5) return null;
+  let sx = 0, sy = 0, sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { sx += x[i]; sy += y[i]; sxy += x[i] * y[i]; sxx += x[i] * x[i]; syy += y[i] * y[i]; }
+  const mx = sx / n, my = sy / n;
+  const beta = (sxy - n * mx * my) / (sxx - n * mx * mx);
+  const alpha = my - beta * mx;
+  // R²
+  const ssTot = syy - n * my * my;
+  let ssRes = 0;
+  for (let i = 0; i < n; i++) { const e = y[i] - (alpha + beta * x[i]); ssRes += e * e; }
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  return { beta, alpha, alphaAnnualized: alpha * 12, r2, n };
+}
+
+// ============================================================================
+// REACT APP
+// ============================================================================
+function App() {
+  const storage = useStorage();
+
+  // --- raw CSVs (text) and parsed monthly series ---
+  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", gold: "", market: "" });
+  const [series, setSeries] = useState({ coIQ: null, momentum: null, gold: null, market: null });
+  const [seriesError, setSeriesError] = useState({});
+  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", gold: "net", market: "net" });
+  const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
+  const [manifest, setManifest] = useState(null);
+
+  // --- per-asset costs ---
+  const [ongoingCost, setOngoingCost] = useState({});
+  const [spreads, setSpreads] = useState({});
+  const [orderFee, setOrderFee] = useState({ fixed: 0, pct: 0 });
+
+  // --- taxes ---
+  const [taxRate, setTaxRate] = useState(26.375);
+  const [allowance, setAllowance] = useState(1000);
+  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, market: 30 });
+  const [basiszins, setBasiszins] = useState({ ...DEFAULT_BASISZINS });
+
+  // --- inputs ---
+  const [starting, setStarting] = useState(10000);
+  const [monthly, setMonthly] = useState(500);
+  const [rebalance, setRebalance] = useState("yearly");
+  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "market"]);
+  const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
+
+  // --- monte carlo ---
+  const [mc, setMc] = useState({ paths: 2000, horizon: 120, block: 6 });
+
+  // initialize cost / spread defaults
+  useEffect(() => {
+    const oc = {}, sp = {};
+    for (const a of ASSETS) { oc[a.id] = a.defaultOngoing; sp[a.id] = { buy: a.defaultBuySpread, sell: a.defaultSellSpread }; }
+    setOngoingCost(oc); setSpreads(sp);
+  }, []);
+
+  // ---- save / load entire state ----
+  const collectState = useCallback(() => ({
+    csvText, series, seriesType, ongoingCost, spreads, orderFee,
+    taxRate, allowance, teilfreistellung, basiszins,
+    starting, monthly, rebalance, selectedPortfolios, goldWeights, mc,
+  }), [csvText, series, seriesType, ongoingCost, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, mc]);
+
+  const applyState = (s) => {
+    if (!s) return;
+    if (s.csvText) setCsvText(s.csvText);
+    if (s.series) setSeries(s.series);
+    if (s.seriesType) setSeriesType(s.seriesType);
+    if (s.ongoingCost) setOngoingCost(s.ongoingCost);
+    if (s.spreads) setSpreads(s.spreads);
+    if (s.orderFee) setOrderFee(s.orderFee);
+    if (s.taxRate != null) setTaxRate(s.taxRate);
+    if (s.allowance != null) setAllowance(s.allowance);
+    if (s.teilfreistellung) setTeilfreistellung(s.teilfreistellung);
+    if (s.basiszins) setBasiszins(s.basiszins);
+    if (s.starting != null) setStarting(s.starting);
+    if (s.monthly != null) setMonthly(s.monthly);
+    if (s.rebalance) setRebalance(s.rebalance);
+    if (s.selectedPortfolios) setSelectedPortfolios(s.selectedPortfolios);
+    if (s.goldWeights) setGoldWeights(s.goldWeights);
+    if (s.mc) setMc(s.mc);
+  };
+
+  // auto-load on mount (local) and on sign-in (drive)
+  useEffect(() => {
+    (async () => {
+      const s = await storage.load();
+      if (s) applyState(s);
+    })();
+    // eslint-disable-next-line
+  }, [storage.signedIn]);
+
+  const handleSave = async () => { await storage.save(collectState()); };
+
+  // ---- CSV handling ----
+  const onCsvChange = (id, text) => {
+    setCsvText(prev => ({ ...prev, [id]: text }));
+    if (!text || !text.trim()) { setSeries(prev => ({ ...prev, [id]: null })); setSeriesError(p => ({ ...p, [id]: null })); return; }
+    try {
+      const monthly = parseCsvToMonthly(text);
+      setSeries(prev => ({ ...prev, [id]: monthly }));
+      setSeriesError(p => ({ ...p, [id]: null }));
+    } catch (e) {
+      setSeries(prev => ({ ...prev, [id]: null }));
+      setSeriesError(p => ({ ...p, [id]: e.message }));
+    }
+  };
+  const onFileLoad = (id, file) => {
+    const r = new FileReader();
+    r.onload = (e) => onCsvChange(id, e.target.result);
+    r.readAsText(file);
+  };
+
+  const reloadAsset = async (asset) => {
+    setFetchStatus(s => ({ ...s, [asset.id]: { kind: "info", msg: "loading\u2026" } }));
+    try {
+      const csv = await loadCommittedCsv(asset);
+      onCsvChange(asset.id, csv);
+      setFetchStatus(s => ({ ...s, [asset.id]: { kind: "ok", msg: `loaded ./data/${asset.file}` } }));
+    } catch (e) {
+      const is404 = /HTTP 404|empty/.test(e.message);
+      setFetchStatus(s => ({
+        ...s,
+        [asset.id]: { kind: is404 ? "idle" : "bad", msg: is404 ? "no data yet \u2014 do Setup steps 2\u20135" : `./data/${asset.file}: ${e.message}` }
+      }));
+    }
+  };
+
+  const reloadAll = async () => {
+    const m = await loadManifest();
+    setManifest(m);
+    await Promise.all(ASSETS.map(a => reloadAsset(a)));
+  };
+
+  // bootstrap: same-origin load of committed CSVs + manifest, once on mount.
+  const bootstrappedRef = useRef(false);
+  useEffect(() => {
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
+    reloadAll();
+    // eslint-disable-next-line
+  }, []);
+
+  // ---- compute common window for selected portfolios ----
+  const assetsNeeded = useMemo(() => {
+    const set = new Set();
+    for (const pid of selectedPortfolios) {
+      const pf = PORTFOLIOS.find(p => p.id === pid);
+      pf.assets.forEach(a => set.add(a));
+    }
+    return [...set];
+  }, [selectedPortfolios]);
+
+  const commonWindow = useMemo(() => {
+    if (assetsNeeded.length === 0) return null;
+    const arrs = assetsNeeded.map(a => series[a]);
+    if (arrs.some(a => !a || a.length === 0)) return { ok: false, missing: assetsNeeded.filter(a => !series[a]) };
+    const sets = arrs.map(a => new Set(a.map(r => r.month)));
+    const all = [...sets[0]].filter(m => sets.every(s => s.has(m))).sort();
+    if (all.length < 12) return { ok: false, tooShort: true, n: all.length };
+    return { ok: true, months: all, start: all[0], end: all[all.length - 1] };
+  }, [series, assetsNeeded]);
+
+  // build per-portfolio trimmed data
+  const buildPortfolioData = useCallback((pf, months) => {
+    const d = {};
+    const set = new Set(months);
+    for (const a of pf.assets) {
+      const arr = series[a];
+      if (!arr) return null;
+      d[a] = arr.filter(r => set.has(r.month));
+    }
+    return d;
+  }, [series]);
+
+  // ---- run simulations ----
+  const simResults = useMemo(() => {
+    if (!commonWindow || !commonWindow.ok) return null;
+    const months = commonWindow.months;
+    const out = {};
+    for (const pid of selectedPortfolios) {
+      const pf = PORTFOLIOS.find(p => p.id === pid);
+      const data = buildPortfolioData(pf, months);
+      if (!data) continue;
+      const targetGoldPct = pf.isMarket ? 0 : (goldWeights[pid] || 0) / 100;
+      const state = {
+        portfolio: pf, targetGoldPct, data, seriesType, ongoingCost, spreads, orderFee,
+        tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
+        starting, monthly, rebalance,
+      };
+      out[pid] = runSim(state);
+    }
+    return out;
+  }, [commonWindow, selectedPortfolios, goldWeights, series, seriesType, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData]);
+
+  // ---- optimal gold sweep per two-asset portfolio (in-sample) ----
+  const [sweepResults, setSweepResults] = useState({});
+  const [sweepRunning, setSweepRunning] = useState(false);
+
+  const runSweep = () => {
+    if (!commonWindow || !commonWindow.ok) return;
+    setSweepRunning(true);
+    setTimeout(() => {
+      const months = commonWindow.months;
+      const out = {};
+      for (const pid of selectedPortfolios) {
+        const pf = PORTFOLIOS.find(p => p.id === pid);
+        if (pf.isMarket) continue;
+        const data = buildPortfolioData(pf, months);
+        if (!data) continue;
+        let best = { w: pf.defaultGold, sortino: -Infinity };
+        const samples = [];
+        for (let pct = 0; pct <= 100; pct += 1) {
+          const state = {
+            portfolio: pf, targetGoldPct: pct / 100, data, seriesType, ongoingCost, spreads, orderFee,
+            tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
+            starting, monthly, rebalance,
+          };
+          const r = runSim(state);
+          if (!r || !r.metrics) continue;
+          const s = r.metrics.sortino;
+          if (s != null && s > best.sortino) best = { w: pct, sortino: s };
+          samples.push({ w: pct, sortino: s, finalValue: r.finalValue, maxDD: r.metrics.maxDD });
+        }
+        out[pid] = { ...best, samples };
+      }
+      setSweepResults(out);
+      setSweepRunning(false);
+    }, 30);
+  };
+
+  // ---- monte carlo per portfolio ----
+  const mcResults = useMemo(() => {
+    if (!simResults) return null;
+    const out = {};
+    for (const pid of Object.keys(simResults)) {
+      const r = simResults[pid];
+      if (!r) continue;
+      out[pid] = monteCarloMaxDD(r.metrics.monthlyRets, mc.horizon, mc.block, mc.paths, 12345 + pid.length);
+    }
+    return out;
+  }, [simResults, mc]);
+
+  // ---- coIQ ↔ momentum regression ----
+  const regression = useMemo(() => {
+    const c = series.coIQ, m = series.momentum;
+    if (!c || !m) return null;
+    const mapM = new Map(m.map(r => [r.month, r.value]));
+    const overlap = c.filter(r => mapM.has(r.month));
+    if (overlap.length < 6) return null;
+    const cr = []; const mr = [];
+    for (let i = 1; i < overlap.length; i++) {
+      const key = overlap[i].month;
+      const prevKey = overlap[i - 1].month;
+      if (monthsBetween(prevKey, key) !== 1) continue;
+      cr.push(overlap[i].value / overlap[i - 1].value - 1);
+      mr.push(mapM.get(key) / mapM.get(prevKey) - 1);
+    }
+    return regress(cr, mr);
+  }, [series.coIQ, series.momentum]);
+
+  // ---- aggregated chart data (overlay unit prices) ----
+  const chartData = useMemo(() => {
+    if (!simResults || !commonWindow || !commonWindow.ok) return null;
+    const months = commonWindow.months;
+    const rows = months.map((m, i) => {
+      const row = { month: m, label: m };
+      for (const pid of Object.keys(simResults)) {
+        const r = simResults[pid];
+        if (!r) continue;
+        row[pid] = r.unitPriceSeries[i];
+        row[pid + "_dd"] = r.ddSeries[i] * 100;
+      }
+      return row;
+    });
+    return rows;
+  }, [simResults, commonWindow]);
+
+  const [chartMode, setChartMode] = useState("unit");   // "unit" | "dd"
+
+  // ---- winners ----
+  const winners = useMemo(() => {
+    if (!simResults) return null;
+    const rows = Object.entries(simResults).filter(([_, r]) => r);
+    if (rows.length === 0) return null;
+    const bySortino = [...rows].sort((a, b) => (b[1].metrics.sortino || -Infinity) - (a[1].metrics.sortino || -Infinity))[0];
+    const byMoney = [...rows].sort((a, b) => (b[1].finalValue / b[1].totalInvested) - (a[1].finalValue / a[1].totalInvested))[0];
+    return { sortino: bySortino, money: byMoney };
+  }, [simResults]);
+
+  const windowDates = commonWindow?.ok
+    ? { start: commonWindow.start, end: commonWindow.end, months: commonWindow.months.length }
+    : null;
+  const shortRegime = windowDates && windowDates.months < 120;
+
+  // ---- UI ----
+  // Persisted: GitHub repo URL/slug + paste-buffer for cookie + ariva IDs.
+  // These never get sent anywhere; they live only in *your* browser's
+  // localStorage and provide one-click handoffs to GitHub.
+  const [repoSlug, setRepoSlug] = useState("");
+  const [stooqCookie, setStooqCookie] = useState("");
+  const [stooqApiKey, setStooqApiKey] = useState("");
+  const [arivaSecu, setArivaSecu] = useState("");
+  const [arivaBoerse, setArivaBoerse] = useState("");
+  const [copyMsg, setCopyMsg] = useState("");
+
+  useEffect(() => {
+    try {
+      setRepoSlug(localStorage.getItem("bt:repoSlug") || "");
+      setStooqCookie(localStorage.getItem("bt:stooqCookie") || "");
+      setStooqApiKey(localStorage.getItem("bt:stooqApiKey") || "");
+      setArivaSecu(localStorage.getItem("bt:arivaSecu") || "");
+      setArivaBoerse(localStorage.getItem("bt:arivaBoerse") || "");
+      // Best-effort first-time guess from GitHub Pages URL.
+      if (!localStorage.getItem("bt:repoSlug")) {
+        const host = location.host, path = location.pathname;
+        if (host.endsWith(".github.io")) {
+          const user = host.replace(/\.github\.io$/, "");
+          const repo = path.split("/").filter(Boolean)[0];
+          if (user && repo) setRepoSlug(`${user}/${repo}`);
+        }
+      }
+    } catch {}
+  }, []);
+  useEffect(() => { try { localStorage.setItem("bt:repoSlug", repoSlug); } catch {} }, [repoSlug]);
+  useEffect(() => { try { localStorage.setItem("bt:stooqCookie", stooqCookie); } catch {} }, [stooqCookie]);
+  useEffect(() => { try { localStorage.setItem("bt:stooqApiKey", stooqApiKey); } catch {} }, [stooqApiKey]);
+  useEffect(() => { try { localStorage.setItem("bt:arivaSecu", arivaSecu); } catch {} }, [arivaSecu]);
+  useEffect(() => { try { localStorage.setItem("bt:arivaBoerse", arivaBoerse); } catch {} }, [arivaBoerse]);
+
+  // Accept either `user/repo` or a full https://github.com/user/repo URL.
+  const parsedRepo = useMemo(() => {
+    const s = (repoSlug || "").trim();
+    if (!s) return null;
+    let m = s.match(/^https?:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i);
+    if (m) return `${m[1]}/${m[2]}`;
+    if (/^[\w.-]+\/[\w.-]+$/.test(s)) return s;
+    return null;
+  }, [repoSlug]);
+  const repoBase = parsedRepo ? `https://github.com/${parsedRepo}` : null;
+  const stooqOk  = manifest && ["momentum", "gold", "market"].every(k => manifest.assets?.[k]?.lastDate);
+  const arivaOk  = manifest && !!manifest.assets?.coiq?.lastDate;
+
+  const copyToClipboard = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMsg(`copied ${label}`);
+      setTimeout(() => setCopyMsg(""), 1800);
+    } catch {
+      setCopyMsg("clipboard blocked — select & copy manually");
+      setTimeout(() => setCopyMsg(""), 2500);
+    }
+  };
+
+  // GitHub no longer supports `?value=` prefill on /new/ routes (removed for
+  // security in 2022). Only `?filename=` works. So we prefill the filename and
+  // surface the JSON next to a copy-to-clipboard button + a file download so
+  // the user can paste/upload it on the GitHub page.
+  const arivaJsonContent = JSON.stringify({ secu: arivaSecu.trim(), boerse_id: arivaBoerse.trim() }, null, 2) + "\n";
+  const arivaNewFileUrl = repoBase
+    ? `${repoBase}/new/main?filename=data%2Fariva.json`
+    : null;
+  const downloadArivaJson = () => {
+    const blob = new Blob([arivaJsonContent], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "ariva.json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // Bundle all the project files into a zip the user can upload to GitHub.
+  // We fetch each known path same-origin from the deployed site. Files that
+  // fail to fetch are skipped (with a note in the resulting zip).
+  const [zipStatus, setZipStatus] = useState("");
+  const downloadProjectZip = async () => {
+    if (!window.JSZip) { setZipStatus("JSZip failed to load"); return; }
+    setZipStatus("bundling…");
+    const paths = [
+      "index.html",
+      "README.md",
+      ".gitignore",
+      ".github/workflows/update-data.yml",
+      "scripts/fetch_data.py",
+      "data/manifest.json",
+    ];
+    const zip = new window.JSZip();
+    const failed = [];
+    for (const p of paths) {
+      try {
+        const r = await fetch("./" + p, { cache: "no-store" });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        zip.file(p, await r.blob());
+      } catch (e) { failed.push(p); }
+    }
+    // Include ariva.json if both IDs are filled
+    if (arivaSecu && arivaBoerse) zip.file("data/ariva.json", arivaJsonContent);
+
+    if (failed.length) zip.file("_MISSING_FILES.txt",
+      "These files could not be fetched from the current deployment:\n  - " + failed.join("\n  - ") +
+      "\nGet them from the source repo or re-export the project.\n");
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "portfolio-backtest.zip";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setZipStatus(failed.length ? `done · ${failed.length} files missing` : "done");
+    setTimeout(() => setZipStatus(""), 2500);
+  };
+
+  const bootstrapReadmeUrl = repoBase
+    ? `${repoBase}/new/main?filename=README.md`
+    : null;
+
+  return (
+    <div className="shell">
+      <div className="topbar">
+        <div className="brand">
+          <div className="brand-mark"></div>
+          <div>
+            <h1>Portfolio Backtest</h1>
+            <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
+          </div>
+        </div>
+        <div className="topbar-right">
+          <StatusPill status={storage.status} />
+          {storage.configured && !storage.signedIn && <button className="btn" onClick={storage.signIn}>Sign in with Google</button>}
+          {storage.configured && storage.signedIn && <button className="btn btn-ghost" onClick={storage.signOut}>Sign out</button>}
+          <button className="btn btn-primary" onClick={handleSave}>Save</button>
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginBottom: 18 }}>
+        <div className="panel-h">
+          <h2>0 · Setup — one-time configuration</h2>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {copyMsg && <span className="tag info">{copyMsg}</span>}
+            {repoBase && <a className="btn btn-xs" href={`${repoBase}/actions/workflows/update-data.yml`} target="_blank" rel="noreferrer">Open Actions →</a>}
+          </div>
+        </div>
+        <div className="panel-body">
+          <div className="footnote" style={{ marginBottom: 14 }}>
+            Paste your values below. They stay in <strong>your browser only</strong> (localStorage on this device — never sent anywhere, never on the deployed Pages site). The buttons then hand off to GitHub so you can save each value to the right place: the cookie as a repo secret, the ariva IDs as a committed config file.
+          </div>
+
+          {/* Step 1 — Repo URL */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Step 1 · Tell the app where your GitHub repo lives</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+              <label className="field" style={{ flex: 1, maxWidth: 540 }}>
+                <span className="lbl"><span>GitHub repo URL or <code>user/repo</code></span>
+                  <small>{parsedRepo ? <span className="pos">✓ {parsedRepo}</span> : repoSlug ? <span className="neg">unrecognized</span> : "needed for one-click links below"}</small>
+                </span>
+                <input type="text" placeholder="https://github.com/yourname/portfolio-backtest" value={repoSlug} onChange={e => setRepoSlug(e.target.value)} />
+              </label>
+            </div>
+          </div>
+
+          {/* Step 2 — Push the project (only relevant if repo is empty) */}
+          <div style={{ marginBottom: 16, padding: 14, border: "1px solid var(--line)", borderRadius: 8, background: "oklch(0.985 0.003 240)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>Step 2 · Push <strong>all</strong> the project files to your repo</div>
+              {zipStatus && <span className="tag info">{zipStatus}</span>}
+            </div>
+            <div className="footnote" style={{ marginBottom: 10 }}>
+              <strong>This is the most important step.</strong> The repo needs to contain the workflow YAML, the Python script, the app HTML, and the <code>data/</code> folder — not just a README. If your Actions tab says "Get started with GitHub Actions" instead of showing "Weekly data update", you haven't uploaded the workflow YAML.
+            </div>
+
+            <ol style={{ margin: "8px 0 6px 18px", padding: 0, fontSize: 12 }}>
+              <li style={{ marginBottom: 8 }}>
+                <strong>Download the zip</strong> (contains every file you need):
+                <div style={{ marginTop: 4 }}>
+                  <button className="btn btn-xs btn-accent" onClick={downloadProjectZip}>Download project as .zip</button>
+                </div>
+              </li>
+              <li style={{ marginBottom: 8 }}>
+                <strong>Extract</strong> the zip on your device. On Android: tap the downloaded zip → "Extract" / open with a file manager.
+              </li>
+              <li style={{ marginBottom: 8 }}>
+                <strong>If your repo has no <code>main</code> branch yet</strong> (GitHub shows "Quick setup"), create one by adding any file:
+                {bootstrapReadmeUrl
+                  ? <div style={{ marginTop: 4 }}><a className="btn btn-xs" href={bootstrapReadmeUrl} target="_blank" rel="noreferrer">Open "create README.md" page →</a></div>
+                  : <span> open the repo, click "creating a new file", name it README.md, commit.</span>}
+              </li>
+              <li style={{ marginBottom: 8 }}>
+                <strong>Upload all extracted files</strong> to GitHub. Open the upload page, drag/select every file and folder from the extracted zip (including the hidden <code>.github/</code> and <code>data/</code> folders), commit.
+                {repoBase
+                  ? <div style={{ marginTop: 4 }}><a className="btn btn-xs btn-accent" href={`${repoBase}/upload/main`} target="_blank" rel="noreferrer">Open "Upload files" →</a></div>
+                  : <span className="tag idle" style={{ marginLeft: 6 }}>enter repo URL above</span>}
+                <div className="footnote" style={{ marginTop: 4 }}>
+                  Make sure the workflow file is uploaded — check by opening
+                  {repoBase
+                    ? <> <a href={`${repoBase}/blob/main/.github/workflows/update-data.yml`} target="_blank" rel="noreferrer">{repoBase}/blob/main/.github/workflows/update-data.yml</a></>
+                    : " <repo>/blob/main/.github/workflows/update-data.yml"}
+                  . If you see the file, the Actions tab will show "Weekly data update".
+                </div>
+              </li>
+              <li>
+                <strong>Trigger the workflow</strong> the first time (afterwards it runs every Monday):
+                {repoBase
+                  ? <div style={{ marginTop: 4 }}><a className="btn btn-xs btn-accent" href={`${repoBase}/actions/workflows/update-data.yml`} target="_blank" rel="noreferrer">Open workflow → Run workflow ▾ → Run</a></div>
+                  : <span className="tag idle" style={{ marginLeft: 6 }}>enter repo URL above</span>}
+                <div className="footnote" style={{ marginTop: 4 }}>
+                  You'll only see this page <em>after</em> the workflow file is in the repo. If it's still showing the "Get started with GitHub Actions" page, the file isn't uploaded yet — go back to step 4.
+                </div>
+              </li>
+            </ol>
+
+            <details className="fold">
+              <summary>Alternative: command-line git (desktop)</summary>
+              <code style={{ display: "block", margin: "6px 0", padding: "6px 8px", background: "var(--hover)", fontSize: 10.5, overflowX: "auto" }}>git init &amp;&amp; git add . &amp;&amp; git commit -m "init" &amp;&amp; git branch -M main &amp;&amp; git remote add origin {repoBase || "<your-repo-url>"} &amp;&amp; git push -u origin main</code>
+            </details>
+          </div>
+
+          {/* Step 3 — Stooq access */}
+          <div style={{ marginBottom: 16, padding: 14, border: "1px solid var(--line)", borderRadius: 8, background: "oklch(0.985 0.003 240)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>Step 3 · Stooq access (optional)</div>
+              {stooqOk
+                ? <span className="tag ok">3 / 3 Stooq assets loaded — you may not need this</span>
+                : <span className="tag warn">Stooq assets missing — add a key/cookie if anonymous fetches fail</span>}
+            </div>
+            <div className="footnote" style={{ marginBottom: 10 }}>
+              Stooq has two auth modes. Pick whichever applies — you don't need both. Anonymous (no auth) usually works for the weekly 3-symbol pull but can rate-limit.
+            </div>
+
+            <div style={{ marginBottom: 12, paddingLeft: 10, borderLeft: "2px solid var(--accent)" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>Method A · API key (recommended if you have a Stooq subscription)</div>
+              <div className="footnote" style={{ marginBottom: 6 }}>
+                If your Stooq download URL contains <code>&amp;apikey=…</code>, that's your key. Copy <strong>just</strong> the key value (everything after <code>apikey=</code> up to the next <code>&amp;</code> or end of URL).
+              </div>
+              <label className="field">
+                <span className="lbl"><span>Stooq API key</span><small>stays in your browser only</small></span>
+                <input type="text" placeholder="e.g. N5RVlt1ZMIBXdQSO…" value={stooqApiKey} onChange={e => setStooqApiKey(e.target.value.trim())} />
+              </label>
+              <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button className="btn btn-xs" disabled={!stooqApiKey} onClick={() => copyToClipboard(stooqApiKey, "API key")}>Copy key</button>
+                {repoBase
+                  ? <a className={"btn btn-xs btn-accent" + (!stooqApiKey ? " disabled" : "")} href={`${repoBase}/settings/secrets/actions/new`} target="_blank" rel="noreferrer" onClick={(e) => { if (!stooqApiKey) e.preventDefault(); }}>Open GitHub → New secret →</a>
+                  : <span className="tag idle">enter repo URL above</span>}
+                <span className="footnote">on the GitHub page: <strong>Name</strong> = <code>STOOQ_APIKEY</code>, <strong>Value</strong> = paste, <strong>Add secret</strong>.</span>
+              </div>
+            </div>
+
+            <details className="fold">
+              <summary>Method B · session cookie (free account, fallback)</summary>
+              <div style={{ paddingLeft: 10, borderLeft: "2px solid var(--line-strong)", marginTop: 6 }}>
+                <div className="footnote" style={{ marginBottom: 6 }}>
+                  On <a href="https://stooq.com" target="_blank" rel="noreferrer">stooq.com</a>: log in → DevTools → Network → click any stooq.com request → Request Headers → copy the full <code>Cookie:</code> header value (starts with something like <code>PHPSESSID=…</code>, NOT a URL). Paste it here.
+                </div>
+                <label className="field">
+                  <span className="lbl"><span>Cookie header value</span><small>stays in your browser only</small></span>
+                  <textarea rows={2} placeholder="PHPSESSID=…; other=…" value={stooqCookie} onChange={e => setStooqCookie(e.target.value)} />
+                </label>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button className="btn btn-xs" disabled={!stooqCookie.trim()} onClick={() => copyToClipboard(stooqCookie.trim(), "cookie")}>Copy cookie</button>
+                  {repoBase
+                    ? <a className={"btn btn-xs" + (!stooqCookie.trim() ? " disabled" : "")} href={`${repoBase}/settings/secrets/actions/new`} target="_blank" rel="noreferrer" onClick={(e) => { if (!stooqCookie.trim()) e.preventDefault(); }}>Open GitHub → New secret →</a>
+                    : <span className="tag idle">enter repo URL above</span>}
+                  <span className="footnote">Name = <code>STOOQ_COOKIE</code>, paste as Value.</span>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          {/* Step 4 — Ariva IDs */}
+          <div style={{ marginBottom: 4, padding: 14, border: "1px solid var(--line)", borderRadius: 8, background: "oklch(0.985 0.003 240)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>Step 4 · CoIQ ariva IDs (required for the coIQ NAV)</div>
+              {arivaOk
+                ? <span className="tag ok">coIQ NAV loaded</span>
+                : <span className="tag bad">not configured — coIQ won't update until you do this</span>}
+            </div>
+            <div className="footnote" style={{ marginBottom: 8 }}>
+              Open the <a href="https://www.ariva.de/coiq_collective_intelligence_fund_r-fonds/historische_kurse" target="_blank" rel="noreferrer">ariva CoIQ historic-prices page</a>, change "Börsenplatz" to <strong>"Fondsgesellschaft"</strong>, open DevTools → Network, click "Download" (CSV export). The request URL contains both numbers, e.g.<br/>
+              <code>…historic.csv?secu=<strong>19392834</strong>&boerse_id=<strong>143</strong>&…</code>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <label className="field" style={{ flex: 1 }}>
+                <span className="lbl"><span>ARIVA_SECU</span></span>
+                <input type="text" placeholder="e.g. 19392834" value={arivaSecu} onChange={e => setArivaSecu(e.target.value.trim())} />
+              </label>
+              <label className="field" style={{ flex: 1 }}>
+                <span className="lbl"><span>ARIVA_BOERSE_ID</span></span>
+                <input type="text" placeholder="e.g. 143" value={arivaBoerse} onChange={e => setArivaBoerse(e.target.value.trim())} />
+              </label>
+            </div>
+
+            {arivaSecu && arivaBoerse && (
+              <div style={{ marginTop: 12 }}>
+                <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>File content (data/ariva.json)</div>
+                <pre className="mono" style={{ margin: 0, padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 6, fontSize: 11, whiteSpace: "pre-wrap", overflowX: "auto" }}>{arivaJsonContent}</pre>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button className="btn btn-xs" disabled={!arivaSecu || !arivaBoerse} onClick={() => copyToClipboard(arivaJsonContent, "JSON")}>1 · Copy JSON</button>
+              <button className="btn btn-xs" disabled={!arivaSecu || !arivaBoerse} onClick={downloadArivaJson}>Download as file</button>
+              {arivaNewFileUrl
+                ? <a className={"btn btn-xs btn-accent" + ((!arivaSecu || !arivaBoerse) ? " disabled" : "")}
+                     href={arivaNewFileUrl} target="_blank" rel="noreferrer"
+                     onClick={(e) => { if (!arivaSecu || !arivaBoerse) e.preventDefault(); }}>2 · Open new file on GitHub →</a>
+                : <span className="tag idle">{!repoBase ? "enter repo URL above" : "fill in both IDs"}</span>}
+            </div>
+            <div className="footnote" style={{ marginTop: 8 }}>
+              On the GitHub page: filename is pre-filled to <code>data/ariva.json</code>. Click into the editor area, <strong>paste</strong> (Cmd/Ctrl+V), scroll down, <strong>"Commit changes"</strong>. (GitHub no longer accepts pre-filled file content via URL, so the paste step is required.)
+            </div>
+          </div>
+
+          <div className="small-note" style={{ marginTop: 12 }}>
+            Why this is not just a "save" button in the app: the deployed Pages site is public — anyone could read a cookie stored there. So the cookie has to live in GitHub's encrypted secret store, and the ariva IDs have to be in a committed file the Python script can read. The handoff buttons above just open the right GitHub pages with your values pre-filled.
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-2">
+        <div className="panel">
+          <div className="panel-h">
+            <h2>1 · Data — weekly auto-update</h2>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <ManifestPill manifest={manifest} />
+              <button className="btn btn-accent btn-xs" onClick={reloadAll}>Reload from /data</button>
+            </div>
+          </div>
+          <div className="panel-body">
+            <div className="grid grid-2" style={{ gap: 12 }}>
+              {ASSETS.map(a =>
+                <CsvCard
+                  key={a.id}
+                  asset={a}
+                  text={csvText[a.id] || ""}
+                  data={series[a.id]}
+                  error={seriesError[a.id]}
+                  seriesType={seriesType[a.id]}
+                  fetchStatus={fetchStatus[a.id]}
+                  manifestEntry={manifest?.assets?.[a.manifestKey]}
+                  onReload={() => reloadAsset(a)}
+                  onSetType={(t) => setSeriesType(p => ({ ...p, [a.id]: t }))}
+                  onText={(t) => onCsvChange(a.id, t)}
+                  onFile={(f) => onFileLoad(a.id, f)}
+                />
+              )}
+            </div>
+            <div className="small-note" style={{ marginTop: 10 }}>
+              CSVs are committed weekly by a GitHub Action (<code>.github/workflows/update-data.yml</code>) into <code>./data/</code> and served same-origin — no CORS, no proxies, no rate limits.
+              Manual upload/paste per asset overrides the committed file if you want fresher numbers.
+              See <code>README.md</code> for setup (including how to add the optional <code>STOOQ_COOKIE</code> repo secret).
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2></div>
+          <div className="panel-body">
+            <div className="grid grid-2" style={{ gap: 14 }}>
+              <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
+              <NumField label="Monthly contribution (EUR)" value={monthly} onChange={setMonthly} step={50} />
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
+              <div className="seg">
+                {["never", "monthly", "yearly", "biennial"].map(r =>
+                  <button key={r} className={rebalance === r ? "on" : ""} onClick={() => setRebalance(r)}>
+                    {r === "biennial" ? "every 2 years" : r}
+                  </button>)}
+              </div>
+            </div>
+
+            <hr style={{ margin: "18px 0" }} />
+            <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Portfolios to compare (min. 2)</div>
+            {PORTFOLIOS.map(pf => {
+              const on = selectedPortfolios.includes(pf.id);
+              return (
+                <div key={pf.id} className="pf-row">
+                  <span className={"chip" + (on ? " on" : "")} onClick={() => {
+                    setSelectedPortfolios(s => on ? s.filter(x => x !== pf.id) : [...s, pf.id]);
+                  }}>
+                    <span className="dot"></span>{pf.name}
+                  </span>
+                  <span style={{ flex: 1 }}></span>
+                  {!pf.isMarket &&
+                    <label className="field pf-w">
+                      <span className="lbl"><span>Gold %</span></span>
+                      <input type="number" min="0" max="100" step="1" value={goldWeights[pf.id] ?? 30}
+                             onChange={e => setGoldWeights(g => ({ ...g, [pf.id]: clamp(+e.target.value, 0, 100) }))} />
+                    </label>
+                  }
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-2" style={{ marginTop: 18 }}>
+        <div className="panel">
+          <div className="panel-h"><h2>3 · Costs</h2><span className="h-meta">applied at every buy + sell</span></div>
+          <div className="panel-body">
+            <table className="bt">
+              <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th></tr></thead>
+              <tbody>
+                {ASSETS.map(a =>
+                  <tr key={a.id}>
+                    <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin} · {a.note}</div></td>
+                    <td><input type="number" step="0.01" value={ongoingCost[a.id] ?? 0} onChange={e => setOngoingCost(c => ({ ...c, [a.id]: +e.target.value }))} style={{ textAlign: "right" }} /></td>
+                    <td><input type="number" step="0.01" value={spreads[a.id]?.buy ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], buy: +e.target.value } }))} style={{ textAlign: "right" }} /></td>
+                    <td><input type="number" step="0.01" value={spreads[a.id]?.sell ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], sell: +e.target.value } }))} style={{ textAlign: "right" }} /></td>
+                  </tr>)}
+              </tbody>
+            </table>
+            <div className="grid grid-2" style={{ marginTop: 14 }}>
+              <NumField label="Per-order fixed fee (EUR)" value={orderFee.fixed} step={0.10} onChange={v => setOrderFee(o => ({ ...o, fixed: v }))} />
+              <NumField label="Per-order percent fee (%)" value={orderFee.pct} step={0.01} onChange={v => setOrderFee(o => ({ ...o, pct: v }))} />
+            </div>
+            <div className="small-note">Ongoing %/yr applies as a monthly drag <strong>only</strong> to assets toggled to <code>gross</code>. For <code>net</code> series (NAVs / market prices) the cost is already inside the data — no double-counting.</div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><h2>4 · Taxes</h2><span className="h-meta">German CGT · Vorabpauschale (2018+)</span></div>
+          <div className="panel-body">
+            <div className="grid grid-3" style={{ gap: 12 }}>
+              <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />
+              <NumField label="Sparer-Pauschbetrag (EUR/yr)" value={allowance} step={100} onChange={setAllowance} />
+              <div></div>
+              {["coIQ", "momentum", "market"].map(id =>
+                <NumField key={id} label={`Teilfreistellung — ${ASSETS.find(a => a.id === id).label.split(" ")[0]} (%)`}
+                          value={teilfreistellung[id] ?? 30} step={1}
+                          onChange={v => setTeilfreistellung(t => ({ ...t, [id]: v }))} />
+              )}
+            </div>
+            <details className="fold" style={{ marginTop: 14 }} open>
+              <summary>Basiszins table (BMF, %/yr) — used for Basisertrag</summary>
+              <div className="bz-grid" style={{ marginTop: 8 }}>
+                {Object.keys(basiszins).sort().map(y =>
+                  <label key={y}><span>{y}</span>
+                    <input type="number" step="0.01" value={basiszins[y]} onChange={e => setBasiszins(b => ({ ...b, [y]: +e.target.value }))} />
+                  </label>)}
+              </div>
+              <div className="small-note">Basiszins values come from the BMF annual letter (Jan publication). 0 means no Vorabpauschale for that year. Gold (EUWAX Gold II) is an <em>Inhaberschuldverschreibung</em>, not a fund, and is exempt from Vorabpauschale and Teilfreistellung — taxed only on sale via §23 EStG (Spekulationsfrist 12 months). Pre-2018 fund-level taxation is not modelled.</div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-2" style={{ marginTop: 18 }}>
+        <div className="panel">
+          <div className="panel-h"><h2>5 · Monte Carlo</h2><span className="h-meta">block bootstrap on unit-price returns</span></div>
+          <div className="panel-body">
+            <div className="grid grid-3" style={{ gap: 12 }}>
+              <NumField label="Paths" value={mc.paths} step={500} onChange={v => setMc(s => ({ ...s, paths: Math.max(100, v) }))} />
+              <NumField label="Horizon (months)" value={mc.horizon} step={12} onChange={v => setMc(s => ({ ...s, horizon: Math.max(12, v) }))} />
+              <NumField label="Block length (months)" value={mc.block} step={1} onChange={v => setMc(s => ({ ...s, block: Math.max(1, v) }))} />
+            </div>
+            <div className="small-note">Bootstrap preserves short-run autocorrelation via blocks. Caveat: stationary assumption — not a regime model.</div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h">
+            <h2>6 · Optimal-gold sweep</h2>
+            <button className="btn btn-accent" disabled={sweepRunning || !commonWindow?.ok} onClick={runSweep}>
+              {sweepRunning && <span className="spin"></span>} Run 0–100% sweep
+            </button>
+          </div>
+          <div className="panel-body">
+            <div className="small-note">Re-runs the full simulation (costs + CGT-gated rebalance + Vorabpauschale) at each 1% step. <em>In-sample, backward-looking — what would have been optimal over this window, not a recommendation.</em></div>
+            <div style={{ marginTop: 12 }}>
+              {selectedPortfolios.filter(pid => PORTFOLIOS.find(p => p.id === pid) && !PORTFOLIOS.find(p => p.id === pid).isMarket).map(pid =>
+                <SweepRow key={pid} pid={pid} chosen={goldWeights[pid]} sweep={sweepResults[pid]} />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* --- WINDOW + RESULTS --- */}
+      <div style={{ marginTop: 26 }}>
+        {!commonWindow && <Empty msg="Select at least one portfolio." />}
+        {commonWindow && !commonWindow.ok && commonWindow.missing &&
+          <Empty msg={`Load CSV data for: ${commonWindow.missing.join(", ")}.`} kind="warn" />}
+        {commonWindow && !commonWindow.ok && commonWindow.tooShort &&
+          <Empty msg={`Common window has only ${commonWindow.n} months — need ≥12 to simulate.`} kind="warn" />}
+
+        {commonWindow && commonWindow.ok && (
+          <>
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h">
+                <h2>Backtest window</h2>
+                <span className="h-meta mono">{commonWindow.start} → {commonWindow.end} · {commonWindow.months.length} months ({(commonWindow.months.length / 12).toFixed(1)} yrs)</span>
+              </div>
+            </div>
+
+            {winners && (
+              <div className="winner" style={{ marginBottom: 18 }}>
+                <div className="row">
+                  <div>
+                    <div className="lbl">Sortino winner (risk-adjusted)</div>
+                    <div className="val">{PORTFOLIOS.find(p => p.id === winners.sortino[0]).name}</div>
+                    <div className="sub mono">annualized Sortino · {fmtNum(winners.sortino[1].metrics.sortino, 3)}</div>
+                  </div>
+                  <div>
+                    <div className="lbl">Absolute-return winner (money-weighted)</div>
+                    <div className="val">{PORTFOLIOS.find(p => p.id === winners.money[0]).name}</div>
+                    <div className="sub mono">{fmtEUR(winners.money[1].finalValue)} on {fmtEUR(winners.money[1].totalInvested)} invested · {fmtPct(winners.money[1].finalValue / winners.money[1].totalInvested - 1)}</div>
+                  </div>
+                </div>
+                <div className="caveat">
+                  Window {commonWindow.start} → {commonWindow.end} ({(commonWindow.months.length / 12).toFixed(1)} years).
+                  {shortRegime && " Single-regime sample — not a full-cycle validation."}
+                </div>
+              </div>
+            )}
+
+            {/* comparison table */}
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h"><h2>Comparison</h2><span className="h-meta">money-weighted gain · unit-price risk metrics</span></div>
+              <table className="bt">
+                <thead><tr>
+                  <th>Portfolio</th>
+                  <th style={{ textAlign: "right" }}>Target gold</th>
+                  <th style={{ textAlign: "right" }}>Final gold</th>
+                  <th style={{ textAlign: "right" }}>Optimal gold (in-sample)</th>
+                  <th style={{ textAlign: "right" }}>Sortino</th>
+                  <th style={{ textAlign: "right" }}>Max DD</th>
+                  <th style={{ textAlign: "right" }}>Months &lt;−30%</th>
+                  <th style={{ textAlign: "right" }}>Total invested</th>
+                  <th style={{ textAlign: "right" }}>Final value</th>
+                  <th style={{ textAlign: "right" }}>Gain</th>
+                </tr></thead>
+                <tbody>
+                  {selectedPortfolios.map(pid => {
+                    const r = simResults && simResults[pid];
+                    const pf = PORTFOLIOS.find(p => p.id === pid);
+                    if (!r) return null;
+                    const tg = pf.isMarket ? null : (goldWeights[pid] ?? 0);
+                    const fg = pf.isMarket ? null : r.finalGoldWeight * 100;
+                    const opt = sweepResults[pid]?.w;
+                    const gain = r.finalValue - r.totalInvested;
+                    const gainPct = r.finalValue / r.totalInvested - 1;
+                    return (
+                      <tr key={pid}>
+                        <td className="name">{pf.name}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{tg == null ? "—" : tg + "%"}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fg == null ? "—" : fmtNum(fg, 1) + "%"}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{opt == null ? "—" : opt + "%"}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.metrics.sortino, 3)}</td>
+                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.metrics.maxDD)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{r.metrics.monthsBelow30}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.totalInvested)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.finalValue)}</td>
+                        <td className={"num " + (gain >= 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>
+                          {fmtEUR(gain)} · {fmtPct(gainPct)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* chart */}
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h">
+                <h2>Chart</h2>
+                <div className="seg">
+                  <button className={chartMode === "unit" ? "on" : ""} onClick={() => setChartMode("unit")}>Unit price</button>
+                  <button className={chartMode === "dd" ? "on" : ""} onClick={() => setChartMode("dd")}>Drawdown %</button>
+                </div>
+              </div>
+              <div className="panel-body" style={{ height: 380 }}>
+                {chartData && <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
+                    <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tickMargin={10} minTickGap={40} stroke="oklch(0.7 0.008 240)" />
+                    <YAxis tickFormatter={v => chartMode === "unit" ? v.toFixed(0) : v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" width={56} domain={chartMode === "dd" ? [-60, 5] : ["auto", "auto"]} />
+                    <Tooltip
+                      contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                      formatter={(v, name) => [chartMode === "unit" ? fmtNum(+v, 2) : fmtNum(+v, 2) + "%", PORTFOLIOS.find(p => p.id === name.replace("_dd", ""))?.name || name]}
+                    />
+                    <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => PORTFOLIOS.find(p => p.id === v.replace("_dd", ""))?.name || v} />
+                    {selectedPortfolios.map((pid, i) => {
+                      const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)"];
+                      return <Line key={pid} type="monotone" dataKey={chartMode === "unit" ? pid : pid + "_dd"}
+                                   stroke={colors[i % colors.length]} dot={false} strokeWidth={1.6} isAnimationActive={false} />;
+                    })}
+                  </LineChart>
+                </ResponsiveContainer>}
+              </div>
+            </div>
+
+            {/* monte carlo */}
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h"><h2>Monte Carlo · max-drawdown distribution</h2><span className="h-meta">{mc.paths} paths · horizon {mc.horizon} months · block {mc.block}</span></div>
+              <table className="bt">
+                <thead><tr>
+                  <th>Portfolio</th>
+                  <th style={{ textAlign: "right" }}>Sample length</th>
+                  <th style={{ textAlign: "right" }}>Median max DD</th>
+                  <th style={{ textAlign: "right" }}>Mean max DD</th>
+                  <th style={{ textAlign: "right" }}>95th-pctl worst max DD</th>
+                  <th>Caveat</th>
+                </tr></thead>
+                <tbody>
+                  {selectedPortfolios.map(pid => {
+                    const r = simResults && simResults[pid];
+                    const mcr = mcResults && mcResults[pid];
+                    const pf = PORTFOLIOS.find(p => p.id === pid);
+                    if (!r || !mcr) return null;
+                    const short = r.metrics.n < 120;
+                    return (
+                      <tr key={pid}>
+                        <td className="name">{pf.name}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{r.metrics.n} months</td>
+                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(mcr.median)}</td>
+                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(mcr.mean)}</td>
+                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(mcr.p95)}</td>
+                        <td className="dim">{short ? <span className="tag warn">&lt; 10 yrs — high uncertainty</span> : <span className="tag ok">≥ 10 yrs</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="panel-body tight footnote">Block bootstrap on each portfolio's <em>own</em> unit-price monthly returns. Preserves short autocorrelation; assumes stationarity. The reported 95th percentile is the worst end of the distribution (5% of paths are worse).</div>
+            </div>
+
+            {/* regression card */}
+            {regression && series.coIQ && series.momentum && (
+              <div className="panel" style={{ marginBottom: 18 }}>
+                <div className="panel-h"><h2>coIQ ↔ Momentum regression</h2><span className="h-meta">overlapping months: {regression.n}</span></div>
+                <div className="panel-body">
+                  <div className="grid grid-3">
+                    <div className="kv"><div className="k">β (slope vs Momentum)</div><div className="v">{fmtNum(regression.beta, 3)}</div></div>
+                    <div className="kv"><div className="k">α (annualized)</div><div className="v">{fmtPct(regression.alphaAnnualized, 2)}</div></div>
+                    <div className="kv"><div className="k">R²</div><div className="v">{fmtNum(regression.r2, 3)}</div></div>
+                  </div>
+                  <div className="footnote" style={{ marginTop: 10 }}>R² tells you <em>how momentum-like coIQ is</em>. Low R² = genuinely differentiated. Diagnostic only — does not feed the portfolio engine.</div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* footnotes */}
+      <div className="panel" style={{ marginTop: 26 }}>
+        <div className="panel-h"><h2>Definitions · Assumptions · Caveats</h2></div>
+        <div className="panel-body footnote">
+          <p><strong>Sortino ratio</strong> — annualized: mean monthly unit-price return ÷ monthly downside deviation × √12. MAR (minimum acceptable return) is 0. Downside deviation = √(Σ min(r,0)² / k), k = count of months in the series (using k matches Sortino's original definition; some toolkits use only downside-month count — we follow the original).</p>
+          <p><strong>Maximum drawdown</strong> — max peak-to-trough decline of the <em>unit-price</em> series. Months &lt;−30% count months whose drawdown from the running peak is worse than −30%. <strong>Unit price</strong> is contribution-neutral: contributions and matured-gold rebalances issue/redeem units at NAV and do not move price; ongoing-cost drag and Vorabpauschale tax do move price.</p>
+          <p><strong>Money-weighted return</strong> — final EUR value ÷ total EUR invested (starting + contributions). This is what your account number actually shows; the unit-price series is the cleanly-comparable risk surface.</p>
+          <p><strong>Gold lots, Spekulationsfrist (§23 EStG)</strong> — every gold buy creates a lot. Lots become CGT-free 12 months after purchase. The month-0 starting gold lot is backdated as already-matured. At a rebalance, gold sells only matured lots, FIFO. Equity (coIQ / momentum / market) is never sold. A rebalance is therefore <em>partial</em> whenever matured gold &lt; the amount needed — the portfolio is allowed to remain overweight gold. This mirrors the real one-way constraint.</p>
+          <p><strong>Vorabpauschale</strong> — for each calendar year Y ≥ 2018 and each equity lot: <code>Basisertrag = startValue × Basiszins(Y) × 0.70</code>; <code>Vorabpauschale = max(0, min(Basisertrag, endValue − startValue))</code>; intra-year lots are prorated by (12 − monthsBeforeAcq)/12; <code>taxable = VP × (1 − Teilfreistellung)</code>. Summed across equity lots, allowance is subtracted, the remainder is taxed at the CGT rate, and the cash is pulled from the generating equity holding in <em>January</em> of year Y+1. This flows through the unit price like a cost.</p>
+          <p><strong>Gold tax treatment</strong> — EUWAX Gold II is an Inhaberschuldverschreibung, not a fund: no Vorabpauschale, no Teilfreistellung. Modelled here only via the §23 12-month rule on actual sales. Pre-2018 fund taxation regime is <em>not modelled</em> (legacy InvStG / equity ratios). If the window starts before 2018, the years before 2018 have no fund-level tax applied.</p>
+          <p><strong>Costs</strong> — Ongoing fund cost applies as a monthly drag <code>(1 − cost)^(1/12)</code> <em>only</em> for assets toggled to <code>gross</code> (index series). For <code>net</code> series the cost is already inside the data. Buy/sell spreads and per-order fees are applied to every transaction including month-0 purchases.</p>
+          <p><strong>Window</strong> — the common window is the intersection of available monthly data across <em>all assets used by all selected portfolios</em>. Selecting any portfolio with coIQ caps the window at ~Feb 2022–present. Short-window comparisons (&lt; 10 years) get a single-regime warning.</p>
+          <p><strong>Beyond modelled</strong> — frictionless beyond explicit costs/taxes; no slippage beyond modelled spreads; no withholding-tax leakage at the fund layer beyond Teilfreistellung; no broker order minima; FX risk is assumed zero (series are EUR-denominated).</p>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 28, fontSize: 11, color: "var(--ink-mute)", textAlign: "center" }}>
+        Single-file React. Hostable on GitHub Pages. {GOOGLE_CLIENT_ID ? "Drive sync enabled." : "Set GOOGLE_CLIENT_ID at the top of the file to enable Drive sync."}
+      </div>
+    </div>
+  );
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function StatusPill({ status }) {
+  const kind = status.kind === "ok" ? "ok" : status.kind === "bad" ? "bad" : status.kind === "warn" ? "warn" : status.kind === "info" ? "info" : "idle";
+  return <span className={"tag " + kind} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+    {status.kind === "info" && <span className="spin"></span>}
+    {status.msg}
+  </span>;
+}
+
+function NumField({ label, value, onChange, step = 1 }) {
+  return (
+    <label className="field">
+      <span className="lbl">{label}</span>
+      <input type="number" step={step} value={value ?? 0} onChange={e => onChange(+e.target.value)} />
+    </label>
+  );
+}
+
+function Empty({ msg, kind }) {
+  return <div className="panel" style={{ padding: 24, textAlign: "center", color: "var(--ink-soft)" }}>
+    <span className={"tag " + (kind || "idle")} style={{ marginRight: 8 }}>info</span>{msg}
+  </div>;
+}
+
+function CsvCard({ asset, text, data, error, seriesType, fetchStatus, manifestEntry, onReload, onSetType, onText, onFile }) {
+  const fileRef = useRef(null);
+  const n = data?.length || 0;
+  const range = n > 0 ? `${data[0].month} → ${data[n - 1].month}` : "";
+  const fs = fetchStatus;
+  const busy = fs?.kind === "info";
+  return (
+    <div className={"csv-card" + (n > 0 ? " loaded" : "")}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div>
+          <h3>{asset.label}</h3>
+          <div className="id">{asset.isin}</div>
+        </div>
+        <div className="seg">
+          <button className={seriesType === "net" ? "on" : ""} onClick={() => onSetType("net")}>net</button>
+          <button className={seriesType === "gross" ? "on" : ""} onClick={() => onSetType("gross")}>gross</button>
+        </div>
+      </div>
+      <textarea rows={3} placeholder="date,value&#10;2020-01-31,100.00&#10;2020-02-29,101.34&#10;…" value={text} onChange={e => onText(e.target.value)} />
+      <div className="ctrl">
+        <button className="btn btn-xs btn-accent" disabled={busy} onClick={onReload}>
+          {busy && <span className="spin"></span>} Reload
+        </button>
+        <button className="btn btn-xs" onClick={() => fileRef.current?.click()}>Upload CSV…</button>
+        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+               onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
+        <button className="btn btn-xs btn-ghost" onClick={() => onText("")}>Clear</button>
+        {n > 0 && <span className="tag ok">{n} months</span>}
+        {!n && !error && <span className="tag idle">no data</span>}
+        {error && <span className="tag bad">parse error</span>}
+        {manifestEntry && <span className="tag info mono">as of {manifestEntry.lastDate}</span>}
+        {fs && fs.kind !== "ok" && <span className={"tag " + (fs.kind === "bad" ? "bad" : "idle")}>{fs.msg}</span>}
+      </div>
+      {n > 0 && <div className="meta">{range} · last value {fmtNum(data[n - 1].value, 4)}</div>}
+      {error && <div className="meta" style={{ color: "var(--neg)" }}>{error}</div>}
+      {manifestEntry?.warnings?.length > 0 && (
+        <div className="meta" style={{ color: "oklch(0.4 0.13 60)" }}>⚠ {manifestEntry.warnings.join(" · ")}</div>
+      )}
+    </div>
+  );
+}
+
+function ManifestPill({ manifest }) {
+  if (!manifest) return <span className="tag idle">no manifest</span>;
+  const fetched = manifest.fetchedAt ? new Date(manifest.fetchedAt) : null;
+  const ageDays = fetched ? Math.floor((Date.now() - fetched.getTime()) / 86400000) : null;
+  const stale = ageDays != null && ageDays > 14;
+  return <span className={"tag " + (stale ? "warn" : "info") + " mono"}>
+    {fetched ? `fetched ${fetched.toISOString().slice(0, 10)}` : "fetched ?"} {stale && "· STALE"}
+  </span>;
+}
+
+function SweepRow({ pid, chosen, sweep }) {
+  const pf = PORTFOLIOS.find(p => p.id === pid);
+  return (
+    <div style={{ padding: "10px 0", borderTop: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <strong style={{ fontSize: 12.5 }}>{pf.name}</strong>
+        <span className="dim mono" style={{ fontSize: 11 }}>your weight {chosen}%</span>
+        <span style={{ flex: 1 }}></span>
+        {sweep
+          ? <span className="tag info mono">optimal {sweep.w}% · Sortino {fmtNum(sweep.sortino, 3)}</span>
+          : <span className="tag idle">not run</span>}
+      </div>
+      {sweep && <SweepBar chosen={chosen} optimal={sweep.w} samples={sweep.samples} />}
+    </div>
+  );
+}
+
+function SweepBar({ chosen, optimal, samples }) {
+  // mini bar showing Sortino across 0..100% gold
+  const max = Math.max(...samples.map(s => s.sortino || -Infinity));
+  const min = Math.min(...samples.map(s => s.sortino || Infinity));
+  const range = (max - min) || 1;
+  return (
+    <div style={{ marginTop: 8, position: "relative", height: 38 }}>
+      <svg width="100%" height="38" preserveAspectRatio="none" viewBox="0 0 100 38">
+        {samples.map((s, i) => {
+          const h = ((s.sortino - min) / range) * 30 + 2;
+          const fill = s.w === optimal ? "var(--accent)" : s.w === chosen ? "var(--ink)" : "var(--line-strong)";
+          return <rect key={i} x={s.w} y={36 - h} width={0.85} height={h} fill={fill} />;
+        })}
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--ink-mute)", fontFamily: "JetBrains Mono, monospace", marginTop: 2 }}>
+        <span>0% gold</span><span>50%</span><span>100% gold</span>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+
+</body>
+</html>

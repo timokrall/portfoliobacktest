@@ -73,6 +73,10 @@ STOOQ_SOURCES = [
 ]
 STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json
 
+# German CPI via FRED (OECD source). No auth needed.
+# DEUCPIALLMINMEI = Consumer Price Index: All Items for Germany, monthly, 2015=100.
+FRED_CPI_ID = "DEUCPIALLMINMEI"
+
 # --- Ariva config for the CoIQ Collective Intelligence Fund (DE000A3C91C5) ---
 # Ariva uses internal numeric IDs (`secu` = security id, `boerse_id` = venue).
 # Preferred: commit a `data/ariva.json` with {"secu": "...", "boerse_id": "..."}.
@@ -139,6 +143,37 @@ def fetch_stooq(symbol):
         if v <= 0:
             continue
         rows.append((d, v))
+    return rows
+
+
+def fetch_fred_cpi():
+    """German CPI from FRED (OECD-sourced, monthly). Returns [(date, value)]."""
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={FRED_CPI_ID}"
+    headers = {"User-Agent": UA, "Accept": "text/csv,*/*;q=0.5"}
+    log(f"fred GET {url}")
+    r = requests.get(url, headers=headers, timeout=TIMEOUT)
+    log(f"fred HTTP {r.status_code} · {len(r.text)} bytes")
+    r.raise_for_status()
+    body = r.text.strip()
+    if "<html" in body[:200].lower():
+        raise RuntimeError("FRED returned HTML — id may be wrong or service down")
+    reader = csv.DictReader(io.StringIO(body))
+    rows = []
+    for row in reader:
+        d = (row.get("DATE") or row.get("observation_date") or "").strip()
+        val_keys = [k for k in row.keys() if k and k.upper() not in ("DATE", "OBSERVATION_DATE")]
+        if not val_keys:
+            continue
+        v = (row.get(val_keys[0]) or "").strip()
+        if not v or v == ".":
+            continue
+        try:
+            vf = float(v)
+        except ValueError:
+            continue
+        if vf <= 0:
+            continue
+        rows.append((d, vf))
     return rows
 
 
@@ -399,6 +434,24 @@ def main():
     except Exception as e:
         errors["coiq"] = str(e)
         log(f"FAIL coIQ (keeping previous data/coiq.csv if present): {e}")
+        traceback.print_exc(file=sys.stderr)
+
+    try:
+        log("fetching FRED German CPI")
+        rows = fetch_fred_cpi()
+        rows, bad, days_old = validate(rows, "cpi")
+        write_csv(DATA_DIR / "cpi.csv", rows)
+        manifest["assets"]["cpi"] = {
+            "source": f"fred:{FRED_CPI_ID}",
+            "lastDate": rows[-1][0],
+            "rows": len(rows),
+            "fetchedAt": manifest["fetchedAt"],
+            "warnings": ([f"{days_old} days stale"] if days_old > 90 else []),
+        }
+        log(f"OK cpi: {len(rows)} rows through {rows[-1][0]}")
+    except Exception as e:
+        errors["cpi"] = str(e)
+        log(f"FAIL cpi (keeping previous data/cpi.csv if present): {e}")
         traceback.print_exc(file=sys.stderr)
 
     save_manifest(manifest)

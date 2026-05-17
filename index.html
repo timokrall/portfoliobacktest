@@ -249,7 +249,7 @@ const ASSETS = [
   { id: "momentum", file: "momentum.csv", manifestKey: "momentum",
     label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)" },
   { id: "gold",     file: "gold.csv",     manifestKey: "gold",
-    label: "EUWAX Gold II",                       isin: "DE000EWG2LD7", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.59, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT" },
+    label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT" },
   { id: "market",   file: "market.csv",   manifestKey: "market",
     label: "SPDR MSCI ACWI IMI UCITS ETF",        isin: "IE00B3YLTY66", equity: true,  defaultOngoing: 0.18, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra SPYI / IMIE)" },
 ];
@@ -1386,6 +1386,9 @@ function App() {
   const [stooqApiKey, setStooqApiKey] = useState("");
   const [arivaSecu, setArivaSecu] = useState("");
   const [arivaBoerse, setArivaBoerse] = useState("");
+  const [arivaCookie, setArivaCookie] = useState("");
+  const [arivaGoldSecu, setArivaGoldSecu] = useState("");
+  const [arivaGoldBoerse, setArivaGoldBoerse] = useState("");
   const [copyMsg, setCopyMsg] = useState("");
 
   useEffect(() => {
@@ -1395,6 +1398,9 @@ function App() {
       setStooqApiKey(localStorage.getItem("bt:stooqApiKey") || "");
       setArivaSecu(localStorage.getItem("bt:arivaSecu") || "");
       setArivaBoerse(localStorage.getItem("bt:arivaBoerse") || "");
+      setArivaCookie(localStorage.getItem("bt:arivaCookie") || "");
+      setArivaGoldSecu(localStorage.getItem("bt:arivaGoldSecu") || "");
+      setArivaGoldBoerse(localStorage.getItem("bt:arivaGoldBoerse") || "");
       // Best-effort first-time guess from GitHub Pages URL.
       if (!localStorage.getItem("bt:repoSlug")) {
         const host = location.host, path = location.pathname;
@@ -1411,6 +1417,9 @@ function App() {
   useEffect(() => { try { localStorage.setItem("bt:stooqApiKey", stooqApiKey); } catch {} }, [stooqApiKey]);
   useEffect(() => { try { localStorage.setItem("bt:arivaSecu", arivaSecu); } catch {} }, [arivaSecu]);
   useEffect(() => { try { localStorage.setItem("bt:arivaBoerse", arivaBoerse); } catch {} }, [arivaBoerse]);
+  useEffect(() => { try { localStorage.setItem("bt:arivaCookie", arivaCookie); } catch {} }, [arivaCookie]);
+  useEffect(() => { try { localStorage.setItem("bt:arivaGoldSecu", arivaGoldSecu); } catch {} }, [arivaGoldSecu]);
+  useEffect(() => { try { localStorage.setItem("bt:arivaGoldBoerse", arivaGoldBoerse); } catch {} }, [arivaGoldBoerse]);
 
   // Accept either `user/repo` or a full https://github.com/user/repo URL.
   const parsedRepo = useMemo(() => {
@@ -1449,6 +1458,19 @@ function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = "ariva.json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const arivaGoldJsonContent = JSON.stringify({ secu: arivaGoldSecu.trim(), boerse_id: arivaGoldBoerse.trim() }, null, 2) + "\n";
+  const arivaGoldNewFileUrl = repoBase
+    ? `${repoBase}/new/main?filename=data%2Fariva-gold.json`
+    : null;
+  const downloadArivaGoldJson = () => {
+    const blob = new Blob([arivaGoldJsonContent], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "ariva-gold.json";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -1549,7 +1571,9 @@ function App() {
               {zipStatus && <span className="tag info">{zipStatus}</span>}
             </div>
             <div className="footnote" style={{ marginBottom: 10 }}>
-              <strong>This is the most important step.</strong> The repo needs to contain the workflow YAML, the Python script, the app HTML, and the <code>data/</code> folder — not just a README. If your Actions tab says "Get started with GitHub Actions" instead of showing "Weekly data update", you haven't uploaded the workflow YAML.
+              <strong>This is the most important step.</strong> The repo needs to contain the workflow YAML, the Python script, the app HTML, and the <code>data/</code> folder — not just a README. If your Actions tab says "Get started with GitHub Actions" instead of showing "Weekly data update", you haven't uploaded the workflow YAML <em>at the right path</em>.
+              <br/><br/>
+              <strong>⚠ Common mistake:</strong> the folder must be called <code>.github</code> (with an <strong>h</strong>) — NOT <code>.gitkeep</code>, NOT <code>github</code> without the dot. If you accidentally uploaded to the wrong path, open the file on GitHub, click the pencil icon, and edit the filename at the top of the editor to fix the path (e.g. change <code>.gitkeep/workflows/update-data.yml</code> → <code>.github/workflows/update-data.yml</code>), then "Commit changes".
             </div>
 
             <ol style={{ margin: "8px 0 6px 18px", padding: 0, fontSize: 12 }}>
@@ -1690,6 +1714,71 @@ function App() {
             </div>
             <div className="footnote" style={{ marginTop: 8 }}>
               On the GitHub page: filename is pre-filled to <code>data/ariva.json</code>. Click into the editor area, <strong>paste</strong> (Cmd/Ctrl+V), scroll down, <strong>"Commit changes"</strong>. (GitHub no longer accepts pre-filled file content via URL, so the paste step is required.)
+            </div>
+
+            {/* Step 4b — Ariva cookie */}
+            <div style={{ marginTop: 14, paddingLeft: 10, borderLeft: "2px solid var(--accent)" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>4b · Ariva session cookie (required as of May 2026)</div>
+              <div className="footnote" style={{ marginBottom: 6 }}>
+                Ariva now blocks anonymous CSV downloads. Create a <a href="https://www.ariva.de/registrierung" target="_blank" rel="noreferrer">free ariva.de account</a>, log in, then:
+                <br/><strong>Best method (avoids truncation):</strong> DevTools (F12) → <strong>Application / Storage</strong> tab → <strong>Cookies → https://www.ariva.de</strong> → you'll see a table of cookies. Copy each Name=Value pair from there and join with <code>; </code>.
+                <br/><strong>Network method:</strong> DevTools → Network → click any ariva.de request → <strong>right-click</strong> the Cookie row in Request Headers → "Copy value" (NOT the visible text — DevTools shows it truncated with <code>…</code> ellipsis).
+              </div>
+              <label className="field">
+                <span className="lbl"><span>Ariva cookie header value</span><small>stays in your browser only</small></span>
+                <textarea rows={2} placeholder="AWSALB=…; PHPSESSID=…; …" value={arivaCookie} onChange={e => setArivaCookie(e.target.value)} />
+              </label>
+              {arivaCookie.includes("\u2026") && (
+                <div className="meta" style={{ color: "var(--neg)", marginTop: 6 }}>
+                  ⚠ Your cookie contains a <code>…</code> (ellipsis) — DevTools truncated some values when you copied. The secret won't authenticate. Re-copy from <strong>Application → Storage → Cookies → ariva.de</strong> instead.
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button className="btn btn-xs" disabled={!arivaCookie.trim()} onClick={() => copyToClipboard(arivaCookie.trim(), "ariva cookie")}>Copy cookie</button>
+                {repoBase
+                  ? <a className={"btn btn-xs btn-accent" + (!arivaCookie.trim() ? " disabled" : "")} href={`${repoBase}/settings/secrets/actions/new`} target="_blank" rel="noreferrer" onClick={(e) => { if (!arivaCookie.trim()) e.preventDefault(); }}>Open GitHub → New secret →</a>
+                  : <span className="tag idle">enter repo URL above</span>}
+                <span className="footnote">Name = <code>ARIVA_COOKIE</code>, paste as Value.</span>
+              </div>
+            </div>
+
+            {/* Step 4c — Xetra-Gold ariva IDs (full history) */}
+            <div style={{ marginTop: 14, paddingLeft: 10, borderLeft: "2px solid var(--accent)" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>4c · Xetra-Gold ariva IDs (optional — for full history)</div>
+              <div className="footnote" style={{ marginBottom: 6 }}>
+                Stooq only returns ~1 year of Xetra-Gold data. To get the full 2007-onwards history, point gold to ariva too (same flow as coIQ).
+                <br/>1. Open the <a href="https://www.ariva.de/xetra-gold-zertifikat/historische_kurse" target="_blank" rel="noreferrer">ariva Xetra-Gold historic-prices page</a>.
+                <br/>2. Change "Börsenplatz" to <strong>Xetra</strong> (or another venue with deep history) and click <strong>Download</strong>.
+                <br/>3. The CSV URL in DevTools contains <code>secu=</code> and <code>boerse_id=</code>. Paste below.
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <label className="field" style={{ flex: 1 }}>
+                  <span className="lbl"><span>ARIVA_GOLD_SECU</span></span>
+                  <input type="text" placeholder="e.g. 1100166" value={arivaGoldSecu} onChange={e => setArivaGoldSecu(e.target.value.trim())} />
+                </label>
+                <label className="field" style={{ flex: 1 }}>
+                  <span className="lbl"><span>ARIVA_GOLD_BOERSE_ID</span></span>
+                  <input type="text" placeholder="e.g. 6" value={arivaGoldBoerse} onChange={e => setArivaGoldBoerse(e.target.value.trim())} />
+                </label>
+              </div>
+              {arivaGoldSecu && arivaGoldBoerse && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>File content (data/ariva-gold.json)</div>
+                  <pre className="mono" style={{ margin: 0, padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 6, fontSize: 11, whiteSpace: "pre-wrap", overflowX: "auto" }}>{arivaGoldJsonContent}</pre>
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <button className="btn btn-xs" disabled={!arivaGoldSecu || !arivaGoldBoerse} onClick={() => copyToClipboard(arivaGoldJsonContent, "gold JSON")}>1 · Copy JSON</button>
+                <button className="btn btn-xs" disabled={!arivaGoldSecu || !arivaGoldBoerse} onClick={downloadArivaGoldJson}>Download as file</button>
+                {arivaGoldNewFileUrl
+                  ? <a className={"btn btn-xs btn-accent" + ((!arivaGoldSecu || !arivaGoldBoerse) ? " disabled" : "")}
+                       href={arivaGoldNewFileUrl} target="_blank" rel="noreferrer"
+                       onClick={(e) => { if (!arivaGoldSecu || !arivaGoldBoerse) e.preventDefault(); }}>2 · Open new file on GitHub →</a>
+                  : <span className="tag idle">{!repoBase ? "enter repo URL above" : "fill in both IDs"}</span>}
+              </div>
+              <div className="footnote" style={{ marginTop: 8 }}>
+                On the GitHub page: filename is pre-filled to <code>data/ariva-gold.json</code>. Click into the editor, paste, "Commit changes". Then re-run the workflow.
+              </div>
             </div>
           </div>
 

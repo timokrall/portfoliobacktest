@@ -1,5 +1,34 @@
 {
-  "assets": {},
-  "fetchedAt": null,
-  "note": "placeholder — replaced by scripts/fetch_data.py on first run"
+  "assets": {
+    "coiq": {
+      "fetchedAt": "2026-05-17T18:43:38.786647+00:00",
+      "lastDate": "2026-05-13",
+      "rows": 1073,
+      "source": "ariva:DE000A3C91C5",
+      "warnings": []
+    },
+    "gold": {
+      "fetchedAt": "2026-05-17T18:43:38.786647+00:00",
+      "lastDate": "2026-05-15",
+      "rows": 249,
+      "source": "stooq:4gld.de",
+      "warnings": []
+    },
+    "market": {
+      "fetchedAt": "2026-05-17T18:43:38.786647+00:00",
+      "lastDate": "2026-05-15",
+      "rows": 3722,
+      "source": "stooq:spyi.de",
+      "warnings": []
+    },
+    "momentum": {
+      "fetchedAt": "2026-05-17T18:43:38.786647+00:00",
+      "lastDate": "2026-05-15",
+      "rows": 2676,
+      "source": "stooq:is3r.de",
+      "warnings": []
+    }
+  },
+  "fetchedAt": "2026-05-17T18:43:38.786647+00:00",
+  "note": "placeholder \u2014 replaced by scripts/fetch_data.py on first run"
 }

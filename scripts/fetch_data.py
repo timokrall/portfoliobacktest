@@ -141,11 +141,14 @@ def fetch_ariva_coiq():
         "Accept": "text/csv,*/*;q=0.5",
         "Referer": "https://www.ariva.de/",
     }
+    log(f"ariva GET {url}")
     r = requests.get(url, headers=headers, timeout=TIMEOUT)
+    log(f"ariva HTTP {r.status_code} · content-type={r.headers.get('content-type', '?')} · {len(r.text)} bytes")
     r.raise_for_status()
     body = r.text.strip()
-    if not body or "<html" in body[:200].lower():
-        raise RuntimeError("ariva returned HTML — endpoint likely changed or IDs wrong")
+    snippet = body[:300].replace("\n", " ").replace("\r", " ")
+    if not body or "<html" in body[:200].lower() or "<!doctype html" in body[:200].lower():
+        raise RuntimeError(f"ariva returned HTML — first 300 chars: {snippet!r}")
     reader = csv.DictReader(io.StringIO(body), delimiter=";")
     rows = []
     for row in reader:
@@ -205,7 +208,7 @@ def validate(rows, name):
         log(f"WARN {name}: {len(big_moves)} >60% single-day moves; first {big_moves[0]}")
 
     last_dt = parsed[-1][0]
-    days_old = (datetime.utcnow() - last_dt).days
+    days_old = (datetime.now(timezone.utc).replace(tzinfo=None) - last_dt).days
     if days_old > 10:
         log(f"WARN {name}: last data is {days_old} days old ({parsed[-1][1]})")
 

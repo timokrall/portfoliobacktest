@@ -177,11 +177,45 @@ def fetch_ariva_coiq():
         )
     if not body or "<html" in body[:200].lower() or "<!doctype html" in body[:200].lower():
         raise RuntimeError(f"ariva returned HTML — first 300 chars: {snippet!r}")
-    reader = csv.DictReader(io.StringIO(body), delimiter=";")
+    reader = csv.reader(io.StringIO(body), delimiter=";")
+    all_rows = list(reader)
+    if not all_rows:
+        raise RuntimeError("ariva: empty CSV body")
+    header = [h.strip().lower() for h in all_rows[0]]
+    log(f"ariva CSV header: {header}")
+    log(f"ariva CSV first data row: {all_rows[1] if len(all_rows) > 1 else 'NONE'}")
+
+    # Find date column
+    date_idx = None
+    for i, h in enumerate(header):
+        if h in ("datum", "date") or "datum" in h or "date" in h:
+            date_idx = i; break
+    # Find close/value column. Ariva typically: "Erster","Hoch","Tief","Schluss","Stuecke","Volumen"
+    close_idx = None
+    for cand in ("schluss", "close", "schlusskurs", "kurs", "last", "wert", "nav"):
+        if cand in header:
+            close_idx = header.index(cand); break
+    if close_idx is None:
+        # Fund NAVs sometimes only have one numeric column; take the last numeric-looking column
+        for i in range(len(header) - 1, 0, -1):
+            try:
+                if len(all_rows) > 1:
+                    v = all_rows[1][i].replace(".", "").replace(",", ".")
+                    float(v)
+                    close_idx = i
+                    log(f"ariva: guessing close column at index {i} ('{header[i]}')")
+                    break
+            except (ValueError, IndexError):
+                continue
+    if date_idx is None or close_idx is None:
+        raise RuntimeError(f"ariva: cannot identify date/close columns in header {header}")
+
     rows = []
-    for row in reader:
-        d = (row.get("Datum") or row.get("Date") or row.get("datum") or "").strip()
-        c = (row.get("Schluss") or row.get("Close") or row.get("schluss") or "").strip()
+    for r in all_rows[1:]:
+        if len(r) <= max(date_idx, close_idx):
+            continue
+        d = r[date_idx].strip()
+        c = r[close_idx].strip()
         if not d or not c:
             continue
         if "." in d and "-" not in d:
@@ -197,6 +231,7 @@ def fetch_ariva_coiq():
         if v <= 0:
             continue
         rows.append((d, v))
+    log(f"ariva: parsed {len(rows)} rows from {len(all_rows) - 1} CSV lines")
     return rows
 
 # ----------------------------------------------------------------------------

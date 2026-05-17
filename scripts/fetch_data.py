@@ -44,6 +44,7 @@ UA = (
 )
 STOOQ_COOKIE = os.environ.get("STOOQ_COOKIE", "").strip()
 STOOQ_APIKEY = os.environ.get("STOOQ_APIKEY", "").strip()
+ARIVA_COOKIE = os.environ.get("ARIVA_COOKIE", "").strip()
 TIMEOUT = 30
 
 STOOQ_SOURCES = [
@@ -141,12 +142,20 @@ def fetch_ariva_coiq():
         "Accept": "text/csv,*/*;q=0.5",
         "Referer": "https://www.ariva.de/",
     }
+    if ARIVA_COOKIE:
+        headers["Cookie"] = ARIVA_COOKIE
     log(f"ariva GET {url}")
     r = requests.get(url, headers=headers, timeout=TIMEOUT)
     log(f"ariva HTTP {r.status_code} · content-type={r.headers.get('content-type', '?')} · {len(r.text)} bytes")
     r.raise_for_status()
     body = r.text.strip()
     snippet = body[:300].replace("\n", " ").replace("\r", " ")
+    if "login" in body[:500].lower() or "anmelden" in body[:500].lower():
+        raise RuntimeError(
+            "ariva.de requires login. Create a free account at https://www.ariva.de/registrierung , "
+            "copy your session cookie (DevTools → Network → Request Headers → Cookie), "
+            "and add it as the ARIVA_COOKIE repo secret. First 200 chars: " + snippet[:200]
+        )
     if not body or "<html" in body[:200].lower() or "<!doctype html" in body[:200].lower():
         raise RuntimeError(f"ariva returned HTML — first 300 chars: {snippet!r}")
     reader = csv.DictReader(io.StringIO(body), delimiter=";")

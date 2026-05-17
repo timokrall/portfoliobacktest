@@ -274,6 +274,8 @@ async function loadManifest() {
   } catch { return null; }
 }
 
+const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "German CPI (FRED DEUCPIALLMINMEI)", isin: "FRED:DEUCPIALLMINMEI", note: "monthly CPI level, 2015=100" };
+
 const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",     assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
   { id: "gold_momentum", name: "Gold + Momentum", assets: ["gold", "momentum"], defaultGold: 30, equityId: "momentum" },
@@ -1079,6 +1081,87 @@ function monteCarloMaxDD(monthlyRets, horizonMonths, blockLen, nPaths, seed = 1)
   return { median, mean, p95 };
 }
 
+// ---------- V2: rolling real-return engine + paired (return,CPI) MC ----------
+// On a portfolio's UNIT-PRICE series + aligned CPI level series, compute
+// per holding horizon h (years) the worst-window real CAGR/multiple, the
+// 5th-percentile real CAGR, and window count. Sliding monthly.
+function rollingRealReturns(unitPrice, cpiAligned, hMaxYears) {
+  const N = Math.min(unitPrice.length, cpiAligned.length);
+  const out = [];
+  for (let h = 1; h <= hMaxYears; h++) {
+    const L = h * 12;
+    if (L >= N) { out.push({ h, count: 0 }); continue; }
+    const cagrs = []; const mults = [];
+    for (let t = 0; t + L < N; t++) {
+      const nom = unitPrice[t + L] / unitPrice[t];
+      const cpiR = cpiAligned[t + L] / cpiAligned[t];
+      if (!isFinite(nom) || !isFinite(cpiR) || cpiR <= 0 || nom <= 0) continue;
+      const real = nom / cpiR;
+      cagrs.push(Math.pow(real, 1 / h) - 1);
+      mults.push(real);
+    }
+    if (cagrs.length === 0) { out.push({ h, count: 0 }); continue; }
+    const idx = cagrs.map((_, i) => i).sort((a, b) => cagrs[a] - cagrs[b]);
+    const worstI = idx[0];
+    const p5I = idx[Math.floor(0.05 * (idx.length - 1))];
+    out.push({
+      h, count: cagrs.length,
+      worstRealCAGR: cagrs[worstI],
+      worstRealMultiple: mults[worstI],
+      p5RealCAGR: cagrs[p5I],
+    });
+  }
+  return out;
+}
+
+// Paired block-bootstrap on (portfolio monthly return, CPI monthly return).
+// Together (same start, same block) to preserve gold/inflation co-movement.
+function rollingRealReturnsMC(pairedReturns, hYears, nPaths, blockLen, seed = 1) {
+  if (!pairedReturns || pairedReturns.length < blockLen + 2) return null;
+  let s = seed >>> 0;
+  const rand = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const horizon = hYears * 12;
+  const maxStart = pairedReturns.length - blockLen;
+  if (maxStart < 1) return null;
+  const cagrs = [];
+  for (let p = 0; p < nPaths; p++) {
+    let nom = 1, cpi = 1;
+    let need = horizon;
+    while (need > 0) {
+      const start = Math.floor(rand() * (maxStart + 1));
+      const take = Math.min(blockLen, need);
+      for (let i = 0; i < take; i++) {
+        nom *= (1 + pairedReturns[start + i].pr);
+        cpi *= (1 + pairedReturns[start + i].cr);
+      }
+      need -= take;
+    }
+    if (cpi <= 0) continue;
+    const real = nom / cpi;
+    if (real <= 0) continue;
+    cagrs.push(Math.pow(real, 1 / hYears) - 1);
+  }
+  if (cagrs.length === 0) return null;
+  cagrs.sort((a, b) => a - b);
+  return {
+    n: cagrs.length,
+    worstRealCAGR: cagrs[0],
+    p5RealCAGR: cagrs[Math.floor(0.05 * (cagrs.length - 1))],
+  };
+}
+
+// Build a paired (portfolio return, CPI return) array aligned by month index.
+function buildPairedReturns(unitPrice, cpiAligned) {
+  const N = Math.min(unitPrice.length, cpiAligned.length);
+  const out = [];
+  for (let i = 1; i < N; i++) {
+    const pr = unitPrice[i] / unitPrice[i - 1] - 1;
+    const cr = cpiAligned[i] / cpiAligned[i - 1] - 1;
+    if (isFinite(pr) && isFinite(cr)) out.push({ pr, cr });
+  }
+  return out;
+}
+
 // ---------- Linear regression (OLS) ----------
 function regress(y, x) {
   const n = Math.min(y.length, x.length);
@@ -1103,8 +1186,8 @@ function App() {
   const storage = useStorage();
 
   // --- raw CSVs (text) and parsed monthly series ---
-  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", gold: "", market: "" });
-  const [series, setSeries] = useState({ coIQ: null, momentum: null, gold: null, market: null });
+  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", gold: "", market: "", cpi: "" });
+  const [series, setSeries] = useState({ coIQ: null, momentum: null, gold: null, market: null, cpi: null });
   const [seriesError, setSeriesError] = useState({});
   const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", gold: "net", market: "net" });
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
@@ -1130,6 +1213,9 @@ function App() {
 
   // --- monte carlo ---
   const [mc, setMc] = useState({ paths: 2000, horizon: 120, block: 6 });
+
+  // --- v2: real-return preservation + gold-share optimizer ---
+  const H_PLAN = 10;   // fixed planning horizon for the headline banner
 
   // initialize cost / spread defaults
   useEffect(() => {
@@ -1213,7 +1299,7 @@ function App() {
   const reloadAll = async () => {
     const m = await loadManifest();
     setManifest(m);
-    await Promise.all(ASSETS.map(a => reloadAsset(a)));
+    await Promise.all([...ASSETS, CPI_ASSET].map(a => reloadAsset(a)));
   };
 
   // bootstrap: same-origin load of committed CSVs + manifest, once on mount.
@@ -1286,6 +1372,11 @@ function App() {
     setSweepRunning(true);
     setTimeout(() => {
       const months = commonWindow.months;
+      const cpiMap = series.cpi ? new Map(series.cpi.map(r => [r.month, r.value])) : null;
+      const cpiAligned = cpiMap ? months.map(m => cpiMap.get(m)) : null;
+      const cpiOk = !!cpiMap && cpiAligned.some(v => v != null);
+      const mcPaths = Math.min(500, mc.paths);   // keep sweep tolerable
+
       const out = {};
       for (const pid of selectedPortfolios) {
         const pf = PORTFOLIOS.find(p => p.id === pid);
@@ -1304,9 +1395,50 @@ function App() {
           if (!r || !r.metrics) continue;
           const s = r.metrics.sortino;
           if (s != null && s > best.sortino) best = { w: pct, sortino: s };
-          samples.push({ w: pct, sortino: s, finalValue: r.finalValue, maxDD: r.metrics.maxDD });
+
+          let realCurve = null;
+          if (cpiOk) {
+            // Same truncation as in realResults: drop tail months without CPI.
+            let cut = months.length;
+            for (let i = 0; i < months.length; i++) {
+              if (cpiAligned[i] == null) { cut = i; break; }
+            }
+            if (cut >= 13) {
+              const upTrunc = r.unitPriceSeries.slice(0, cut);
+              const cpiTrunc = cpiAligned.slice(0, cut);
+              const paired = buildPairedReturns(upTrunc, cpiTrunc);
+              realCurve = [];
+              for (let h = 1; h <= H_MAX; h++) {
+                const mcPt = rollingRealReturnsMC(paired, h, mcPaths, mc.block, 91 + pid.length * 31 + pct * 7 + h);
+                if (mcPt) realCurve.push({ h, kind: "mc", worstRealCAGR: mcPt.worstRealCAGR });
+                else realCurve.push({ h, kind: "none", worstRealCAGR: null });
+              }
+            }
+          }
+          samples.push({ w: pct, sortino: s, finalValue: r.finalValue, maxDD: r.metrics.maxDD, realCurve });
         }
-        out[pid] = { ...best, samples };
+
+        // w_safe(h), w_return(h)
+        const perH = {};
+        if (cpiOk) {
+          for (let h = 1; h <= H_MAX; h++) {
+            let bestW = null, bestVal = -Infinity;
+            let returnW = null, returnVal = null;
+            for (const sample of samples) {
+              if (!sample.realCurve) continue;
+              const pt = sample.realCurve.find(x => x.h === h);
+              if (!pt || pt.worstRealCAGR == null) continue;
+              if (pt.worstRealCAGR > bestVal) { bestVal = pt.worstRealCAGR; bestW = sample.w; }
+              if (pt.worstRealCAGR >= 0 && returnW == null) { returnW = sample.w; returnVal = pt.worstRealCAGR; }
+            }
+            perH[h] = {
+              w_safe: bestW != null ? { w: bestW, worst: bestVal } : null,
+              w_return: returnW != null ? { w: returnW, worst: returnVal } : null,
+              kind: "mc",
+            };
+          }
+        }
+        out[pid] = { ...best, samples, perH, cpiOk };
       }
       setSweepResults(out);
       setSweepRunning(false);
@@ -1324,6 +1456,57 @@ function App() {
     }
     return out;
   }, [simResults, mc]);
+
+  // ---- V2: real-preservation curves per portfolio (historical + MC extension) ----
+  // For each portfolio, align CPI to its window. Compute rolling real returns
+  // at h=1..30 years; mark each h as historical (count>=6) or MC-only. For MC
+  // h's, paired-bootstrap (unit-price return, CPI return) together.
+  const H_MAX = 30;
+  const realResults = useMemo(() => {
+    if (!simResults || !series.cpi) return null;
+    const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
+    const out = {};
+    for (const pid of Object.keys(simResults)) {
+      const r = simResults[pid];
+      if (!r) continue;
+      // Truncate to the prefix of months that have CPI data. Tail months
+      // missing because CPI publishes with a 2-4 month lag are dropped.
+      let cut = r.months.length;
+      for (let i = 0; i < r.months.length; i++) {
+        if (!cpiMap.has(r.months[i])) { cut = i; break; }
+      }
+      const months = r.months.slice(0, cut);
+      const upTrunc = r.unitPriceSeries.slice(0, cut);
+      const cpiAligned = months.map(m => cpiMap.get(m));
+      if (cut < 13 || cpiAligned.some(v => v == null)) {
+        out[pid] = { error: cut < 13 ? "CPI window too short for rolling 1y returns" : "CPI alignment failed" };
+        continue;
+      }
+      const droppedTail = r.months.length - cut;
+      const paired = buildPairedReturns(upTrunc, cpiAligned);
+      // Always MC (per request): drop the in-sample worst-window line, which
+      // is overfit on this short bear-market-free window. MC is the only
+      // robust signal at any horizon.
+      const curve = [];
+      for (let h = 1; h <= H_MAX; h++) {
+        const mcPt = rollingRealReturnsMC(paired, h, mc.paths, mc.block, 78901 + pid.length * 31 + h);
+        if (mcPt) curve.push({ h, kind: "mc", count: mcPt.n, worstRealCAGR: mcPt.worstRealCAGR, worstRealMultiple: null, p5RealCAGR: mcPt.p5RealCAGR });
+        else curve.push({ h, kind: "none" });
+      }
+      // h* = smallest h beyond which worstRealCAGR stays >= 0 for all subsequent h
+      let hStar = null;
+      for (let i = 0; i < curve.length; i++) {
+        let allOk = true;
+        for (let j = i; j < curve.length; j++) {
+          const v = curve[j].worstRealCAGR;
+          if (v == null || v < 0) { allOk = false; break; }
+        }
+        if (allOk) { hStar = curve[i].h; break; }
+      }
+      out[pid] = { curve, hStar, droppedTail };
+    }
+    return out;
+  }, [simResults, series.cpi, mc]);
 
   // ---- coIQ ↔ momentum regression ----
   const regression = useMemo(() => {
@@ -1747,7 +1930,7 @@ function App() {
               <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>4c · Xetra-Gold ariva IDs (optional — for full history)</div>
               <div className="footnote" style={{ marginBottom: 6 }}>
                 Stooq only returns ~1 year of Xetra-Gold data. To get the full 2007-onwards history, point gold to ariva too (same flow as coIQ).
-                <br/>1. Open the <a href="https://www.ariva.de/xetra-gold-zertifikat/historische_kurse" target="_blank" rel="noreferrer">ariva Xetra-Gold historic-prices page</a>.
+                <br/>1. Open the <a href="https://www.ariva.de/search/search.m?searchname=DE000A0S9GB0" target="_blank" rel="noreferrer">ariva search for ISIN DE000A0S9GB0</a> → click the Xetra-Gold result → "Historische Kurse".
                 <br/>2. Change "Börsenplatz" to <strong>Xetra</strong> (or another venue with deep history) and click <strong>Download</strong>.
                 <br/>3. The CSV URL in DevTools contains <code>secu=</code> and <code>boerse_id=</code>. Paste below.
               </div>
@@ -1815,6 +1998,20 @@ function App() {
                   onFile={(f) => onFileLoad(a.id, f)}
                 />
               )}
+              <CsvCard
+                key="cpi"
+                asset={CPI_ASSET}
+                text={csvText.cpi || ""}
+                data={series.cpi}
+                error={seriesError.cpi}
+                seriesType={null}
+                fetchStatus={fetchStatus.cpi}
+                manifestEntry={manifest?.assets?.cpi}
+                onReload={() => reloadAsset(CPI_ASSET)}
+                onSetType={null}
+                onText={(t) => onCsvChange("cpi", t)}
+                onFile={(f) => onFileLoad("cpi", f)}
+              />
             </div>
             <div className="small-note" style={{ marginTop: 10 }}>
               CSVs are committed weekly by a GitHub Action (<code>.github/workflows/update-data.yml</code>) into <code>./data/</code> and served same-origin — no CORS, no proxies, no rate limits.
@@ -1933,13 +2130,13 @@ function App() {
 
         <div className="panel">
           <div className="panel-h">
-            <h2>6 · Optimal-gold sweep</h2>
+            <h2>6 · Gold-share optimizer (v2)</h2>
             <button className="btn btn-accent" disabled={sweepRunning || !commonWindow?.ok} onClick={runSweep}>
               {sweepRunning && <span className="spin"></span>} Run 0–100% sweep
             </button>
           </div>
           <div className="panel-body">
-            <div className="small-note">Re-runs the full simulation (costs + CGT-gated rebalance + Vorabpauschale) at each 1% step. <em>In-sample, backward-looking — what would have been optimal over this window, not a recommendation.</em></div>
+            <div className="small-note">Re-runs the full simulation (costs + CGT-gated rebalance + Vorabpauschale) at each 1% step. Computes <strong>w_safe</strong> (buffer-maximizing) and <strong>w_return</strong> (least gold to stay real-admissible) at every holding horizon. Charts and tables appear below the comparison panel after running. CPI series required.</div>
             <div style={{ marginTop: 12 }}>
               {selectedPortfolios.filter(pid => PORTFOLIOS.find(p => p.id === pid) && !PORTFOLIOS.find(p => p.id === pid).isMarket).map(pid =>
                 <SweepRow key={pid} pid={pid} chosen={goldWeights[pid]} sweep={sweepResults[pid]} />
@@ -1966,26 +2163,73 @@ function App() {
               </div>
             </div>
 
-            {winners && (
-              <div className="winner" style={{ marginBottom: 18 }}>
-                <div className="row">
-                  <div>
-                    <div className="lbl">Sortino winner (risk-adjusted)</div>
-                    <div className="val">{PORTFOLIOS.find(p => p.id === winners.sortino[0]).name}</div>
-                    <div className="sub mono">annualized Sortino · {fmtNum(winners.sortino[1].metrics.sortino, 3)}</div>
+            {/* V2 admissibility banner (replaces v1 Sortino winner) */}
+            {(() => {
+              const hp = H_PLAN;
+              const rows = selectedPortfolios.map(pid => {
+                const sim = simResults?.[pid]; const real = realResults?.[pid];
+                if (!sim || !real || real.error) return null;
+                const atHp = real.curve.find(x => x.h === hp);
+                return { pid, sim, real, atHp };
+              }).filter(Boolean);
+              if (rows.length === 0) {
+                return <div className="winner" style={{ marginBottom: 18 }}>
+                  <div className="lbl">Real-preservation verdict</div>
+                  <div className="sub" style={{ marginTop: 8 }}>Load a CPI series to enable the v2 banner.</div>
+                </div>;
+              }
+              const admissible = rows.filter(r => r.atHp && r.atHp.worstRealCAGR != null && r.atHp.worstRealCAGR >= 0);
+              const winner = admissible.length
+                ? [...admissible].sort((a, b) => (b.sim.finalValue / b.sim.totalInvested) - (a.sim.finalValue / a.sim.totalInvested))[0]
+                : null;
+              return (
+                <div className="winner" style={{ marginBottom: 18 }}>
+                  <div className="row">
+                    <div>
+                      <div className="lbl">Real-admissible @ {hp}y &middot; best absolute return</div>
+                      <div className="val">{winner ? PORTFOLIOS.find(p => p.id === winner.pid).name : "— none admissible —"}</div>
+                      <div className="sub mono">{winner
+                        ? `${fmtEUR(winner.sim.finalValue)} on ${fmtEUR(winner.sim.totalInvested)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)} \u00b7 ${winner.atHp.kind === "mc" ? "MC" : "historical"}`
+                        : "no portfolio keeps real value at this horizon under worst-window or MC paths"
+                      }</div>
+                    </div>
+                    <div>
+                      <div className="lbl">Real-preservation horizon h*</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px", marginTop: 6 }}>
+                        {rows.map(r => (
+                          <React.Fragment key={r.pid}>
+                            <div className="mono" style={{ opacity: 0.85, fontSize: 12 }}>{PORTFOLIOS.find(p => p.id === r.pid).name}</div>
+                            <div className="mono" style={{ fontSize: 12 }}>{r.real.hStar != null ? `${r.real.hStar}y` : "—"}</div>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="lbl">Absolute-return winner (money-weighted)</div>
-                    <div className="val">{PORTFOLIOS.find(p => p.id === winners.money[0]).name}</div>
-                    <div className="sub mono">{fmtEUR(winners.money[1].finalValue)} on {fmtEUR(winners.money[1].totalInvested)} invested · {fmtPct(winners.money[1].finalValue / winners.money[1].totalInvested - 1)}</div>
+                  {sweepResults && Object.keys(sweepResults).length > 0 && (
+                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid oklch(1 0 0 / 0.12)", display: "grid", gap: 6, fontSize: 12 }}>
+                      {selectedPortfolios.filter(pid => PORTFOLIOS.find(p => p.id === pid) && !PORTFOLIOS.find(p => p.id === pid).isMarket).map(pid => {
+                        const sw = sweepResults[pid]; if (!sw || !sw.perH) return null;
+                        const at = sw.perH[hp]; if (!at) return null;
+                        const target = goldWeights[pid];
+                        return (
+                          <div key={pid} className="mono">
+                            <strong>{PORTFOLIOS.find(p => p.id === pid).name}</strong> at {hp}y:
+                            {at.w_return != null ? <> real-admissible for gold &ge; <strong>{at.w_return.w}%</strong>;</> : <> no admissible gold weight at this horizon;</>}
+                            {at.w_safe != null ? <> buffer-maximizing at <strong>{at.w_safe.w}%</strong>;</> : null}
+                            <> your target <strong>{target}%</strong>.</>
+                            <span style={{ opacity: 0.6 }}> ({at.kind})</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="caveat">
+                    Window {commonWindow.start} &rarr; {commonWindow.end} ({(commonWindow.months.length / 12).toFixed(1)} years).
+                    {shortRegime && " Single-regime sample \u2014 no equity bear market in window. Beyond ~3 years all numbers are Monte Carlo."}
                   </div>
                 </div>
-                <div className="caveat">
-                  Window {commonWindow.start} → {commonWindow.end} ({(commonWindow.months.length / 12).toFixed(1)} years).
-                  {shortRegime && " Single-regime sample — not a full-cycle validation."}
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* comparison table */}
             <div className="panel" style={{ marginBottom: 18 }}>
@@ -1995,7 +2239,6 @@ function App() {
                   <th>Portfolio</th>
                   <th style={{ textAlign: "right" }}>Target gold</th>
                   <th style={{ textAlign: "right" }}>Final gold</th>
-                  <th style={{ textAlign: "right" }}>Optimal gold (in-sample)</th>
                   <th style={{ textAlign: "right" }}>Sortino</th>
                   <th style={{ textAlign: "right" }}>Max DD</th>
                   <th style={{ textAlign: "right" }}>Months &lt;−30%</th>
@@ -2010,7 +2253,6 @@ function App() {
                     if (!r) return null;
                     const tg = pf.isMarket ? null : (goldWeights[pid] ?? 0);
                     const fg = pf.isMarket ? null : r.finalGoldWeight * 100;
-                    const opt = sweepResults[pid]?.w;
                     const gain = r.finalValue - r.totalInvested;
                     const gainPct = r.finalValue / r.totalInvested - 1;
                     return (
@@ -2018,7 +2260,6 @@ function App() {
                         <td className="name">{pf.name}</td>
                         <td className="num" style={{ textAlign: "right" }}>{tg == null ? "—" : tg + "%"}</td>
                         <td className="num" style={{ textAlign: "right" }}>{fg == null ? "—" : fmtNum(fg, 1) + "%"}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{opt == null ? "—" : opt + "%"}</td>
                         <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.metrics.sortino, 3)}</td>
                         <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.metrics.maxDD)}</td>
                         <td className="num" style={{ textAlign: "right" }}>{r.metrics.monthsBelow30}</td>
@@ -2063,6 +2304,163 @@ function App() {
                 </ResponsiveContainer>}
               </div>
             </div>
+
+            {/* V2 · Real-preservation curves */}
+            {realResults && Object.keys(realResults).length > 0 && (
+              <div className="panel" style={{ marginBottom: 18 }}>
+                <div className="panel-h">
+                  <h2>Real preservation · worst-window real CAGR vs holding horizon</h2>
+                  <span className="h-meta">Monte Carlo (paired bootstrap of portfolio return + CPI)</span>
+                </div>
+                <div className="panel-body" style={{ height: 360 }}>
+                  {(() => {
+                    const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)"];
+                    const data = [];
+                    for (let h = 1; h <= H_MAX; h++) {
+                      const row = { h };
+                      for (const pid of Object.keys(realResults)) {
+                        const r = realResults[pid]; if (!r || r.error) continue;
+                        const pt = r.curve.find(x => x.h === h);
+                        if (!pt || pt.worstRealCAGR == null) continue;
+                        row[pid] = pt.worstRealCAGR * 100;
+                      }
+                      data.push(row);
+                    }
+                    return <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={data} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
+                        <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="h" tickFormatter={v => v + "y"} stroke="oklch(0.7 0.008 240)" />
+                        <YAxis tickFormatter={v => v.toFixed(1) + "%"} stroke="oklch(0.7 0.008 240)" width={56} />
+                        <Tooltip
+                          contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                          formatter={(v, name) => [fmtNum(+v, 2) + "%", PORTFOLIOS.find(p => p.id === name)?.name || name]}
+                          labelFormatter={(h) => `horizon ${h} years`}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => PORTFOLIOS.find(p => p.id === v)?.name || v} />
+                        <RC.ReferenceLine y={0} stroke="oklch(0.5 0.13 25)" strokeDasharray="4 2" label={{ value: "0% real — CPI break-even", position: "insideTopRight", fill: "oklch(0.5 0.13 25)", fontSize: 10 }} />
+                        {selectedPortfolios.map((pid, i) => {
+                          const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)"];
+                          const color = colors[i % colors.length];
+                          return <Line key={pid} type="monotone" dataKey={pid} stroke={color} dot={false} strokeWidth={1.8} isAnimationActive={false} />;
+                        })}
+                      </LineChart>
+                    </ResponsiveContainer>;
+                  })()}
+                </div>
+                <table className="bt" style={{ borderTop: "1px solid var(--line)" }}>
+                  <thead><tr>
+                    <th>Portfolio</th><th>h</th>
+                    <th style={{ textAlign: "right" }}>Worst real CAGR</th>
+                    <th style={{ textAlign: "right" }}>5th-pctl real CAGR</th>
+                    <th style={{ textAlign: "right" }}>MC paths</th>
+                  </tr></thead>
+                  <tbody>
+                    {selectedPortfolios.flatMap(pid => {
+                      const r = realResults[pid]; if (!r || r.error) return [];
+                      const pf = PORTFOLIOS.find(p => p.id === pid);
+                      return [1, 3, 5, 10, 15, 20, 30].filter(h => h <= H_MAX).map(h => {
+                        const pt = r.curve.find(x => x.h === h); if (!pt) return null;
+                        return (
+                          <tr key={pid + h}>
+                            <td className="name">{pf.name}</td>
+                            <td className="num">{h}y</td>
+                            <td className="num" style={{ textAlign: "right", color: pt.worstRealCAGR < 0 ? "var(--neg)" : pt.worstRealCAGR > 0 ? "var(--pos)" : "inherit" }}>{pt.worstRealCAGR == null ? "—" : fmtPct(pt.worstRealCAGR)}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{pt.p5RealCAGR == null ? "—" : fmtPct(pt.p5RealCAGR)}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{pt.count ?? "—"}</td>
+                          </tr>
+                        );
+                      }).filter(Boolean);
+                    })}
+                  </tbody>
+                </table>
+                <div className="panel-body tight footnote">
+                  Each line is the worst-case real CAGR across {mc.paths.toLocaleString()} paired block-bootstrap paths (portfolio return + CPI return drawn together). Solid throughout because the historical worst-window line was overfit on this short bear-market-free sample — MC is the load-bearing signal at every horizon.
+                  CPI source: {manifest?.assets?.cpi?.source || "manual paste"} &middot; last point {series.cpi ? series.cpi[series.cpi.length - 1].month : "—"}.
+                  {(() => {
+                    const drops = Object.values(realResults || {}).map(r => r?.droppedTail || 0).filter(n => n > 0);
+                    if (drops.length === 0) return null;
+                    const m = Math.max(...drops);
+                    return <> &middot; <strong>tail truncation:</strong> last {m} month{m !== 1 ? "s" : ""} of the simulation window dropped because CPI hasn't published yet (typical publication lag).</>;
+                  })()}
+                  {(() => {
+                    const errs = Object.entries(realResults || {}).filter(([, r]) => r?.error);
+                    if (errs.length === 0) return null;
+                    return <div style={{ marginTop: 6, color: "var(--neg)" }}>
+                      <strong>Errors:</strong> {errs.map(([pid, r]) => `${PORTFOLIOS.find(p => p.id === pid)?.name || pid}: ${r.error}`).join(" · ")}
+                    </div>;
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* V2 · Gold-share optimizer charts (one panel per two-asset portfolio) */}
+            {selectedPortfolios.filter(pid => PORTFOLIOS.find(p => p.id === pid) && !PORTFOLIOS.find(p => p.id === pid).isMarket).map(pid => {
+              const sw = sweepResults[pid];
+              if (!sw || !sw.perH || !sw.cpiOk) return null;
+              const pf = PORTFOLIOS.find(p => p.id === pid);
+              const target = goldWeights[pid];
+              const data = [];
+              for (let h = 1; h <= H_MAX; h++) {
+                const at = sw.perH[h]; if (!at) continue;
+                data.push({
+                  h, target,
+                  w_safe:   at.w_safe   ? at.w_safe.w   : null,
+                  w_return: at.w_return ? at.w_return.w : null,
+                });
+              }
+              return (
+                <div className="panel" style={{ marginBottom: 18 }} key={"opt_" + pid}>
+                  <div className="panel-h">
+                    <h2>{pf.name} &middot; optimal gold share vs horizon</h2>
+                    <span className="h-meta">your target {target}% &middot; w_safe = buffer-max &middot; w_return = least gold to stay real-admissible &middot; Monte Carlo</span>
+                  </div>
+                  <div className="panel-body" style={{ height: 320 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={data} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
+                        <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="h" tickFormatter={v => v + "y"} stroke="oklch(0.7 0.008 240)" />
+                        <YAxis tickFormatter={v => v + "%"} stroke="oklch(0.7 0.008 240)" width={56} domain={[0, 100]} />
+                        <Tooltip contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                                 formatter={(v, name) => [v == null ? "—" : v + "%", name]} />
+                        <Legend wrapperStyle={{ paddingTop: 8 }} />
+                        <RC.ReferenceLine y={target} stroke="oklch(0.4 0.01 240)" strokeDasharray="4 2" label={{ value: `target ${target}%`, position: "insideTopRight", fontSize: 10 }} />
+                        <Line type="monotone" dataKey="w_safe"   stroke="oklch(0.55 0.13 60)"  dot={false} strokeWidth={1.8} isAnimationActive={false} name="w_safe (buffer-max)" />
+                        <Line type="monotone" dataKey="w_return" stroke="oklch(0.55 0.09 155)" dot={false} strokeWidth={1.8} isAnimationActive={false} name="w_return (least gold)" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <table className="bt" style={{ borderTop: "1px solid var(--line)" }}>
+                    <thead><tr>
+                      <th>h</th>
+                      <th style={{ textAlign: "right" }}>w_safe</th>
+                      <th style={{ textAlign: "right" }}>worst CAGR @ w_safe</th>
+                      <th style={{ textAlign: "right" }}>w_return</th>
+                      <th style={{ textAlign: "right" }}>worst CAGR @ w_return</th>
+                      <th style={{ textAlign: "right" }}>worst CAGR @ target {target}%</th>
+                    </tr></thead>
+                    <tbody>
+                      {[1, 3, 5, 10, 15, 20, 30].filter(h => h <= H_MAX).map(h => {
+                        const at = sw.perH[h]; if (!at) return null;
+                        const atTarget = sw.samples.find(s => s.w === target)?.realCurve?.find(x => x.h === h);
+                        return (
+                          <tr key={h}>
+                            <td className="num">{h}y</td>
+                            <td className="num" style={{ textAlign: "right" }}>{at.w_safe ? at.w_safe.w + "%" : "—"}</td>
+                            <td className="num" style={{ textAlign: "right", color: at.w_safe && at.w_safe.worst < 0 ? "var(--neg)" : "inherit" }}>{at.w_safe ? fmtPct(at.w_safe.worst) : "—"}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{at.w_return ? at.w_return.w + "%" : <span className="tag warn">none</span>}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{at.w_return ? fmtPct(at.w_return.worst) : "—"}</td>
+                            <td className="num" style={{ textAlign: "right", color: atTarget && atTarget.worstRealCAGR < 0 ? "var(--neg)" : "inherit" }}>{atTarget && atTarget.worstRealCAGR != null ? fmtPct(atTarget.worstRealCAGR) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div className="panel-body tight footnote">
+                    Both lines from Monte Carlo paired bootstrap. w_safe (buffer-max) is fitted to the worst path and is unstable; w_return is the decision-relevant line: the smallest gold weight that keeps the worst-case real return at or above CPI break-even.
+                  </div>
+                </div>
+              );
+            })}
 
             {/* monte carlo */}
             <div className="panel" style={{ marginBottom: 18 }}>
@@ -2178,10 +2576,12 @@ function CsvCard({ asset, text, data, error, seriesType, fetchStatus, manifestEn
           <h3>{asset.label}</h3>
           <div className="id">{asset.isin}</div>
         </div>
-        <div className="seg">
-          <button className={seriesType === "net" ? "on" : ""} onClick={() => onSetType("net")}>net</button>
-          <button className={seriesType === "gross" ? "on" : ""} onClick={() => onSetType("gross")}>gross</button>
-        </div>
+        {onSetType && (
+          <div className="seg">
+            <button className={seriesType === "net" ? "on" : ""} onClick={() => onSetType("net")}>net</button>
+            <button className={seriesType === "gross" ? "on" : ""} onClick={() => onSetType("gross")}>gross</button>
+          </div>
+        )}
       </div>
       <textarea rows={3} placeholder="date,value&#10;2020-01-31,100.00&#10;2020-02-29,101.34&#10;…" value={text} onChange={e => onText(e.target.value)} />
       <div className="ctrl">

@@ -1375,7 +1375,7 @@ function App() {
       const months = commonWindow.months;
       const cpiMap = series.cpi ? new Map(series.cpi.map(r => [r.month, r.value])) : null;
       const cpiAligned = cpiMap ? months.map(m => cpiMap.get(m)) : null;
-      const cpiOk = cpiAligned && cpiAligned.every(v => v != null);
+      const cpiOk = !!cpiMap && cpiAligned.some(v => v != null);
       const mcPaths = Math.min(500, mc.paths);   // keep sweep tolerable
 
       const out = {};
@@ -1399,17 +1399,26 @@ function App() {
 
           let realCurve = null;
           if (cpiOk) {
-            const hist = rollingRealReturns(r.unitPriceSeries, cpiAligned, H_MAX);
-            const paired = buildPairedReturns(r.unitPriceSeries, cpiAligned);
-            realCurve = [];
-            for (let h = 1; h <= H_MAX; h++) {
-              const histPt = hist.find(x => x.h === h);
-              if (histPt && histPt.count >= 6) {
-                realCurve.push({ h, kind: "historical", worstRealCAGR: histPt.worstRealCAGR });
-              } else {
-                const mcPt = rollingRealReturnsMC(paired, h, mcPaths, mc.block, 91 + pid.length * 31 + pct * 7 + h);
-                if (mcPt) realCurve.push({ h, kind: "mc", worstRealCAGR: mcPt.worstRealCAGR });
-                else realCurve.push({ h, kind: "none", worstRealCAGR: null });
+            // Same truncation as in realResults: drop tail months without CPI.
+            let cut = months.length;
+            for (let i = 0; i < months.length; i++) {
+              if (cpiAligned[i] == null) { cut = i; break; }
+            }
+            if (cut >= 13) {
+              const upTrunc = r.unitPriceSeries.slice(0, cut);
+              const cpiTrunc = cpiAligned.slice(0, cut);
+              const hist = rollingRealReturns(upTrunc, cpiTrunc, H_MAX);
+              const paired = buildPairedReturns(upTrunc, cpiTrunc);
+              realCurve = [];
+              for (let h = 1; h <= H_MAX; h++) {
+                const histPt = hist.find(x => x.h === h);
+                if (histPt && histPt.count >= 6) {
+                  realCurve.push({ h, kind: "historical", worstRealCAGR: histPt.worstRealCAGR });
+                } else {
+                  const mcPt = rollingRealReturnsMC(paired, h, mcPaths, mc.block, 91 + pid.length * 31 + pct * 7 + h);
+                  if (mcPt) realCurve.push({ h, kind: "mc", worstRealCAGR: mcPt.worstRealCAGR });
+                  else realCurve.push({ h, kind: "none", worstRealCAGR: null });
+                }
               }
             }
           }
@@ -1469,16 +1478,22 @@ function App() {
     for (const pid of Object.keys(simResults)) {
       const r = simResults[pid];
       if (!r) continue;
-      const months = useNativeHistory
-        ? r.months
-        : r.months;   // simResults are already on common window; native-history would require re-sim per portfolio on own window — TODO advanced toggle. For now we honour intersection.
+      // Truncate to the prefix of months that have CPI data. Tail months
+      // missing because CPI publishes with a 2-4 month lag are dropped.
+      let cut = r.months.length;
+      for (let i = 0; i < r.months.length; i++) {
+        if (!cpiMap.has(r.months[i])) { cut = i; break; }
+      }
+      const months = r.months.slice(0, cut);
+      const upTrunc = r.unitPriceSeries.slice(0, cut);
       const cpiAligned = months.map(m => cpiMap.get(m));
-      if (cpiAligned.some(v => v == null)) {
-        out[pid] = { error: "CPI does not cover the full window" };
+      if (cut < 13 || cpiAligned.some(v => v == null)) {
+        out[pid] = { error: cut < 13 ? "CPI window too short for rolling 1y returns" : "CPI alignment failed" };
         continue;
       }
-      const hist = rollingRealReturns(r.unitPriceSeries, cpiAligned, H_MAX);
-      const paired = buildPairedReturns(r.unitPriceSeries, cpiAligned);
+      const droppedTail = r.months.length - cut;
+      const hist = rollingRealReturns(upTrunc, cpiAligned, H_MAX);
+      const paired = buildPairedReturns(upTrunc, cpiAligned);
       // For each h, decide historical vs MC and fill the gap
       const curve = [];
       for (let h = 1; h <= H_MAX; h++) {
@@ -1501,7 +1516,7 @@ function App() {
         }
         if (allOk) { hStar = curve[i].h; break; }
       }
-      out[pid] = { curve, hStar };
+      out[pid] = { curve, hStar, droppedTail };
     }
     return out;
   }, [simResults, series.cpi, mc, useNativeHistory]);
@@ -2393,6 +2408,12 @@ function App() {
                 <div className="panel-body tight footnote">
                   Solid line = historically backed (window count &ge; 6). Dashed = Monte Carlo extension via paired block-bootstrap of (portfolio return, CPI return) together to preserve gold/inflation co-movement.
                   CPI source: {manifest?.assets?.cpi?.source || "manual paste"} &middot; last point {series.cpi ? series.cpi[series.cpi.length - 1].month : "—"}.
+                  {(() => {
+                    const drops = Object.values(realResults || {}).map(r => r?.droppedTail || 0).filter(n => n > 0);
+                    if (drops.length === 0) return null;
+                    const m = Math.max(...drops);
+                    return <> &middot; <strong>tail truncation:</strong> last {m} month{m !== 1 ? "s" : ""} of the simulation window dropped because CPI hasn't published yet (typical publication lag).</>;
+                  })()}
                 </div>
               </div>
             )}

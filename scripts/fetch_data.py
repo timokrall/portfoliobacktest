@@ -69,9 +69,9 @@ def sanitize_header(name, value):
 STOOQ_SOURCES = [
     # (output asset name, stooq symbol)
     ("momentum", "is3r.de"),   # iShares Edge MSCI World Momentum Factor (IE00BP3QZ825)
-    ("gold",     "4gld.de"),   # EUWAX Gold II (DE000EWG2LD7) — Xetra-Gold proxy / fallback
     ("market",   "spyi.de"),   # SPDR MSCI ACWI IMI UCITS ETF (IE00B3YLTY66)
 ]
+STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json
 
 # --- Ariva config for the CoIQ Collective Intelligence Fund (DE000A3C91C5) ---
 # Ariva uses internal numeric IDs (`secu` = security id, `boerse_id` = venue).
@@ -84,9 +84,9 @@ ARIVA_SECU = ""
 ARIVA_BOERSE_ID = ""
 ARIVA_MIN_DATE = "2020-01-01"
 
-def load_ariva_config():
-    """Returns (secu, boerse_id) from data/ariva.json if present, else from constants."""
-    cfg = DATA_DIR / "ariva.json"
+def load_ariva_config(filename="ariva.json"):
+    """Returns (secu, boerse_id) from data/<filename> if present."""
+    cfg = DATA_DIR / filename
     if cfg.exists():
         try:
             j = json.loads(cfg.read_text())
@@ -95,8 +95,10 @@ def load_ariva_config():
             if s and b:
                 return s, b
         except Exception as e:
-            log(f"WARN: data/ariva.json unreadable: {e}")
-    return ARIVA_SECU.strip(), ARIVA_BOERSE_ID.strip()
+            log(f"WARN: data/{filename} unreadable: {e}")
+    if filename == "ariva.json":
+        return ARIVA_SECU.strip(), ARIVA_BOERSE_ID.strip()
+    return "", ""
 
 # ----------------------------------------------------------------------------
 # Logging
@@ -141,12 +143,23 @@ def fetch_stooq(symbol):
 
 
 def fetch_ariva_coiq():
-    secu, boerse_id = load_ariva_config()
+    secu, boerse_id = load_ariva_config("ariva.json")
     if not secu or not boerse_id:
         raise RuntimeError(
             "ariva secu/boerse_id not configured. Set them via the app's Setup "
             "panel (creates data/ariva.json), or edit scripts/fetch_data.py."
         )
+    return _fetch_ariva(secu, boerse_id, "coIQ")
+
+
+def fetch_ariva_gold():
+    secu, boerse_id = load_ariva_config("ariva-gold.json")
+    if not secu or not boerse_id:
+        return None  # not configured — caller will fall back to stooq
+    return _fetch_ariva(secu, boerse_id, "gold")
+
+
+def _fetch_ariva(secu, boerse_id, label):
     max_t = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     url = (
         "https://www.ariva.de/quote/historic/historic.csv"
@@ -163,9 +176,9 @@ def fetch_ariva_coiq():
     }
     if ARIVA_COOKIE:
         headers["Cookie"] = sanitize_header("ARIVA_COOKIE", ARIVA_COOKIE)
-    log(f"ariva GET {url}")
+    log(f"ariva({label}) GET {url}")
     r = requests.get(url, headers=headers, timeout=TIMEOUT)
-    log(f"ariva HTTP {r.status_code} · content-type={r.headers.get('content-type', '?')} · {len(r.text)} bytes")
+    log(f"ariva({label}) HTTP {r.status_code} · content-type={r.headers.get('content-type', '?')} · {len(r.text)} bytes")
     r.raise_for_status()
     body = r.text.strip()
     snippet = body[:300].replace("\n", " ").replace("\r", " ")
@@ -231,7 +244,7 @@ def fetch_ariva_coiq():
         if v <= 0:
             continue
         rows.append((d, v))
-    log(f"ariva: parsed {len(rows)} rows from {len(all_rows) - 1} CSV lines")
+    log(f"ariva({label}): parsed {len(rows)} rows from {len(all_rows) - 1} CSV lines")
     return rows
 
 # ----------------------------------------------------------------------------
@@ -335,6 +348,37 @@ def main():
             log(f"FAIL {name}: {e}")
             traceback.print_exc(file=sys.stderr)
             # Do NOT overwrite existing data/{name}.csv on failure.
+
+    # --- gold: ariva (full history) if configured, else stooq ---
+    try:
+        log("fetching gold")
+        rows = None
+        source = None
+        ariva_rows = fetch_ariva_gold()
+        if ariva_rows is not None:
+            rows = ariva_rows
+            source = "ariva:DE000A0S9GB0"
+        else:
+            log("gold: data/ariva-gold.json not configured, falling back to stooq " + STOOQ_GOLD_SYMBOL)
+            rows = fetch_stooq(STOOQ_GOLD_SYMBOL)
+            source = f"stooq:{STOOQ_GOLD_SYMBOL}"
+        rows, bad, days_old = validate(rows, "gold")
+        write_csv(DATA_DIR / "gold.csv", rows)
+        manifest["assets"]["gold"] = {
+            "source": source,
+            "lastDate": rows[-1][0],
+            "rows": len(rows),
+            "fetchedAt": manifest["fetchedAt"],
+            "warnings": (
+                ([f"{len(bad)} single-day moves > 60%"] if bad else [])
+                + ([f"{days_old} days stale"] if days_old > 10 else [])
+            ),
+        }
+        log(f"OK gold: {len(rows)} rows through {rows[-1][0]} (via {source})")
+    except Exception as e:
+        errors["gold"] = str(e)
+        log(f"FAIL gold (keeping previous data/gold.csv if present): {e}")
+        traceback.print_exc(file=sys.stderr)
 
     try:
         log("fetching ariva coIQ")

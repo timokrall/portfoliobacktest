@@ -70,8 +70,13 @@ STOOQ_SOURCES = [
     # (output asset name, stooq symbol)
     ("momentum", "is3r.de"),   # iShares Edge MSCI World Momentum Factor (IE00BP3QZ825)
     ("market",   "spyi.de"),   # SPDR MSCI ACWI IMI UCITS ETF (IE00B3YLTY66)
+    ("signal",   "vt.us"),     # Vanguard Total World VT — used ONLY as the 200-SMA signal
 ]
 STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json
+# Leverage Shares 3x Long Total World ETP (XS2399364822, WKN A3GWC0). Not on
+# Stooq under a stable symbol — manual CSV upload via the app is the supported
+# path. We still register the asset in the manifest so the UI shows status.
+LEV3X_ASSET_NAME = "lev3x"
 
 # German CPI via FRED (OECD source). No auth needed.
 # DEUCPIALLMINMEI = Consumer Price Index: All Items for Germany, monthly, 2015=100.

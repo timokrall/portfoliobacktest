@@ -242,17 +242,61 @@ function parseCsvToMonthly(text) {
   return keys.map(k => ({ month: k, value: map.get(k) }));
 }
 
+// Daily parse — returns ALL trading-day points {date: "YYYY-MM-DD", t: ms, value}
+// sorted ascending, deduped (last value wins per date). Used only when at
+// least one portfolio has 200-SMA timing ON.
+function parseCsvToDaily(text) {
+  const out = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, dynamicTyping: false });
+  if (out.errors.length > 0 && (!out.data || out.data.length === 0)) throw new Error(out.errors[0].message);
+  const rows = out.data;
+  const cols = Object.keys(rows[0] || {});
+  const dateCol = cols.find(c => /^date$/i.test(c)) || cols.find(c => /date/i.test(c)) || cols[0];
+  const valCol  = cols.find(c => /^(value|close|nav|price|adj.?close)$/i.test(c)) || cols.find(c => /(value|close|nav|price)/i.test(c)) || cols[1];
+  if (!dateCol || !valCol) return [];
+  const map = new Map();
+  for (const r of rows) {
+    const ds = (r[dateCol] || "").trim();
+    const vs = (r[valCol] || "").toString().replace(",", ".").trim();
+    if (!ds || !vs) continue;
+    const t = Date.parse(ds);
+    const v = parseFloat(vs);
+    if (!isFinite(t) || !isFinite(v) || v <= 0) continue;
+    const d = new Date(t);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    map.set(key, { date: key, t, value: v });
+  }
+  const sorted = [...map.values()].sort((a, b) => a.t - b.t);
+  return sorted;
+}
+
 // ---------- assets ----------
+// `taxLike: "fund"` triggers Vorabpauschale + Teilfreistellung. `taxLike: "debt"`
+// (gold + lev3x ETP) skips both: taxed only on actual sale via §23 EStG.
+// `holdable: false` means the series is loaded as a SIGNAL ONLY — never held.
 const ASSETS = [
-  { id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",
+  { id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",     taxLike: "fund", holdable: true,
     label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series" },
-  { id: "momentum", file: "momentum.csv", manifestKey: "momentum",
+  { id: "momentum", file: "momentum.csv", manifestKey: "momentum", taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)" },
-  { id: "gold",     file: "gold.csv",     manifestKey: "gold",
+  { id: "gold",     file: "gold.csv",     manifestKey: "gold",     taxLike: "debt", holdable: true,
     label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT" },
-  { id: "market",   file: "market.csv",   manifestKey: "market",
+  { id: "market",   file: "market.csv",   manifestKey: "market",   taxLike: "fund", holdable: true,
     label: "SPDR MSCI ACWI IMI UCITS ETF",        isin: "IE00B3YLTY66", equity: true,  defaultOngoing: 0.18, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra SPYI / IMIE)" },
+  { id: "lev3x",    file: "lev3x.csv",    manifestKey: "lev3x",    taxLike: "debt", holdable: true,
+    label: "Leverage Shares 3x Long Total World ETP", isin: "XS2399364822", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,
+    note: "ETP / debt security — 3x daily, decay & financing already in price. WKN A3GWC0." },
+  { id: "signal",   file: "signal.csv",   manifestKey: "signal",   taxLike: null,   holdable: false,
+    label: "FTSE All-World (VT) — 200-SMA signal only",  isin: "US9220427424", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 0,
+    note: "NEVER held. Signal for 200-day SMA timing toggle. ACWI IMI may proxy if VT unavailable." },
 ];
+
+// IDs that are taxed like a debt security: no Vorabpauschale, no
+// Teilfreistellung. (gold = Inhaberschuldverschreibung; lev3x = ETP.)
+const DEBT_TAX_IDS = new Set(["gold", "lev3x"]);
+
+// IDs that the engine NEVER sells (no maturity gate, no rebalance sale).
+// Risk legs are always one-way; gold IS sold by the rebalancing gate.
+const NEVER_SOLD = new Set(["lev3x"]);
 
 // Same-origin load of pre-fetched CSVs committed by the weekly GitHub Action.
 // No CORS, no proxies, no rate-limits. If a file is missing the user can still
@@ -277,8 +321,10 @@ async function loadManifest() {
 const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "German CPI (FRED DEUCPIALLMINMEI)", isin: "FRED:DEUCPIALLMINMEI", note: "monthly CPI level, 2015=100" };
 
 const PORTFOLIOS = [
-  { id: "gold_coIQ",     name: "Gold + coIQ",     assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
-  { id: "gold_momentum", name: "Gold + Momentum", assets: ["gold", "momentum"], defaultGold: 30, equityId: "momentum" },
+  { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
+  { id: "gold_momentum", name: "Gold + Momentum",        assets: ["gold", "momentum"], defaultGold: 30, equityId: "momentum" },
+  { id: "gold_lev3x",    name: "Gold + 3x Total World",  assets: ["gold", "lev3x"],    defaultGold: 30, equityId: "lev3x",
+    illustrativeOnly: true },
   { id: "market",        name: "Market (100% ACWI IMI)", assets: ["market"], defaultGold: 0, equityId: "market", isMarket: true },
 ];
 
@@ -913,7 +959,7 @@ function simulatePortfolioV2(state) {
           const perAssetTaxable = {};
           let totalTaxable = 0;
           for (const a of assets) {
-            if (a === "gold") continue;
+            if (DEBT_TAX_IDS.has(a)) continue;     // gold + lev3x ETP: no VP
             perAssetTaxable[a] = 0;
             for (const lot of equityLots[a]) {
               if (lot.units <= 0) continue;
@@ -1162,6 +1208,69 @@ function buildPairedReturns(unitPrice, cpiAligned) {
   return out;
 }
 
+// ---------- 200-SMA daily timing engine ----------
+// Given daily risk-leg + daily signal (FTSE All-World VT or proxy), produces a
+// month-end "synthetic risk-leg unit price" series with the timing rule applied:
+//   each trading day d: if signal_close(d-1) > SMA200(d-1) → HOLD risk leg;
+//   else → CASH (earning cash_rate/252 daily). On every switch, charge buy/sell
+//   spreads + a percent order fee. Gold is never timed (handled elsewhere).
+// Output is a [{month, value}] monthly series the existing engine consumes.
+function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spreadBuyPct, spreadSellPct, orderFee) {
+  if (!riskDaily?.length || !signalDaily?.length) return null;
+  // intersect by date (both must have a print that day)
+  const sigMap = new Map(signalDaily.map(p => [p.date, p.value]));
+  const joined = riskDaily.filter(p => sigMap.has(p.date));
+  if (joined.length < 220) return null;
+  const risk = joined.map(p => p.value);
+  const sig  = joined.map(p => sigMap.get(p.date));
+  // rolling 200-day SMA on signal
+  const SMA = new Array(joined.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < joined.length; i++) {
+    sum += sig[i];
+    if (i >= 200) sum -= sig[i - 200];
+    if (i >= 199) SMA[i] = sum / 200;
+  }
+  const dailyCash = Math.pow(1 + (cashRateAnnual || 0) / 100, 1 / 252) - 1;
+  const buyDrag   = 1 - (spreadBuyPct  || 0) / 100;
+  const sellDrag  = 1 - (spreadSellPct || 0) / 100;
+  // Per-flip percent fee. The fixed-EUR fee doesn't translate cleanly into
+  // unit-price space — fixed fees are typically a fraction of a percent of
+  // a flip, so we fold them in as an additional fixed bp drag.
+  const fixedFeeBpDrag = orderFee?.fixed > 0 ? 0.9998 : 1;   // ~2 bp per flip as approximation
+  const feePctDrag = 1 - (orderFee?.pct || 0) / 100;
+  let unit = 100;
+  let prevPos = null;
+  let flips = 0;
+  const monthEnd = new Map();
+  const startIdx = 200;   // first day where SMA[i-1] = SMA[199] is available
+  for (let i = startIdx; i < joined.length; i++) {
+    const pos = (sig[i - 1] > SMA[i - 1]) ? "risk" : "cash";
+    if (prevPos !== null && pos !== prevPos) {
+      let drag = 1;
+      if (prevPos === "risk") drag *= sellDrag * feePctDrag * fixedFeeBpDrag;
+      if (pos === "risk")     drag *= buyDrag  * feePctDrag * fixedFeeBpDrag;
+      unit *= drag;
+      flips++;
+    }
+    if (pos === "risk") {
+      const r = risk[i] / risk[i - 1] - 1;
+      if (isFinite(r)) unit *= (1 + r);
+    } else {
+      unit *= (1 + dailyCash);
+    }
+    prevPos = pos;
+    const mk = joined[i].date.slice(0, 7);
+    monthEnd.set(mk, unit);
+  }
+  const months = [...monthEnd.keys()].sort();
+  return {
+    series: months.map(m => ({ month: m, value: monthEnd.get(m) })),
+    flips,
+    coveredFromDate: joined[startIdx]?.date,
+  };
+}
+
 // ---------- Linear regression (OLS) ----------
 function regress(y, x) {
   const n = Math.min(y.length, x.length);
@@ -1186,10 +1295,13 @@ function App() {
   const storage = useStorage();
 
   // --- raw CSVs (text) and parsed monthly series ---
-  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", gold: "", market: "", cpi: "" });
-  const [series, setSeries] = useState({ coIQ: null, momentum: null, gold: null, market: null, cpi: null });
+  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", gold: "", market: "", lev3x: "", signal: "", cpi: "" });
+  const [series, setSeries] = useState({ coIQ: null, momentum: null, gold: null, market: null, lev3x: null, signal: null, cpi: null });
+  // Daily series — populated alongside monthly when at least one portfolio
+  // has 200-SMA timing ON. Used by buildTimedRiskLegMonthly.
+  const [seriesDaily, setSeriesDaily] = useState({ coIQ: null, momentum: null, gold: null, market: null, lev3x: null, signal: null });
   const [seriesError, setSeriesError] = useState({});
-  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", gold: "net", market: "net" });
+  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", gold: "net", market: "net", lev3x: "net" });
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
   const [manifest, setManifest] = useState(null);
 
@@ -1208,14 +1320,22 @@ function App() {
   const [starting, setStarting] = useState(10000);
   const [monthly, setMonthly] = useState(500);
   const [rebalance, setRebalance] = useState("yearly");
-  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "market"]);
-  const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
+  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "gold_lev3x", "market"]);
+  const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30, gold_lev3x: 30 });
+
+  // --- v2: planning horizon + cash rate (200-SMA toggle's risk-off leg) ---
+  const [hPlan, setHPlan] = useState(10);       // years
+  const [cashRate, setCashRate] = useState(0);  // %/yr — earns this when 200-SMA is risk-off
+
+  // --- v2: per-portfolio 200-SMA timing toggle (daily engine) ---
+  const [portfolioTiming, setPortfolioTiming] = useState({ gold_coIQ: false, gold_momentum: false, gold_lev3x: false, market: false });
+
+  // --- v2: optional "own native history" toggle (per-portfolio full window
+  //         instead of common intersection — explicitly NOT COMPARABLE).
+  const [ownNativeHistory, setOwnNativeHistory] = useState(false);
 
   // --- monte carlo ---
   const [mc, setMc] = useState({ paths: 2000, horizon: 120, block: 6 });
-
-  // --- v2: real-return preservation + gold-share optimizer ---
-  const H_PLAN = 10;   // fixed planning horizon for the headline banner
 
   // initialize cost / spread defaults
   useEffect(() => {
@@ -1226,15 +1346,17 @@ function App() {
 
   // ---- save / load entire state ----
   const collectState = useCallback(() => ({
-    csvText, series, seriesType, ongoingCost, spreads, orderFee,
+    csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee,
     taxRate, allowance, teilfreistellung, basiszins,
-    starting, monthly, rebalance, selectedPortfolios, goldWeights, mc,
-  }), [csvText, series, seriesType, ongoingCost, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, mc]);
+    starting, monthly, rebalance, selectedPortfolios, goldWeights,
+    hPlan, cashRate, portfolioTiming, ownNativeHistory, mc,
+  }), [csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, hPlan, cashRate, portfolioTiming, ownNativeHistory, mc]);
 
   const applyState = (s) => {
     if (!s) return;
     if (s.csvText) setCsvText(s.csvText);
     if (s.series) setSeries(s.series);
+    if (s.seriesDaily) setSeriesDaily(s.seriesDaily);
     if (s.seriesType) setSeriesType(s.seriesType);
     if (s.ongoingCost) setOngoingCost(s.ongoingCost);
     if (s.spreads) setSpreads(s.spreads);
@@ -1248,6 +1370,10 @@ function App() {
     if (s.rebalance) setRebalance(s.rebalance);
     if (s.selectedPortfolios) setSelectedPortfolios(s.selectedPortfolios);
     if (s.goldWeights) setGoldWeights(s.goldWeights);
+    if (s.hPlan != null) setHPlan(s.hPlan);
+    if (s.cashRate != null) setCashRate(s.cashRate);
+    if (s.portfolioTiming) setPortfolioTiming(s.portfolioTiming);
+    if (s.ownNativeHistory != null) setOwnNativeHistory(s.ownNativeHistory);
     if (s.mc) setMc(s.mc);
   };
 
@@ -1265,13 +1391,25 @@ function App() {
   // ---- CSV handling ----
   const onCsvChange = (id, text) => {
     setCsvText(prev => ({ ...prev, [id]: text }));
-    if (!text || !text.trim()) { setSeries(prev => ({ ...prev, [id]: null })); setSeriesError(p => ({ ...p, [id]: null })); return; }
+    if (!text || !text.trim()) {
+      setSeries(prev => ({ ...prev, [id]: null }));
+      setSeriesDaily(prev => ({ ...prev, [id]: null }));
+      setSeriesError(p => ({ ...p, [id]: null }));
+      return;
+    }
     try {
       const monthly = parseCsvToMonthly(text);
       setSeries(prev => ({ ...prev, [id]: monthly }));
       setSeriesError(p => ({ ...p, [id]: null }));
+      if (id !== "cpi") {
+        try {
+          const daily = parseCsvToDaily(text);
+          setSeriesDaily(prev => ({ ...prev, [id]: daily }));
+        } catch { /* daily parse is best-effort; monthly is authoritative */ }
+      }
     } catch (e) {
       setSeries(prev => ({ ...prev, [id]: null }));
+      setSeriesDaily(prev => ({ ...prev, [id]: null }));
       setSeriesError(p => ({ ...p, [id]: e.message }));
     }
   };
@@ -1312,56 +1450,132 @@ function App() {
   }, []);
 
   // ---- compute common window for selected portfolios ----
-  const assetsNeeded = useMemo(() => {
-    const set = new Set();
+  // ---- per-portfolio monthly series (with optional 200-SMA timing applied
+  //      to the risk leg). Gold series is always the raw monthly. -------------
+  const pfAssetSeries = useMemo(() => {
+    const out = {};
     for (const pid of selectedPortfolios) {
       const pf = PORTFOLIOS.find(p => p.id === pid);
-      pf.assets.forEach(a => set.add(a));
+      if (!pf) continue;
+      const map = {};
+      const timed = !!portfolioTiming[pid];
+      for (const a of pf.assets) {
+        if (a === pf.equityId && timed) {
+          const eqDaily = seriesDaily[a];
+          const sigDaily = seriesDaily.signal;
+          const sp = spreads[a] || { buy: 0, sell: 0 };
+          if (eqDaily && sigDaily) {
+            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cashRate, sp.buy, sp.sell, orderFee);
+            if (res && res.series.length >= 12) { map[a] = res.series; map.__timed = res; continue; }
+          }
+          // fall back to raw monthly with a flag so UI can flag it
+          map[a] = series[a];
+          map.__timedFallback = true;
+        } else {
+          map[a] = series[a];
+        }
+      }
+      out[pid] = map;
     }
-    return [...set];
-  }, [selectedPortfolios]);
+    return out;
+  }, [selectedPortfolios, portfolioTiming, seriesDaily, series, cashRate, spreads, orderFee]);
 
+  // ---- per-portfolio windows (each portfolio's own intersection) ----------
+  const perPortfolioWindow = useMemo(() => {
+    const out = {};
+    for (const pid of selectedPortfolios) {
+      const pf = PORTFOLIOS.find(p => p.id === pid);
+      if (!pf) continue;
+      const map = pfAssetSeries[pid];
+      if (!map) { out[pid] = { ok: false }; continue; }
+      const arrs = pf.assets.map(a => map[a]);
+      if (arrs.some(a => !a || a.length === 0)) {
+        out[pid] = { ok: false, missing: pf.assets.filter(a => !map[a]) };
+        continue;
+      }
+      const sets = arrs.map(a => new Set(a.map(r => r.month)));
+      const all = [...sets[0]].filter(m => sets.every(s => s.has(m))).sort();
+      if (all.length < 12) { out[pid] = { ok: false, tooShort: true, n: all.length }; continue; }
+      out[pid] = { ok: true, months: all, start: all[0], end: all[all.length - 1] };
+    }
+    return out;
+  }, [selectedPortfolios, pfAssetSeries]);
+
+  // ---- common window (intersection across portfolios OR per-portfolio when
+  //      ownNativeHistory is ON) -----------------------------------------------
   const commonWindow = useMemo(() => {
-    if (assetsNeeded.length === 0) return null;
-    const arrs = assetsNeeded.map(a => series[a]);
-    if (arrs.some(a => !a || a.length === 0)) return { ok: false, missing: assetsNeeded.filter(a => !series[a]) };
-    const sets = arrs.map(a => new Set(a.map(r => r.month)));
+    if (selectedPortfolios.length === 0) return null;
+    const winList = selectedPortfolios.map(pid => perPortfolioWindow[pid]);
+    if (winList.some(w => !w?.ok)) {
+      // surface a useful message
+      const missing = [];
+      for (const pid of selectedPortfolios) {
+        const pf = PORTFOLIOS.find(p => p.id === pid);
+        const map = pfAssetSeries[pid] || {};
+        for (const a of pf.assets) if (!map[a]) missing.push(a);
+        if (portfolioTiming[pid] && !seriesDaily.signal) missing.push("signal");
+        if (portfolioTiming[pid] && !seriesDaily[pf.equityId]) missing.push(pf.equityId + " (daily)");
+      }
+      const tooShort = winList.find(w => w && !w.ok && w.tooShort);
+      if (tooShort) return { ok: false, tooShort: true, n: tooShort.n };
+      return { ok: false, missing: [...new Set(missing)] };
+    }
+    if (ownNativeHistory) {
+      const all = new Set();
+      winList.forEach(w => w.months.forEach(m => all.add(m)));
+      const months = [...all].sort();
+      return { ok: true, months, start: months[0], end: months[months.length - 1], perPortfolio: true };
+    }
+    const sets = winList.map(w => new Set(w.months));
     const all = [...sets[0]].filter(m => sets.every(s => s.has(m))).sort();
     if (all.length < 12) return { ok: false, tooShort: true, n: all.length };
     return { ok: true, months: all, start: all[0], end: all[all.length - 1] };
-  }, [series, assetsNeeded]);
+  }, [selectedPortfolios, perPortfolioWindow, pfAssetSeries, portfolioTiming, seriesDaily, ownNativeHistory]);
 
-  // build per-portfolio trimmed data
-  const buildPortfolioData = useCallback((pf, months) => {
+  // build per-portfolio trimmed data (uses pfAssetSeries with timing applied)
+  const buildPortfolioData = useCallback((pf, months, assetMap) => {
     const d = {};
     const set = new Set(months);
+    const map = assetMap || {};
     for (const a of pf.assets) {
-      const arr = series[a];
+      const arr = map[a];
       if (!arr) return null;
       d[a] = arr.filter(r => set.has(r.month));
+      if (d[a].length === 0) return null;
     }
     return d;
-  }, [series]);
+  }, []);
 
   // ---- run simulations ----
   const simResults = useMemo(() => {
     if (!commonWindow || !commonWindow.ok) return null;
-    const months = commonWindow.months;
     const out = {};
     for (const pid of selectedPortfolios) {
       const pf = PORTFOLIOS.find(p => p.id === pid);
-      const data = buildPortfolioData(pf, months);
+      const months = ownNativeHistory ? perPortfolioWindow[pid]?.months : commonWindow.months;
+      if (!months) continue;
+      const data = buildPortfolioData(pf, months, pfAssetSeries[pid]);
       if (!data) continue;
       const targetGoldPct = pf.isMarket ? 0 : (goldWeights[pid] || 0) / 100;
+      // For timed risk legs we feed the synthetic monthly series directly; the
+      // "gross" ongoing-cost drag is suppressed for that asset because the
+      // daily engine already compounds at the underlying daily-price level
+      // (and we are not double-charging ETF ongoing cost on cash days).
+      const effectiveType = { ...seriesType };
+      if (portfolioTiming[pid]) effectiveType[pf.equityId] = "net";
       const state = {
-        portfolio: pf, targetGoldPct, data, seriesType, ongoingCost, spreads, orderFee,
+        portfolio: pf, targetGoldPct, data,
+        seriesType: effectiveType, ongoingCost, spreads, orderFee,
         tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
         starting, monthly, rebalance,
       };
       out[pid] = runSim(state);
+      if (out[pid] && pfAssetSeries[pid]?.__timed) {
+        out[pid].timing = { flips: pfAssetSeries[pid].__timed.flips, since: pfAssetSeries[pid].__timed.coveredFromDate };
+      }
     }
     return out;
-  }, [commonWindow, selectedPortfolios, goldWeights, series, seriesType, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData]);
+  }, [commonWindow, perPortfolioWindow, pfAssetSeries, selectedPortfolios, goldWeights, seriesType, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData, ownNativeHistory, portfolioTiming]);
 
   // ---- optimal gold sweep per two-asset portfolio (in-sample) ----
   const [sweepResults, setSweepResults] = useState({});
@@ -1371,23 +1585,26 @@ function App() {
     if (!commonWindow || !commonWindow.ok) return;
     setSweepRunning(true);
     setTimeout(() => {
-      const months = commonWindow.months;
       const cpiMap = series.cpi ? new Map(series.cpi.map(r => [r.month, r.value])) : null;
-      const cpiAligned = cpiMap ? months.map(m => cpiMap.get(m)) : null;
-      const cpiOk = !!cpiMap && cpiAligned.some(v => v != null);
       const mcPaths = Math.min(500, mc.paths);   // keep sweep tolerable
 
       const out = {};
       for (const pid of selectedPortfolios) {
         const pf = PORTFOLIOS.find(p => p.id === pid);
         if (pf.isMarket) continue;
-        const data = buildPortfolioData(pf, months);
+        const pfMonths = ownNativeHistory ? perPortfolioWindow[pid]?.months : commonWindow.months;
+        if (!pfMonths) continue;
+        const cpiAligned = cpiMap ? pfMonths.map(m => cpiMap.get(m)) : null;
+        const cpiOk = !!cpiMap && cpiAligned && cpiAligned.some(v => v != null);
+        const data = buildPortfolioData(pf, pfMonths, pfAssetSeries[pid]);
         if (!data) continue;
         let best = { w: pf.defaultGold, sortino: -Infinity };
         const samples = [];
         for (let pct = 0; pct <= 100; pct += 1) {
+          const effectiveType = { ...seriesType };
+          if (portfolioTiming[pid]) effectiveType[pf.equityId] = "net";
           const state = {
-            portfolio: pf, targetGoldPct: pct / 100, data, seriesType, ongoingCost, spreads, orderFee,
+            portfolio: pf, targetGoldPct: pct / 100, data, seriesType: effectiveType, ongoingCost, spreads, orderFee,
             tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
             starting, monthly, rebalance,
           };
@@ -1399,8 +1616,8 @@ function App() {
           let realCurve = null;
           if (cpiOk) {
             // Same truncation as in realResults: drop tail months without CPI.
-            let cut = months.length;
-            for (let i = 0; i < months.length; i++) {
+            let cut = pfMonths.length;
+            for (let i = 0; i < pfMonths.length; i++) {
               if (cpiAligned[i] == null) { cut = i; break; }
             }
             if (cut >= 13) {
@@ -1530,13 +1747,23 @@ function App() {
   const chartData = useMemo(() => {
     if (!simResults || !commonWindow || !commonWindow.ok) return null;
     const months = commonWindow.months;
-    const rows = months.map((m, i) => {
+    // Per-portfolio map: month -> {unit, dd}. Handles ownNativeHistory where
+    // each portfolio's series can span a different range of months.
+    const pfMaps = {};
+    for (const pid of Object.keys(simResults)) {
+      const r = simResults[pid];
+      if (!r || !r.months) continue;
+      const m = new Map();
+      for (let i = 0; i < r.months.length; i++) {
+        m.set(r.months[i], { unit: r.unitPriceSeries[i], dd: r.ddSeries[i] * 100 });
+      }
+      pfMaps[pid] = m;
+    }
+    const rows = months.map((m) => {
       const row = { month: m, label: m };
-      for (const pid of Object.keys(simResults)) {
-        const r = simResults[pid];
-        if (!r) continue;
-        row[pid] = r.unitPriceSeries[i];
-        row[pid + "_dd"] = r.ddSeries[i] * 100;
+      for (const pid of Object.keys(pfMaps)) {
+        const pt = pfMaps[pid].get(m);
+        if (pt) { row[pid] = pt.unit; row[pid + "_dd"] = pt.dd; }
       }
       return row;
     });
@@ -2022,11 +2249,15 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">v2 horizon · cash rate · 200-SMA per portfolio</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
               <NumField label="Monthly contribution (EUR)" value={monthly} onChange={setMonthly} step={50} />
+            </div>
+            <div className="grid grid-2" style={{ gap: 14, marginTop: 12 }}>
+              <NumField label="Planning horizon H_plan (years)" value={hPlan} step={1} onChange={v => setHPlan(Math.max(1, Math.min(30, v)))} />
+              <NumField label="Cash rate (%/yr — 200-SMA risk-off leg)" value={cashRate} step={0.1} onChange={setCashRate} />
             </div>
             <div style={{ marginTop: 14 }}>
               <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
@@ -2037,11 +2268,23 @@ function App() {
                   </button>)}
               </div>
             </div>
+            <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
+              <span
+                className={"chip" + (ownNativeHistory ? " on" : "")}
+                onClick={() => setOwnNativeHistory(v => !v)}
+                title="Run each portfolio on its OWN full series instead of the common-intersection window."
+              >
+                <span className="dot"></span>own native history
+              </span>
+              {ownNativeHistory && <span className="tag warn">curves NOT comparable — different bear-market exposure</span>}
+            </div>
 
             <hr style={{ margin: "18px 0" }} />
-            <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Portfolios to compare (min. 2)</div>
+            <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Portfolios to compare (min. 2) &middot; 200-SMA = daily timing of the risk leg via VT signal</div>
             {PORTFOLIOS.map(pf => {
               const on = selectedPortfolios.includes(pf.id);
+              const timed = !!portfolioTiming[pf.id];
+              const fallback = pfAssetSeries[pf.id]?.__timedFallback && timed;
               return (
                 <div key={pf.id} className="pf-row">
                   <span className={"chip" + (on ? " on" : "")} onClick={() => {
@@ -2049,7 +2292,13 @@ function App() {
                   }}>
                     <span className="dot"></span>{pf.name}
                   </span>
+                  {pf.illustrativeOnly && <span className="tag warn" style={{ marginLeft: 6 }}>illustrative only</span>}
                   <span style={{ flex: 1 }}></span>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: "var(--ink-soft)" }}>
+                    <input type="checkbox" checked={timed} onChange={(e) => setPortfolioTiming(t => ({ ...t, [pf.id]: e.target.checked }))} />
+                    200-SMA timing
+                  </label>
+                  {fallback && <span className="tag bad" style={{ fontSize: 10 }}>no daily/signal — falls back to monthly</span>}
                   {!pf.isMarket &&
                     <label className="field pf-w">
                       <span className="lbl"><span>Gold %</span></span>
@@ -2071,7 +2320,7 @@ function App() {
             <table className="bt">
               <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th></tr></thead>
               <tbody>
-                {ASSETS.map(a =>
+                {ASSETS.filter(a => a.holdable).map(a =>
                   <tr key={a.id}>
                     <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin} · {a.note}</div></td>
                     <td><input type="number" step="0.01" value={ongoingCost[a.id] ?? 0} onChange={e => setOngoingCost(c => ({ ...c, [a.id]: +e.target.value }))} style={{ textAlign: "right" }} /></td>
@@ -2165,7 +2414,7 @@ function App() {
 
             {/* V2 admissibility banner (replaces v1 Sortino winner) */}
             {(() => {
-              const hp = H_PLAN;
+              const hp = hPlan;
               const rows = selectedPortfolios.map(pid => {
                 const sim = simResults?.[pid]; const real = realResults?.[pid];
                 if (!sim || !real || real.error) return null;
@@ -2224,8 +2473,12 @@ function App() {
                     </div>
                   )}
                   <div className="caveat">
-                    Window {commonWindow.start} &rarr; {commonWindow.end} ({(commonWindow.months.length / 12).toFixed(1)} years).
+                    {ownNativeHistory
+                      ? <>Per-portfolio native history (each row uses its own series — curves NOT comparable). Union window {commonWindow.start} &rarr; {commonWindow.end}.</>
+                      : <>Window {commonWindow.start} &rarr; {commonWindow.end} ({(commonWindow.months.length / 12).toFixed(1)} years).</>}
                     {shortRegime && " Single-regime sample \u2014 no equity bear market in window. Beyond ~3 years all numbers are Monte Carlo."}
+                    {selectedPortfolios.includes("gold_lev3x") && <> · <strong>Gold + 3x Total World is illustrative only</strong> — short bull-only sample.</>}
+                    {" · CPI: "}<span className="mono">{manifest?.assets?.cpi?.source || "manual upload"}</span>{series.cpi ? <> through <span className="mono">{series.cpi[series.cpi.length - 1].month}</span></> : null}.
                   </div>
                 </div>
               );
@@ -2296,7 +2549,7 @@ function App() {
                     />
                     <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => PORTFOLIOS.find(p => p.id === v.replace("_dd", ""))?.name || v} />
                     {selectedPortfolios.map((pid, i) => {
-                      const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)"];
+                      const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)", "oklch(0.50 0.13 320)"];
                       return <Line key={pid} type="monotone" dataKey={chartMode === "unit" ? pid : pid + "_dd"}
                                    stroke={colors[i % colors.length]} dot={false} strokeWidth={1.6} isAnimationActive={false} />;
                     })}
@@ -2314,7 +2567,7 @@ function App() {
                 </div>
                 <div className="panel-body" style={{ height: 360 }}>
                   {(() => {
-                    const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)"];
+                    const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)", "oklch(0.50 0.13 320)"];
                     const data = [];
                     for (let h = 1; h <= H_MAX; h++) {
                       const row = { h };
@@ -2339,7 +2592,7 @@ function App() {
                         <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => PORTFOLIOS.find(p => p.id === v)?.name || v} />
                         <RC.ReferenceLine y={0} stroke="oklch(0.5 0.13 25)" strokeDasharray="4 2" label={{ value: "0% real — CPI break-even", position: "insideTopRight", fill: "oklch(0.5 0.13 25)", fontSize: 10 }} />
                         {selectedPortfolios.map((pid, i) => {
-                          const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)"];
+                          const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)", "oklch(0.50 0.13 320)"];
                           const color = colors[i % colors.length];
                           return <Line key={pid} type="monotone" dataKey={pid} stroke={color} dot={false} strokeWidth={1.8} isAnimationActive={false} />;
                         })}
@@ -2528,6 +2781,13 @@ function App() {
           <p><strong>Costs</strong> — Ongoing fund cost applies as a monthly drag <code>(1 − cost)^(1/12)</code> <em>only</em> for assets toggled to <code>gross</code> (index series). For <code>net</code> series the cost is already inside the data. Buy/sell spreads and per-order fees are applied to every transaction including month-0 purchases.</p>
           <p><strong>Window</strong> — the common window is the intersection of available monthly data across <em>all assets used by all selected portfolios</em>. Selecting any portfolio with coIQ caps the window at ~Feb 2022–present. Short-window comparisons (&lt; 10 years) get a single-regime warning.</p>
           <p><strong>Beyond modelled</strong> — frictionless beyond explicit costs/taxes; no slippage beyond modelled spreads; no withholding-tax leakage at the fund layer beyond Teilfreistellung; no broker order minima; FX risk is assumed zero (series are EUR-denominated).</p>
+          <hr style={{ margin: "12px 0" }} />
+          <p><strong>v2 · Real-preservation verdict</strong> — a portfolio is "real-admissible at horizon h" if its worst-window real CAGR ≥ 0 at h. Real returns are computed by dividing nominal portfolio growth by CPI growth over each h-year window. The CPI series used is <em>{(manifest?.assets?.cpi?.source) || "manual upload"}</em>{series.cpi ? <> · last point <code>{series.cpi[series.cpi.length - 1].month}</code></> : null}. Recommended series: German CPI (Destatis Verbraucherpreisindex / FRED DEUCPIALLMINMEI).</p>
+          <p><strong>v2 · Gold-share optimizer</strong> — <code>w_safe(h)</code> = gold weight maximizing worst real CAGR at h (buffer-maximizing, unstable on this short bear-market-free sample — read as a range, not a point). <code>w_return(h)</code> = smallest gold weight whose worst real CAGR stays ≥ 0 (least gold to remain real-admissible). w_return is the decision-relevant line; w_safe is overfit to a single worst path.</p>
+          <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if VT signal close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. A daily SMA switches more often than a monthly proxy — the extra round-trip costs are real strategy drag and are captured. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
+          <p><strong>v2 · 3x Total World ETP (lev3x)</strong> — Leverage Shares 3x Long Total World ETP, ISIN XS2399364822. We feed the ACTUAL ETP EUR price series; 3x-daily decay and financing cost are already inside the real price (NEVER synthesize). Tax-like-debt (no Vorabpauschale, no Teilfreistellung). Never sold for gold rebalancing. <strong>ILLUSTRATIVE ONLY:</strong> ~4 years of mostly-bull history; the MC bootstrap cannot reproduce a sustained bear it never sampled, and a 3x daily ETP can lose 90 %+ in a 2008-style drawdown.</p>
+          <p><strong>v2 · "Own native history" toggle</strong> — when ON, each portfolio runs over its own full series instead of the common-intersection window. The CPI real-preservation test is absolute, so this is a legitimate exercise — but the resulting curves are <em>not comparable</em>: Gold+Momentum / Market would include real equity bear markets that coIQ and lev3x never saw.</p>
+          <p><strong>v2 · Single-regime caveat</strong> — the default common window (~2022 onward) contains no equity bear market. Every historical worst-case figure is optimistic — coIQ and lev3x most of all. Beyond h ≈ 3 years all curves are Monte Carlo, paired-bootstrapped on the same short sample, so they inherit the same blind spot.</p>
         </div>
       </div>
 

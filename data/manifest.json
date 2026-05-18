@@ -1,5 +1,50 @@
 {
-  "assets": {},
-  "fetchedAt": null,
-  "note": "placeholder — replaced by scripts/fetch_data.py on first run"
+  "assets": {
+    "coiq": {
+      "fetchedAt": "2026-05-18T07:14:51.494534+00:00",
+      "lastDate": "2026-05-13",
+      "rows": 1073,
+      "source": "ariva:DE000A3C91C5",
+      "warnings": []
+    },
+    "cpi": {
+      "fetchedAt": "2026-05-18T07:14:51.494534+00:00",
+      "lastDate": "2025-12-01",
+      "rows": 360,
+      "source": "eurostat:prc_hicp_midx/DE",
+      "warnings": [
+        "168 days stale"
+      ]
+    },
+    "gold": {
+      "fetchedAt": "2026-05-18T07:14:51.494534+00:00",
+      "lastDate": "2026-05-15",
+      "rows": 1621,
+      "source": "ariva:DE000A0S9GB0",
+      "warnings": []
+    },
+    "market": {
+      "fetchedAt": "2026-05-18T07:14:51.494534+00:00",
+      "lastDate": "2026-05-15",
+      "rows": 3722,
+      "source": "stooq:spyi.de",
+      "warnings": []
+    },
+    "momentum": {
+      "fetchedAt": "2026-05-18T07:14:51.494534+00:00",
+      "lastDate": "2026-05-15",
+      "rows": 2676,
+      "source": "stooq:is3r.de",
+      "warnings": []
+    },
+    "signal": {
+      "fetchedAt": "2026-05-18T07:14:51.494534+00:00",
+      "lastDate": "2026-05-15",
+      "rows": 4499,
+      "source": "stooq:vt.us",
+      "warnings": []
+    }
+  },
+  "fetchedAt": "2026-05-18T07:14:51.494534+00:00",
+  "note": "placeholder \u2014 replaced by scripts/fetch_data.py on first run"
 }

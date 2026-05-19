@@ -78,6 +78,20 @@ STOOQ_SOURCES = [
     ("lev2x_wld", "amum.de"),     # Amundi MSCI World 2x Leveraged (FR0014010HV4, WKN ETF888)
 ]
 STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json
+
+# yfinance mapping. Each entry: asset_name -> [list of Yahoo tickers tried in
+# order]. Empty list = no yfinance fallback (must come from Stooq or manual
+# upload). yfinance is tried AFTER Stooq fails — it sometimes rate-limits and
+# is more brittle than Stooq's CSV API, so it's not the primary.
+YFINANCE_SYMBOLS = {
+    "momentum":  ["IS3R.DE", "IWMO.L"],
+    "market":    ["SPYI.DE", "IMIE.DE", "SPYI.L"],
+    "gold":      ["4GLD.DE", "4GLD.SG"],
+    "signal":    ["VT", "ACWI"],
+    "lev3x":     ["3TWL.L"],                  # Leverage Shares 3x Total World — best-effort
+    "lev2x_ndx": ["LQQ.PA", "LVNAS.DE"],     # Amundi Nasdaq-100 Daily 2x (A0LC12)
+    "lev2x_wld": ["WLDL.PA", "WLDL.DE"],     # Amundi MSCI World 2x (ETF888) — guesswork; ticker unstable
+}
 # Leverage Shares 3x Long Total World ETP (XS2399364822, WKN A3GWC0). Not on
 # Stooq under a stable symbol — manual CSV upload via the app is the supported
 # path. We still register the asset in the manifest so the UI shows status.
@@ -154,6 +168,85 @@ def fetch_stooq(symbol):
             continue
         rows.append((d, v))
     return rows
+
+
+def fetch_yfinance(symbol):
+    """Fetch daily OHLC from Yahoo Finance via the yfinance library.
+    Returns [(date_str, close_float)] sorted ascending. Empty on failure.
+    Tries adjusted close first, falls back to plain close. yfinance is
+    imported lazily so a missing install only breaks this code path."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        raise RuntimeError("yfinance not installed (pip install yfinance)")
+    log(f"yfinance GET {symbol}")
+    # period=max grabs everything available. auto_adjust=True returns
+    # split/dividend-adjusted close in the "Close" column (which is what we
+    # want for total-return-ish series).
+    try:
+        df = yf.download(
+            symbol,
+            period="max",
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            threads=False,
+            ignore_tz=True,
+        )
+    except Exception as e:
+        raise RuntimeError(f"yfinance download failed: {e}")
+    if df is None or df.empty:
+        raise RuntimeError(f"yfinance returned empty for {symbol}")
+    # When auto_adjust=True, "Close" is the adjusted column.
+    if "Close" not in df.columns:
+        raise RuntimeError(f"yfinance: no Close column for {symbol} (cols={list(df.columns)})")
+    rows = []
+    for idx, row in df.iterrows():
+        try:
+            d = idx.strftime("%Y-%m-%d")
+        except AttributeError:
+            d = str(idx)[:10]
+        v = row["Close"]
+        # df might be a multi-index when a single ticker is downloaded.
+        if hasattr(v, "item"):
+            try:
+                v = v.item()
+            except Exception:
+                pass
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if not (v > 0):
+            continue
+        rows.append((d, v))
+    if not rows:
+        raise RuntimeError(f"yfinance: no parseable rows for {symbol}")
+    log(f"yfinance OK {symbol}: {len(rows)} rows through {rows[-1][0]}")
+    return rows
+
+
+def fetch_with_fallback(asset_name, stooq_sym):
+    """Try Stooq first (fast, reliable, anonymous-friendly). If it fails AND
+    YFINANCE_SYMBOLS has tickers for this asset, try each yfinance ticker in
+    turn. Raises the LAST error if every source fails.
+    Returns (rows, source_label)."""
+    last_err = None
+    if stooq_sym:
+        try:
+            rows = fetch_stooq(stooq_sym)
+            return rows, f"stooq:{stooq_sym}"
+        except Exception as e:
+            log(f"stooq {stooq_sym} failed: {e}")
+            last_err = e
+    for ysym in YFINANCE_SYMBOLS.get(asset_name, []):
+        try:
+            rows = fetch_yfinance(ysym)
+            return rows, f"yfinance:{ysym}"
+        except Exception as e:
+            log(f"yfinance {ysym} failed: {e}")
+            last_err = e
+    raise last_err or RuntimeError(f"no source for {asset_name}")
 
 
 def fetch_fred_cpi():
@@ -419,12 +512,12 @@ def main():
 
     for name, sym in STOOQ_SOURCES:
         try:
-            log(f"fetching stooq {sym} -> {name}")
-            rows = fetch_stooq(sym)
+            log(f"fetching {name} (stooq:{sym} primary, yfinance fallback)")
+            rows, source = fetch_with_fallback(name, sym)
             rows, bad, days_old = validate(rows, name)
             write_csv(DATA_DIR / f"{name}.csv", rows)
             manifest["assets"][name] = {
-                "source": f"stooq:{sym}",
+                "source": source,
                 "lastDate": rows[-1][0],
                 "rows": len(rows),
                 "fetchedAt": manifest["fetchedAt"],
@@ -433,14 +526,35 @@ def main():
                     + ([f"{days_old} days stale"] if days_old > 10 else [])
                 ),
             }
-            log(f"OK {name}: {len(rows)} rows through {rows[-1][0]}")
+            log(f"OK {name}: {len(rows)} rows through {rows[-1][0]} (via {source})")
         except Exception as e:
             errors[name] = str(e)
             log(f"FAIL {name}: {e}")
             traceback.print_exc(file=sys.stderr)
             # Do NOT overwrite existing data/{name}.csv on failure.
 
-    # --- gold: ariva (full history) if configured, else stooq ---
+    # --- lev3x: no Stooq symbol; try yfinance only ---
+    try:
+        log("fetching lev3x (yfinance only)")
+        rows, source = fetch_with_fallback("lev3x", None)
+        rows, bad, days_old = validate(rows, "lev3x")
+        write_csv(DATA_DIR / "lev3x.csv", rows)
+        manifest["assets"]["lev3x"] = {
+            "source": source,
+            "lastDate": rows[-1][0],
+            "rows": len(rows),
+            "fetchedAt": manifest["fetchedAt"],
+            "warnings": (
+                ([f"{len(bad)} single-day moves > 60%"] if bad else [])
+                + ([f"{days_old} days stale"] if days_old > 10 else [])
+            ),
+        }
+        log(f"OK lev3x: {len(rows)} rows through {rows[-1][0]} (via {source})")
+    except Exception as e:
+        errors["lev3x"] = str(e)
+        log(f"FAIL lev3x (manual CSV upload via the app is the supported path): {e}")
+
+    # --- gold: ariva (full history) if configured, else Stooq + yfinance fallback ---
     try:
         log("fetching gold")
         rows = None
@@ -450,9 +564,8 @@ def main():
             rows = ariva_rows
             source = "ariva:DE000A0S9GB0"
         else:
-            log("gold: data/ariva-gold.json not configured, falling back to stooq " + STOOQ_GOLD_SYMBOL)
-            rows = fetch_stooq(STOOQ_GOLD_SYMBOL)
-            source = f"stooq:{STOOQ_GOLD_SYMBOL}"
+            log("gold: data/ariva-gold.json not configured, trying stooq + yfinance fallback")
+            rows, source = fetch_with_fallback("gold", STOOQ_GOLD_SYMBOL)
         rows, bad, days_old = validate(rows, "gold")
         write_csv(DATA_DIR / "gold.csv", rows)
         manifest["assets"]["gold"] = {

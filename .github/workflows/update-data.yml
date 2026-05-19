@@ -23,7 +23,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install deps
-        run: pip install --quiet requests
+        run: pip install --quiet requests "yfinance>=0.2.40"
 
       - name: Fetch data
         env:

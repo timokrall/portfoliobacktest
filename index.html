@@ -2294,8 +2294,7 @@ function App() {
               />
             </div>
             <div className="small-note" style={{ marginTop: 10 }}>
-              CSVs are committed weekly by a GitHub Action (<code>.github/workflows/update-data.yml</code>) into <code>./data/</code> and served same-origin — no CORS, no proxies, no rate limits.
-              Manual upload/paste per asset overrides the committed file if you want fresher numbers.
+              CSVs are committed weekly by a GitHub Action (<code>.github/workflows/update-data.yml</code>) into <code>./data/</code> and served same-origin — no CORS, no proxies, no rate limits. Each asset tries <strong>Stooq → yfinance</strong> in turn; coIQ uses ariva (no fallback). Manual upload/paste per asset overrides the committed file if you want fresher numbers.
               See <code>README.md</code> for setup (including how to add the optional <code>STOOQ_COOKIE</code> repo secret).
             </div>
           </div>

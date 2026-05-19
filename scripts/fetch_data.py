@@ -71,6 +71,11 @@ STOOQ_SOURCES = [
     ("momentum", "is3r.de"),   # iShares Edge MSCI World Momentum Factor (IE00BP3QZ825)
     ("market",   "spyi.de"),   # SPDR MSCI ACWI IMI UCITS ETF (IE00B3YLTY66)
     ("signal",   "vt.us"),     # Vanguard Total World VT — used ONLY as the 200-SMA signal
+    # Best-effort: Amundi 2x leveraged UCITS ETFs. These often aren't on Stooq
+    # under stable symbols; failures here are non-fatal and the user can paste
+    # a CSV manually from extraETF / justETF / ariva.
+    ("lev2x_ndx", "lev2nl.de"),   # Amundi Nasdaq-100 Daily 2x Leveraged (FR0010342592, WKN A0LC12)
+    ("lev2x_wld", "amum.de"),     # Amundi MSCI World 2x Leveraged (FR0014010HV4, WKN ETF888)
 ]
 STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json
 # Leverage Shares 3x Long Total World ETP (XS2399364822, WKN A3GWC0). Not on

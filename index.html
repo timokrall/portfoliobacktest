@@ -285,6 +285,12 @@ const ASSETS = [
   { id: "lev3x",    file: "lev3x.csv",    manifestKey: "lev3x",    taxLike: "debt", holdable: true,
     label: "Leverage Shares 3x Long Total World ETP", isin: "XS2399364822", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,
     note: "ETP / debt security — 3x daily, decay & financing already in price. WKN A3GWC0." },
+  { id: "lev2xNdx", file: "lev2x-ndx.csv", manifestKey: "lev2x_ndx", taxLike: "fund", holdable: true,
+    label: "Amundi Nasdaq-100 Daily (2x) Leveraged ETF", isin: "FR0010342592", equity: true, defaultOngoing: 0.60, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30,
+    note: "WKN A0LC12 · UCITS fund (VP + TF) · synthetic 2x daily — decay risk." },
+  { id: "lev2xWld", file: "lev2x-wld.csv", manifestKey: "lev2x_wld", taxLike: "fund", holdable: true,
+    label: "Amundi MSCI World (2x) Leveraged ETF",     isin: "FR0014010HV4", equity: true, defaultOngoing: 0.60, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30,
+    note: "WKN ETF888 · UCITS fund (VP + TF) · launched 30.09.2025 — short history." },
   { id: "signal",   file: "signal.csv",   manifestKey: "signal",   taxLike: null,   holdable: false,
     label: "FTSE All-World (VT) — 200-SMA signal only",  isin: "US9220427424", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 0,
     note: "NEVER held. Signal for 200-day SMA timing toggle. ACWI IMI may proxy if VT unavailable." },
@@ -324,6 +330,10 @@ const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
   { id: "gold_momentum", name: "Gold + Momentum",        assets: ["gold", "momentum"], defaultGold: 30, equityId: "momentum" },
   { id: "gold_lev3x",    name: "Gold + 3x Total World",  assets: ["gold", "lev3x"],    defaultGold: 30, equityId: "lev3x",
+    illustrativeOnly: true },
+  { id: "gold_lev2xNdx", name: "Gold + 2x Nasdaq-100",   assets: ["gold", "lev2xNdx"], defaultGold: 40, equityId: "lev2xNdx",
+    illustrativeOnly: true },
+  { id: "gold_lev2xWld", name: "Gold + 2x MSCI World",   assets: ["gold", "lev2xWld"], defaultGold: 40, equityId: "lev2xWld",
     illustrativeOnly: true },
   { id: "market",        name: "Market (100% ACWI IMI)", assets: ["market"], defaultGold: 0, equityId: "market", isMarket: true },
 ];
@@ -1295,13 +1305,13 @@ function App() {
   const storage = useStorage();
 
   // --- raw CSVs (text) and parsed monthly series ---
-  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", gold: "", market: "", lev3x: "", signal: "", cpi: "" });
-  const [series, setSeries] = useState({ coIQ: null, momentum: null, gold: null, market: null, lev3x: null, signal: null, cpi: null });
+  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", gold: "", market: "", lev3x: "", lev2xNdx: "", lev2xWld: "", signal: "", cpi: "" });
+  const [series, setSeries] = useState({ coIQ: null, momentum: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, signal: null, cpi: null });
   // Daily series — populated alongside monthly when at least one portfolio
   // has 200-SMA timing ON. Used by buildTimedRiskLegMonthly.
-  const [seriesDaily, setSeriesDaily] = useState({ coIQ: null, momentum: null, gold: null, market: null, lev3x: null, signal: null });
+  const [seriesDaily, setSeriesDaily] = useState({ coIQ: null, momentum: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, signal: null });
   const [seriesError, setSeriesError] = useState({});
-  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", gold: "net", market: "net", lev3x: "net" });
+  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", gold: "net", market: "net", lev3x: "net", lev2xNdx: "net", lev2xWld: "net" });
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
   const [manifest, setManifest] = useState(null);
 
@@ -1313,7 +1323,7 @@ function App() {
   // --- taxes ---
   const [taxRate, setTaxRate] = useState(26.375);
   const [allowance, setAllowance] = useState(1000);
-  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, market: 30 });
+  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, market: 30, lev2xNdx: 30, lev2xWld: 30 });
   const [basiszins, setBasiszins] = useState({ ...DEFAULT_BASISZINS });
 
   // --- inputs ---
@@ -1328,7 +1338,7 @@ function App() {
   const [cashRate, setCashRate] = useState(0);  // %/yr — earns this when 200-SMA is risk-off
 
   // --- v2: per-portfolio 200-SMA timing toggle (daily engine) ---
-  const [portfolioTiming, setPortfolioTiming] = useState({ gold_coIQ: false, gold_momentum: false, gold_lev3x: false, market: false });
+  const [portfolioTiming, setPortfolioTiming] = useState({ gold_coIQ: false, gold_momentum: false, gold_lev3x: false, gold_lev2xNdx: false, gold_lev2xWld: false, market: false });
 
   // --- v2: optional "own native history" toggle (per-portfolio full window
   //         instead of common intersection — explicitly NOT COMPARABLE).
@@ -2344,11 +2354,14 @@ function App() {
               <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />
               <NumField label="Sparer-Pauschbetrag (EUR/yr)" value={allowance} step={100} onChange={setAllowance} />
               <div></div>
-              {["coIQ", "momentum", "market"].map(id =>
-                <NumField key={id} label={`Teilfreistellung — ${ASSETS.find(a => a.id === id).label.split(" ")[0]} (%)`}
-                          value={teilfreistellung[id] ?? 30} step={1}
-                          onChange={v => setTeilfreistellung(t => ({ ...t, [id]: v }))} />
-              )}
+              {["coIQ", "momentum", "market", "lev2xNdx", "lev2xWld"].map(id => {
+                const lbls = { coIQ: "coIQ", momentum: "Momentum", market: "ACWI IMI", lev2xNdx: "2x Nasdaq (A0LC12)", lev2xWld: "2x World (ETF888)" };
+                return (
+                  <NumField key={id} label={`Teilfreistellung — ${lbls[id]} (%)`}
+                            value={teilfreistellung[id] ?? 30} step={1}
+                            onChange={v => setTeilfreistellung(t => ({ ...t, [id]: v }))} />
+                );
+              })}
             </div>
             <details className="fold" style={{ marginTop: 14 }} open>
               <summary>Basiszins table (BMF, %/yr) — used for Basisertrag</summary>
@@ -2786,6 +2799,7 @@ function App() {
           <p><strong>v2 · Gold-share optimizer</strong> — <code>w_safe(h)</code> = gold weight maximizing worst real CAGR at h (buffer-maximizing, unstable on this short bear-market-free sample — read as a range, not a point). <code>w_return(h)</code> = smallest gold weight whose worst real CAGR stays ≥ 0 (least gold to remain real-admissible). w_return is the decision-relevant line; w_safe is overfit to a single worst path.</p>
           <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if VT signal close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. A daily SMA switches more often than a monthly proxy — the extra round-trip costs are real strategy drag and are captured. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
           <p><strong>v2 · 3x Total World ETP (lev3x)</strong> — Leverage Shares 3x Long Total World ETP, ISIN XS2399364822. We feed the ACTUAL ETP EUR price series; 3x-daily decay and financing cost are already inside the real price (NEVER synthesize). Tax-like-debt (no Vorabpauschale, no Teilfreistellung). Never sold for gold rebalancing. <strong>ILLUSTRATIVE ONLY:</strong> ~4 years of mostly-bull history; the MC bootstrap cannot reproduce a sustained bear it never sampled, and a 3x daily ETP can lose 90 %+ in a 2008-style drawdown.</p>
+          <p><strong>v2 · 2x daily UCITS ETFs (A0LC12, ETF888)</strong> — Amundi Nasdaq-100 Daily (2x) Leveraged UCITS ETF Acc (FR0010342592 / WKN A0LC12, TER 0.60%, synthetic, accumulating) and Amundi MSCI World (2x) Leveraged UCITS ETF Acc (FR0014010HV4 / WKN ETF888, TER 0.60%, synthetic, accumulating). Unlike the 3x ETP these are <em>UCITS funds</em>, so the engine charges Vorabpauschale + Teilfreistellung on them like any other ETF — feed NET price series. 2x daily compounding produces volatility decay in choppy markets; both are inappropriate for a long-horizon strategic core. <strong>A0LC12</strong> has data back to 2006 (Nasdaq-100 concentration risk). <strong>ETF888</strong> only launched 30.09.2025 — its standalone window is months long; use the "own native history" toggle to see it at all, and treat every number as <em>illustrative only</em>.</p>
           <p><strong>v2 · "Own native history" toggle</strong> — when ON, each portfolio runs over its own full series instead of the common-intersection window. The CPI real-preservation test is absolute, so this is a legitimate exercise — but the resulting curves are <em>not comparable</em>: Gold+Momentum / Market would include real equity bear markets that coIQ and lev3x never saw.</p>
           <p><strong>v2 · Single-regime caveat</strong> — the default common window (~2022 onward) contains no equity bear market. Every historical worst-case figure is optimistic — coIQ and lev3x most of all. Beyond h ≈ 3 years all curves are Monte Carlo, paired-bootstrapped on the same short sample, so they inherit the same blind spot.</p>
         </div>

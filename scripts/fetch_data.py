@@ -74,7 +74,7 @@ STOOQ_SOURCES = [
     # Best-effort: Amundi 2x leveraged UCITS ETFs. Confirmed on Stooq as
     # the Paris listings (LQQ.FR, LWLD.FR). Manual CSV paste remains the
     # bulletproof fallback if Stooq ever drops them.
-    ("lev2x_ndx", "lqq.fr"),   # Amundi Nasdaq-100 Daily 2x Leveraged (FR0010342592, WKN A0LC12)
+    ("lev2x_ndx", "l8i7.de"),  # Amundi Nasdaq-100 Daily 2x Leveraged (FR0010342592, WKN A0LC12) — Xetra listing
     ("lev2x_wld", "lwld.fr"),  # Amundi MSCI World 2x Leveraged (FR0014010HV4, WKN ETF888)
 ]
 STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json

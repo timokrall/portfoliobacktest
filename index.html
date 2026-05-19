@@ -1239,8 +1239,16 @@ function buildPairedReturns(unitPrice, cpiAligned) {
 //   each trading day d: if signal_close(d-1) > SMA200(d-1) → HOLD risk leg;
 //   else → CASH (earning cash_rate/252 daily). On every switch, charge buy/sell
 //   spreads + a percent order fee. Gold is never timed (handled elsewhere).
+//
+// CGT (quick approximation): on every risk → cash flip, if the running per-unit
+// gain (current unit / unit at last entry − 1) is positive, an effective tax
+// rate of taxRate × (1 − Teilfreistellung) is applied to that gain as a one-shot
+// fractional drag. No FIFO lot tracking, no Sparer-Pauschbetrag, no
+// Anrechnung of prior Vorabpauschale — overstates tax by a few %.
+// taxLikeDebt = true (gold / lev3x ETP) skips the Teilfreistellung reduction.
+//
 // Output is a [{month, value}] monthly series the existing engine consumes.
-function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spreadBuyPct, spreadSellPct, orderFee) {
+function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spreadBuyPct, spreadSellPct, orderFee, taxOpts) {
   if (!riskDaily?.length || !signalDaily?.length) return null;
   // intersect by date (both must have a print that day)
   const sigMap = new Map(signalDaily.map(p => [p.date, p.value]));
@@ -1264,9 +1272,20 @@ function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spread
   // a flip, so we fold them in as an additional fixed bp drag.
   const fixedFeeBpDrag = orderFee?.fixed > 0 ? 0.9998 : 1;   // ~2 bp per flip as approximation
   const feePctDrag = 1 - (orderFee?.pct || 0) / 100;
+
+  // CGT approximation params
+  const taxRate = (taxOpts?.rate || 0) / 100;                       // 0.26375
+  const tfPct   = (taxOpts?.teilfreistellung || 0) / 100;           // 0 if debt-like
+  const effTax  = taxOpts?.taxLikeDebt
+    ? taxRate                                                       // gold/lev3x ETP — no TF
+    : taxRate * (1 - tfPct);                                        // UCITS funds — TF applies
+  const taxOn = !!taxOpts && taxRate > 0;
+
   let unit = 100;
   let prevPos = null;
+  let entryUnit = null;   // unit price at entry into current risk position (cost basis proxy)
   let flips = 0;
+  let cgtPaid = 0;        // total CGT drag in unit terms, for diagnostics
   const monthEnd = new Map();
   const startIdx = 200;   // first day where SMA[i-1] = SMA[199] is available
   for (let i = startIdx; i < joined.length; i++) {
@@ -1276,7 +1295,21 @@ function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spread
       if (prevPos === "risk") drag *= sellDrag * feePctDrag * fixedFeeBpDrag;
       if (pos === "risk")     drag *= buyDrag  * feePctDrag * fixedFeeBpDrag;
       unit *= drag;
+      // CGT on risk → cash: tax the realized gain (if any) since entry
+      if (taxOn && prevPos === "risk" && entryUnit != null && unit > entryUnit) {
+        const gainPerUnit = unit - entryUnit;
+        const tax = gainPerUnit * effTax;
+        const before = unit;
+        unit -= tax;
+        cgtPaid += tax;
+        if (unit < 1e-9) unit = 1e-9;
+      }
       flips++;
+      // Update cost basis when entering a new risk position
+      if (pos === "risk") entryUnit = unit;
+      if (pos === "cash") entryUnit = null;
+    } else if (prevPos === null && pos === "risk") {
+      entryUnit = unit;
     }
     if (pos === "risk") {
       const r = risk[i] / risk[i - 1] - 1;
@@ -1292,7 +1325,10 @@ function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spread
   return {
     series: months.map(m => ({ month: m, value: monthEnd.get(m) })),
     flips,
+    cgtPaidUnit: cgtPaid,
     coveredFromDate: joined[startIdx]?.date,
+    taxApplied: taxOn,
+    effTaxRate: effTax,
   };
 }
 
@@ -1517,8 +1553,13 @@ function App() {
           const eqDaily = seriesDaily[a];
           const sigDaily = seriesDaily.signal;
           const sp = spreads[a] || { buy: 0, sell: 0 };
+          const taxOpts = {
+            rate: taxRate,
+            teilfreistellung: teilfreistellung[a] ?? 0,
+            taxLikeDebt: DEBT_TAX_IDS.has(a),
+          };
           if (eqDaily && sigDaily) {
-            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cashRate, sp.buy, sp.sell, orderFee);
+            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cashRate, sp.buy, sp.sell, orderFee, taxOpts);
             if (res && res.series.length >= 12) { map[a] = res.series; map.__timed = res; continue; }
           }
           // fall back to raw monthly with a flag so UI can flag it
@@ -1531,7 +1572,7 @@ function App() {
       out[pid] = map;
     }
     return out;
-  }, [selectedPortfolios, portfolioTiming, seriesDaily, series, cashRate, spreads, orderFee]);
+  }, [selectedPortfolios, portfolioTiming, seriesDaily, series, cashRate, spreads, orderFee, taxRate, teilfreistellung]);
 
   // ---- per-portfolio windows (each portfolio's own intersection) ----------
   const perPortfolioWindow = useMemo(() => {
@@ -2357,6 +2398,11 @@ function App() {
                     200-SMA timing
                   </label>
                   {fallback && on && <span className="tag bad" style={{ fontSize: 10 }}>no daily/signal — falls back to monthly</span>}
+                  {timed && on && !fallback && pfAssetSeries[pf.id]?.__timed && (
+                    <span className="tag info" style={{ fontSize: 10 }} title={`Engine charges ${(pfAssetSeries[pf.id].__timed.effTaxRate * 100).toFixed(2)}% effective CGT on the running gain at every risk→cash flip. Approximation: no FIFO lots, no Sparer-Pauschbetrag, no VP credit.`}>
+                      CGT ≈ {(pfAssetSeries[pf.id].__timed.effTaxRate * 100).toFixed(1)}% on flips
+                    </span>
+                  )}
                   {!pf.isMarket &&
                     <label className="field pf-w" style={{ opacity: on ? 1 : 0.5 }}>
                       <span className="lbl"><span>Gold %</span></span>
@@ -2845,7 +2891,7 @@ function App() {
           <hr style={{ margin: "12px 0" }} />
           <p><strong>v2 · Real-preservation verdict</strong> — a portfolio is "real-admissible at horizon h" if its worst-window real CAGR ≥ 0 at h. Real returns are computed by dividing nominal portfolio growth by CPI growth over each h-year window. The CPI series used is <em>{(manifest?.assets?.cpi?.source) || "manual upload"}</em>{series.cpi ? <> · last point <code>{series.cpi[series.cpi.length - 1].month}</code></> : null}. Recommended series: German CPI (Destatis Verbraucherpreisindex / FRED DEUCPIALLMINMEI).</p>
           <p><strong>v2 · Gold-share optimizer</strong> — <code>w_safe(h)</code> = gold weight maximizing worst real CAGR at h (buffer-maximizing, unstable on this short bear-market-free sample — read as a range, not a point). <code>w_return(h)</code> = smallest gold weight whose worst real CAGR stays ≥ 0 (least gold to remain real-admissible). w_return is the decision-relevant line; w_safe is overfit to a single worst path.</p>
-          <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if VT signal close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. A daily SMA switches more often than a monthly proxy — the extra round-trip costs are real strategy drag and are captured. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
+          <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if VT signal close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. On every <strong>risk → cash</strong> flip we also charge an approximate German CGT of <code>{taxRate.toFixed(2)}% × (1 − Teilfreistellung)</code> on the running per-unit gain since the last entry (no tax on losses; for gold and lev3x the Teilfreistellung is 0 so the full rate applies). This is a <em>quick approximation</em>: no FIFO lot accounting, no Sparer-Pauschbetrag allowance, no Anrechnung of prior-year Vorabpauschale against the realized gain — overstates tax by a few %. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
           <p><strong>v2 · 3x Total World ETP (lev3x)</strong> — Leverage Shares 3x Long Total World ETP, ISIN XS2399364822. We feed the ACTUAL ETP EUR price series; 3x-daily decay and financing cost are already inside the real price (NEVER synthesize). Tax-like-debt (no Vorabpauschale, no Teilfreistellung). Never sold for gold rebalancing. <strong>ILLUSTRATIVE ONLY:</strong> ~4 years of mostly-bull history; the MC bootstrap cannot reproduce a sustained bear it never sampled, and a 3x daily ETP can lose 90 %+ in a 2008-style drawdown.</p>
           <p><strong>v2 · 2x daily UCITS ETFs (A0LC12, ETF888)</strong> — Amundi Nasdaq-100 Daily (2x) Leveraged UCITS ETF Acc (FR0010342592 / WKN A0LC12, TER 0.60%, synthetic, accumulating) and Amundi MSCI World (2x) Leveraged UCITS ETF Acc (FR0014010HV4 / WKN ETF888, TER 0.60%, synthetic, accumulating). Unlike the 3x ETP these are <em>UCITS funds</em>, so the engine charges Vorabpauschale + Teilfreistellung on them like any other ETF — feed NET price series. 2x daily compounding produces volatility decay in choppy markets; both are inappropriate for a long-horizon strategic core. <strong>A0LC12</strong> has data back to 2006 (Nasdaq-100 concentration risk). <strong>ETF888</strong> only launched 30.09.2025 — its standalone window is months long; use the "own native history" toggle to see it at all, and treat every number as <em>illustrative only</em>.</p>
           <p><strong>v2 · "Own native history" toggle</strong> — when ON, each portfolio runs over its own full series instead of the common-intersection window. The CPI real-preservation test is absolute, so this is a legitimate exercise — but the resulting curves are <em>not comparable</em>: Gold+Momentum / Market would include real equity bear markets that coIQ and lev3x never saw.</p>

@@ -91,6 +91,7 @@ YFINANCE_SYMBOLS = {
     "lev3x":     ["3TWL.L"],                  # Leverage Shares 3x Total World — best-effort
     "lev2x_ndx": ["LQQ.PA", "LVNAS.DE"],     # Amundi Nasdaq-100 Daily 2x (A0LC12)
     "lev2x_wld": ["WLDL.PA", "WLDL.DE"],     # Amundi MSCI World 2x (ETF888) — guesswork; ticker unstable
+    "bitcoin":   ["BTC-EUR"],                # Bitcoin in EUR (yfinance native)
 }
 # Leverage Shares 3x Long Total World ETP (XS2399364822, WKN A3GWC0). Not on
 # Stooq under a stable symbol — manual CSV upload via the app is the supported
@@ -553,6 +554,30 @@ def main():
     except Exception as e:
         errors["lev3x"] = str(e)
         log(f"FAIL lev3x (manual CSV upload via the app is the supported path): {e}")
+
+    # --- bitcoin: yfinance BTC-EUR; Stooq has BTCUSD but not stable EUR ---
+    try:
+        log("fetching bitcoin (yfinance BTC-EUR)")
+        rows, source = fetch_with_fallback("bitcoin", None)
+        # Bitcoin moves are routinely > 60% intraday during crashes/spikes;
+        # we relax the spike-warning threshold by *not* failing on big moves.
+        # The validator already only logs (doesn't raise) for big moves.
+        rows, bad, days_old = validate(rows, "bitcoin")
+        write_csv(DATA_DIR / "bitcoin.csv", rows)
+        manifest["assets"]["bitcoin"] = {
+            "source": source,
+            "lastDate": rows[-1][0],
+            "rows": len(rows),
+            "fetchedAt": manifest["fetchedAt"],
+            "warnings": (
+                ([f"{len(bad)} single-day moves > 60% (normal for BTC)"] if bad else [])
+                + ([f"{days_old} days stale"] if days_old > 10 else [])
+            ),
+        }
+        log(f"OK bitcoin: {len(rows)} rows through {rows[-1][0]} (via {source})")
+    except Exception as e:
+        errors["bitcoin"] = str(e)
+        log(f"FAIL bitcoin: {e}")
 
     # --- gold: ariva (full history) if configured, else Stooq + yfinance fallback ---
     try:

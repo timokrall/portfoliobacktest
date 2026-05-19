@@ -158,6 +158,21 @@
   .pf-row .pf-w  { width: 96px; }
   .pf-row .pf-w input { text-align: right; }
 
+  /* iOS-style toggle */
+  .switch { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .slider { position: absolute; cursor: pointer; inset: 0; background: var(--line-strong); border-radius: 20px; transition: background 140ms; }
+  .switch .slider::before { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform 140ms; box-shadow: 0 1px 2px oklch(0.6 0 0 / 0.3); }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider::before { transform: translateX(14px); }
+  .switch input:disabled + .slider { opacity: 0.4; cursor: not-allowed; }
+
+  /* portfolio row: dim when excluded so the include/exclude state is obvious */
+  .pf-row.off { opacity: 0.5; }
+  .pf-row.off .pf-name { color: var(--ink-mute); }
+  .pf-row .pf-include { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; }
+  .pf-row .pf-include .pf-name { flex: none; }
+
   /* basiszins editor */
   .bz-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
   .bz-grid label { display:flex; flex-direction:column; gap: 3px; font-size: 10.5px; color: var(--ink-mute);}
@@ -1330,15 +1345,23 @@ function App() {
   const [starting, setStarting] = useState(10000);
   const [monthly, setMonthly] = useState(500);
   const [rebalance, setRebalance] = useState("yearly");
-  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "gold_lev3x", "market"]);
+  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "gold_lev3x", "gold_lev2xNdx", "gold_lev2xWld", "market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30, gold_lev3x: 30 });
 
   // --- v2: planning horizon + cash rate (200-SMA toggle's risk-off leg) ---
   const [hPlan, setHPlan] = useState(10);       // years
   const [cashRate, setCashRate] = useState(0);  // %/yr — earns this when 200-SMA is risk-off
 
-  // --- v2: per-portfolio 200-SMA timing toggle (daily engine) ---
-  const [portfolioTiming, setPortfolioTiming] = useState({ gold_coIQ: false, gold_momentum: false, gold_lev3x: false, gold_lev2xNdx: false, gold_lev2xWld: false, market: false });
+  // --- v2: per-portfolio 200-SMA timing toggle (daily engine).
+  //         The 2x leveraged options default to ON — the 200-SMA "stay out of
+  //         the worst" rule is what makes daily-2x viable; without it they
+  //         decay through any prolonged bear and the request explicitly asks
+  //         to compute them WITH the SMA.
+  const [portfolioTiming, setPortfolioTiming] = useState({
+    gold_coIQ: false, gold_momentum: false, gold_lev3x: false,
+    gold_lev2xNdx: true, gold_lev2xWld: true,
+    market: false,
+  });
 
   // --- v2: optional "own native history" toggle (per-portfolio full window
   //         instead of common intersection — explicitly NOT COMPARABLE).
@@ -1378,11 +1401,31 @@ function App() {
     if (s.starting != null) setStarting(s.starting);
     if (s.monthly != null) setMonthly(s.monthly);
     if (s.rebalance) setRebalance(s.rebalance);
-    if (s.selectedPortfolios) setSelectedPortfolios(s.selectedPortfolios);
-    if (s.goldWeights) setGoldWeights(s.goldWeights);
+    if (s.selectedPortfolios) {
+      // Union with defaults — any newly-added portfolio IDs (new app version)
+      // appear automatically even when older saved state didn't know them.
+      const known = new Set(PORTFOLIOS.map(p => p.id));
+      const restored = s.selectedPortfolios.filter(id => known.has(id));
+      const fresh = PORTFOLIOS.map(p => p.id).filter(id => !s.selectedPortfolios.includes(id));
+      setSelectedPortfolios([...restored, ...fresh]);
+    }
+    if (s.goldWeights) {
+      // Merge so new portfolios pick up their defaultGold.
+      const merged = { ...s.goldWeights };
+      for (const pf of PORTFOLIOS) if (!(pf.id in merged) && !pf.isMarket) merged[pf.id] = pf.defaultGold;
+      setGoldWeights(merged);
+    }
+    if (s.portfolioTiming) {
+      // Merge so timing defaults from the current app version apply to any
+      // portfolio ID the saved state didn't know about.
+      const merged = { ...s.portfolioTiming };
+      // Default ON for the 2x daily options if absent.
+      if (!("gold_lev2xNdx" in merged)) merged.gold_lev2xNdx = true;
+      if (!("gold_lev2xWld" in merged)) merged.gold_lev2xWld = true;
+      setPortfolioTiming(merged);
+    }
     if (s.hPlan != null) setHPlan(s.hPlan);
     if (s.cashRate != null) setCashRate(s.cashRate);
-    if (s.portfolioTiming) setPortfolioTiming(s.portfolioTiming);
     if (s.ownNativeHistory != null) setOwnNativeHistory(s.ownNativeHistory);
     if (s.mc) setMc(s.mc);
   };
@@ -2290,29 +2333,35 @@ function App() {
             </div>
 
             <hr style={{ margin: "18px 0" }} />
-            <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Portfolios to compare (min. 2) &middot; 200-SMA = daily timing of the risk leg via VT signal</div>
+            <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+              <span>Portfolios &middot; toggle each row to include / exclude from comparison &middot; 200-SMA = daily timing of the risk leg via VT signal</span>
+              <span className="mono" style={{ fontSize: 10.5 }}>{selectedPortfolios.length} of {PORTFOLIOS.length} included</span>
+            </div>
             {PORTFOLIOS.map(pf => {
               const on = selectedPortfolios.includes(pf.id);
               const timed = !!portfolioTiming[pf.id];
               const fallback = pfAssetSeries[pf.id]?.__timedFallback && timed;
+              const toggleInclude = () => setSelectedPortfolios(s => on ? s.filter(x => x !== pf.id) : [...s, pf.id]);
               return (
-                <div key={pf.id} className="pf-row">
-                  <span className={"chip" + (on ? " on" : "")} onClick={() => {
-                    setSelectedPortfolios(s => on ? s.filter(x => x !== pf.id) : [...s, pf.id]);
-                  }}>
-                    <span className="dot"></span>{pf.name}
-                  </span>
-                  {pf.illustrativeOnly && <span className="tag warn" style={{ marginLeft: 6 }}>illustrative only</span>}
+                <div key={pf.id} className={"pf-row" + (on ? "" : " off")}>
+                  <label className="pf-include" title={on ? "Click to exclude from comparison" : "Click to include in comparison"}>
+                    <span className="switch">
+                      <input type="checkbox" checked={on} onChange={toggleInclude} />
+                      <span className="slider"></span>
+                    </span>
+                    <span className="pf-name">{pf.name}</span>
+                  </label>
+                  {pf.illustrativeOnly && <span className="tag warn" style={{ marginLeft: 0 }}>illustrative only</span>}
                   <span style={{ flex: 1 }}></span>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: "var(--ink-soft)" }}>
-                    <input type="checkbox" checked={timed} onChange={(e) => setPortfolioTiming(t => ({ ...t, [pf.id]: e.target.checked }))} />
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: on ? "pointer" : "not-allowed", fontSize: 11, color: "var(--ink-soft)", opacity: on ? 1 : 0.5 }}>
+                    <input type="checkbox" checked={timed} disabled={!on} onChange={(e) => setPortfolioTiming(t => ({ ...t, [pf.id]: e.target.checked }))} />
                     200-SMA timing
                   </label>
-                  {fallback && <span className="tag bad" style={{ fontSize: 10 }}>no daily/signal — falls back to monthly</span>}
+                  {fallback && on && <span className="tag bad" style={{ fontSize: 10 }}>no daily/signal — falls back to monthly</span>}
                   {!pf.isMarket &&
-                    <label className="field pf-w">
+                    <label className="field pf-w" style={{ opacity: on ? 1 : 0.5 }}>
                       <span className="lbl"><span>Gold %</span></span>
-                      <input type="number" min="0" max="100" step="1" value={goldWeights[pf.id] ?? 30}
+                      <input type="number" min="0" max="100" step="1" disabled={!on} value={goldWeights[pf.id] ?? 30}
                              onChange={e => setGoldWeights(g => ({ ...g, [pf.id]: clamp(+e.target.value, 0, 100) }))} />
                     </label>
                   }

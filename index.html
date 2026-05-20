@@ -317,6 +317,12 @@ const ASSETS = [
   { id: "coIQ_t",   file: "",             manifestKey: "coiq",     taxLike: "fund", holdable: false, synthetic: true, sourceAsset: "coIQ",
     label: "coIQ — 200-SMA timed (ECB−0.25% cash)", isin: "DE000A3C91C5", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30,
     note: "synthetic: coIQ NAV driven through SMA timing on VT signal; cash earns ECB−0.25%." },
+  // Synthetic: Momentum with 200-SMA timing. Same construction as coIQ_t,
+  // sources from momentum daily, tax-piggybacks on momentum (UCITS fund TF=30%).
+  // Spreads come from the underlying momentum asset (0.10%/0.10% on Xetra).
+  { id: "momentum_t", file: "",           manifestKey: "momentum", taxLike: "fund", holdable: false, synthetic: true, sourceAsset: "momentum",
+    label: "Momentum — 200-SMA timed (ECB−0.25% cash)", isin: "IE00BP3QZ825", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30,
+    note: "synthetic: Momentum (IS3R) ETF price driven through SMA timing on VT signal; cash earns ECB−0.25%." },
   { id: "signal",   file: "signal.csv",   manifestKey: "signal",   taxLike: null,   holdable: false,
     label: "FTSE All-World (VT) — 200-SMA signal only",  isin: "US9220427424", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 0,
     note: "NEVER held. Signal for 200-day SMA timing toggle. ACWI IMI may proxy if VT unavailable." },
@@ -372,6 +378,12 @@ const PORTFOLIOS = [
   { id: "triple_coIQ",   name: "⅓ coIQ + ⅓ coIQ-SMA + ⅓ Gold", assets: ["gold", "coIQ", "coIQ_t"],
     equityId: "coIQ",  // primary equity for fallbacks; rebalance proceeds split proportionally
     weights: { gold: 1 / 3, coIQ: 1 / 3, coIQ_t: 1 / 3 },
+    fixedWeights: true, builtInTiming: true },
+  // Variation of triple_coIQ — the SMA leg is Momentum instead of coIQ.
+  // Buy-and-hold leg stays coIQ.
+  { id: "triple_momentumSMA", name: "⅓ coIQ + ⅓ Momentum-SMA + ⅓ Gold", assets: ["gold", "coIQ", "momentum_t"],
+    equityId: "coIQ",
+    weights: { gold: 1 / 3, coIQ: 1 / 3, momentum_t: 1 / 3 },
     fixedWeights: true, builtInTiming: true },
   { id: "market",        name: "Market (100% ACWI IMI)", assets: ["market"], defaultGold: 0, equityId: "market", isMarket: true },
 ];
@@ -1423,7 +1435,7 @@ function App() {
   const [starting, setStarting] = useState(10000);
   const [monthly, setMonthly] = useState(500);
   const [rebalance, setRebalance] = useState("yearly");
-  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "gold_lev3x", "gold_lev2xNdx", "gold_lev2xWld", "bitcoin", "triple_coIQ", "market"]);
+  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "gold_lev3x", "gold_lev2xNdx", "gold_lev2xWld", "bitcoin", "triple_coIQ", "triple_momentumSMA", "market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30, gold_lev3x: 30 });
 
   // --- v2: planning horizon + cash rate (200-SMA toggle's risk-off leg) ---

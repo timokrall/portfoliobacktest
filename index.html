@@ -1522,10 +1522,12 @@ function App() {
   const [starting, setStarting] = useState(10000);
   const [monthly, setMonthly] = useState(500);
   const [rebalance, setRebalance] = useState("yearly");
-  // v3: free-form user portfolio composer. Default = ⅓ coIQ + ⅓ gold + ⅓ market.
-  const [userWeights, setUserWeights] = useState({
-    coIQ: 33, gold: 34, market: 33,
-  });
+  // v3.4: free-form composer default = roughly-equal across the 8 broad
+  // assets (coIQ, momentum, value, quality, minvol, prime/WEBN, gold, BTC).
+  // 12% × 4 + 13% × 4 = 100. Leveraged ETFs (lev3x, lev2x*) excluded by
+  // default — too volatile for a strategic-core baseline.
+  const DEFAULT_USER_WEIGHTS = { coIQ: 13, momentum: 13, value: 12, quality: 13, minvol: 12, world: 13, gold: 12, bitcoin: 12 };
+  const [userWeights, setUserWeights] = useState(DEFAULT_USER_WEIGHTS);
   // Per-asset 200-SMA toggle for the user portfolio's legs (gold is never timed).
   const [userSMA, setUserSMA] = useState({});
 
@@ -1596,9 +1598,35 @@ function App() {
 
   const applyState = (s) => {
     if (!s) return;
-    if (s.csvText) setCsvText(s.csvText);
-    if (s.series) setSeries(s.series);
-    if (s.seriesDaily) setSeriesDaily(s.seriesDaily);
+    // CSV text: merge instead of replace, so a stale "Save" snapshot doesn't
+    // wipe out user uploads made after that save. Only fill keys where the
+    // saved value is non-empty AND the current state is empty / equal.
+    if (s.csvText && typeof s.csvText === "object") {
+      setCsvText(prev => {
+        const merged = { ...prev };
+        for (const k of Object.keys(s.csvText)) {
+          const saved = s.csvText[k];
+          if (typeof saved === "string" && saved.trim().length > 0) {
+            // If current state is empty OR matches saved, take saved.
+            // If current state is a different non-empty value (likely a fresh
+            // upload), keep current. We compare lengths as a fast proxy.
+            if (!prev[k] || prev[k].length === 0) merged[k] = saved;
+          }
+        }
+        return merged;
+      });
+      // Reparse any field we just updated. Easiest: rerun onCsvChange for
+      // each non-empty saved field — it's idempotent.
+      for (const k of Object.keys(s.csvText)) {
+        const v = s.csvText[k];
+        if (typeof v === "string" && v.trim().length > 0) {
+          // Defer to next tick so the merged state lands first.
+          setTimeout(() => onCsvChange(k, v), 0);
+        }
+      }
+    }
+    if (s.series) setSeries(prev => ({ ...prev, ...Object.fromEntries(Object.entries(s.series).filter(([, v]) => v != null && Array.isArray(v) && v.length > 0)) }));
+    if (s.seriesDaily) setSeriesDaily(prev => ({ ...prev, ...Object.fromEntries(Object.entries(s.seriesDaily).filter(([, v]) => v != null && Array.isArray(v) && v.length > 0)) }));
     if (s.seriesType) setSeriesType(s.seriesType);
     if (s.ongoingCost) setOngoingCost(s.ongoingCost);
     if (s.spreads) setSpreads(s.spreads);
@@ -1969,11 +1997,8 @@ function App() {
   const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
   const [efComputeHStar, setEfComputeHStar] = useState(true);
-  // v3.3: run BOTH grids in one go, union+dedupe.
-  // "step5"     = every 5%-step composition summing to 100
-  // "doubling"  = every non-zero share doubles from the smallest (1:2:4:...)
-  // Removed efGridMode — both run together.
-  const [efResults, setEfResults] = useState(null);   // {samples, winners, includesUserSMA, basket}
+  // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
+  const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
@@ -1993,38 +2018,32 @@ function App() {
     // v3.3: run BOTH grids in one pass, then dedupe.
     //   (a) "step5"    — every weight vector where each share is a multiple of
     //                    5% and shares sum to 100. Falls back to 10% steps
-    //                    above ~50k combinations to keep runtime sane.
-    //   (b) "doubling" — every non-zero share is exactly 2× the previous one
-    //                    along the basket order (e.g. for a 3-asset subset of
-    //                    the basket, the shares are 1 : 2 : 4 → 1/7 : 2/7 : 4/7).
-    //                    All non-empty subsets of the basket are enumerated,
-    //                    and every PERMUTATION of that subset is considered
-    //                    (so each subset of size k yields k! ordered triples).
-    //                    The user's current weights are always sample 0.
+    // v3.5: ONE grid — every 5%-step composition of n basket assets that
+    // sums to 100. Falls back to 10% steps on baskets larger than ~6 assets
+    // to keep runtime sane. Doubling grid removed.
+    // Two BENCHMARK portfolios (pure ACWI, pure coIQ) are always evaluated
+    // separately — they aren't basket-mixes, just reference comparisons.
+    // The user's current weights are always sample 0.
     const STEP_PCT = 5;
     const userSample = basket.map(a => userPortfolio.weights[a] || 0);
-    // Each grid entry: { vec, kinds: Set<"step5"|"doubling"> }. The user sample
-    // is its own pseudo-kind so it isn't counted under either grid's winner.
     const grid = new Map();
     const keyOf = (vec) => vec.map(v => Math.round(v * 10000) / 10000).join("|");
-    const push = (vec, kind) => {
+    const push = (vec) => {
       const s = vec.reduce((a, b) => a + b, 0);
       if (s <= 0) return;
       const norm = vec.map(v => v / s);
       const k = keyOf(norm);
-      const entry = grid.get(k);
-      if (entry) entry.kinds.add(kind);
-      else grid.set(k, { vec: norm, kinds: new Set([kind]) });
+      if (!grid.has(k)) grid.set(k, norm);
     };
-    push(userSample, "user");
+    push(userSample);
 
     const n = basket.length;
 
-    // (a) 5% step grid: integer compositions of 100/STEP_PCT into n parts.
+    // 5%-step grid: integer compositions of 100/STEP_PCT into n parts.
     {
       const STEPS = Math.round(100 / STEP_PCT);
       const buildSteps = (idx, remaining, acc) => {
-        if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT / 100), "step5"); acc.pop(); return; }
+        if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT / 100)); acc.pop(); return; }
         for (let v = 0; v <= remaining; v++) {
           acc.push(v);
           buildSteps(idx + 1, remaining - v, acc);
@@ -2038,11 +2057,10 @@ function App() {
       })();
       if (combosA <= 50000) buildSteps(0, STEPS, []);
       else {
-        // Sparse fallback: 10% steps.
         const STEPS_COARSE = 10;
         const STEP_PCT_COARSE = 10;
         const buildStepsCoarse = (idx, remaining, acc) => {
-          if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT_COARSE / 100), "step5"); acc.pop(); return; }
+          if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT_COARSE / 100)); acc.pop(); return; }
           for (let v = 0; v <= remaining; v++) {
             acc.push(v);
             buildStepsCoarse(idx + 1, remaining - v, acc);
@@ -2053,53 +2071,16 @@ function App() {
       }
     }
 
-    // (b) doubling grid. For each non-empty subset of the basket of size k,
-    //     for each permutation of that subset, assign ratios 1, 2, 4, ..., 2^(k-1)
-    //     to the chosen basket slots in permutation order and normalize.
-    //
-    //     Cap: smallest non-zero share must be >= 1%. For k assets the smallest
-    //     normalized share is 1/(2^k - 1). 1/63 ≈ 1.59% (k=6) is fine; 1/127
-    //     ≈ 0.79% (k=7) violates the floor. So enumerate subsets of size 1..6.
-    {
-      const MAX_K = 6;
-      for (let mask = 1; mask < (1 << n); mask++) {
-        const chosen = [];
-        for (let i = 0; i < n; i++) if (mask & (1 << i)) chosen.push(i);
-        if (chosen.length > MAX_K) continue;
-        const permute = (arr, picked) => {
-          if (arr.length === 0) {
-            const vec = new Array(n).fill(0);
-            for (let r = 0; r < picked.length; r++) vec[picked[r]] = Math.pow(2, r);
-            push(vec, "doubling");
-            return;
-          }
-          for (let i = 0; i < arr.length; i++) {
-            const next = arr.slice(0, i).concat(arr.slice(i + 1));
-            permute(next, picked.concat(arr[i]));
-          }
-        };
-        permute(chosen, []);
-      }
-    }
-
-    // Materialize, with the user sample first. samplesMeta tracks which grids
-    // each sample belongs to, so winners can be computed per grid.
+    // Materialize, with the user sample first.
     const userKey = (() => {
       const s = userSample.reduce((a, b) => a + b, 0);
       return s > 0 ? keyOf(userSample.map(v => v / s)) : null;
     })();
     const samplesWeights = [];
-    const samplesKinds = [];   // parallel array: Set<string> per sample
-    if (userKey && grid.has(userKey)) {
-      const entry = grid.get(userKey);
-      samplesWeights.push(entry.vec); samplesKinds.push(entry.kinds);
-      grid.delete(userKey);
-    } else {
-      samplesWeights.push(userSample.map(v => v / Math.max(1e-12, userSample.reduce((a, b) => a + b, 0))));
-      samplesKinds.push(new Set(["user"]));
-    }
-    for (const entry of grid.values()) { samplesWeights.push(entry.vec); samplesKinds.push(entry.kinds); }
-    setEfProgress({ done: 0, total: samplesWeights.length });
+    if (userKey && grid.has(userKey)) { samplesWeights.push(grid.get(userKey)); grid.delete(userKey); }
+    else samplesWeights.push(userSample.map(v => v / Math.max(1e-12, userSample.reduce((a, b) => a + b, 0))));
+    for (const v of grid.values()) samplesWeights.push(v);
+    setEfProgress({ done: 0, total: samplesWeights.length + 2 });
 
     const liveMap = pfAssetSeries.user || {};
     const seriesMap = {};
@@ -2114,6 +2095,21 @@ function App() {
     }
     const effSeriesType = { ...seriesType };
     for (const a of basket) if (efIncludeUserSMA && userSMA[a]) effSeriesType[a] = "net";
+
+    // Pure-asset benchmark portfolios (independent of basket). Always 100%
+    // of the named asset over the common window. They need their own data
+    // map because the named asset may not be in basket.
+    const benchmarkDef = (assetId, label) => {
+      const arr = series[assetId];
+      if (!arr) return null;
+      const data = { [assetId]: arr.filter(r => monthSet.has(r.month)) };
+      if (data[assetId].length === 0) return null;
+      return { assetId, label, data };
+    };
+    const benchmarks = [
+      benchmarkDef("market", "100% ACWI"),
+      benchmarkDef("coIQ",   "100% coIQ"),
+    ].filter(Boolean);
 
     const H_MAX_EF = 30;
     const MC_PATHS_EF = 200;   // light MC — enough for picking winners on h*
@@ -2160,7 +2156,6 @@ function App() {
         }
         results.push({
           weights: wv,
-          kinds: samplesKinds[idx],
           sortino: r.metrics.sortino,
           maxDD: r.metrics.maxDD,
           finalRatio: r.finalValue / r.totalInvested,
@@ -2168,32 +2163,65 @@ function App() {
           hStar,
         });
       }
-      setEfProgress({ done: end, total: samplesWeights.length });
+      setEfProgress({ done: end, total: samplesWeights.length + benchmarks.length });
       if (end < samplesWeights.length) {
         setTimeout(() => processChunk(end), 0);
       } else {
-        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA });
+        // After the grid: run pure-asset benchmarks (independent portfolios).
+        const benchResults = [];
+        for (const bm of benchmarks) {
+          const benchPf = {
+            id: "ef_bench_" + bm.assetId, name: bm.label, assets: [bm.assetId],
+            weights: { [bm.assetId]: 1 }, equityId: bm.assetId,
+            isMarket: true, fixedWeights: true, dynamic: true,
+          };
+          const r = runSim({
+            portfolio: benchPf, targetGoldPct: 0, data: bm.data,
+            seriesType: { ...seriesType, [bm.assetId]: "net" },
+            ongoingCost, spreads, orderFee,
+            tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
+            starting, monthly, rebalance,
+          });
+          if (!r || !r.metrics) continue;
+          let hStar = null;
+          if (efComputeHStar && cpiAligned && cutCPI >= 13) {
+            const upTrunc = r.unitPriceSeries.slice(0, cutCPI);
+            const cpiTrunc = cpiAligned.slice(0, cutCPI);
+            const paired = buildPairedReturns(upTrunc, cpiTrunc);
+            const curve = [];
+            for (let h = 1; h <= H_MAX_EF; h++) {
+              const mcPt = rollingRealReturnsMC(paired, h, MC_PATHS_EF, mc.block, 999 + bm.assetId.length + h);
+              curve.push(mcPt ? mcPt.worstRealCAGR : null);
+            }
+            for (let i = 0; i < curve.length; i++) {
+              let allOk = true;
+              for (let j = i; j < curve.length; j++) { if (curve[j] == null || curve[j] < 0) { allOk = false; break; } }
+              if (allOk) { hStar = i + 1; break; }
+            }
+          }
+          benchResults.push({
+            label: bm.label, assetId: bm.assetId,
+            sortino: r.metrics.sortino, maxDD: r.metrics.maxDD,
+            finalRatio: r.finalValue / r.totalInvested,
+            finalValue: r.finalValue,
+            hStar,
+          });
+        }
+        setEfProgress({ done: samplesWeights.length + benchResults.length, total: samplesWeights.length + benchmarks.length });
+        setEfResults({ basket, samples: results, benchmarks: benchResults, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA });
         setEfRunning(false);
       }
     };
 
     const computeWinners = (rs) => {
-      const pick = (subset) => {
-        if (subset.length === 0) return { sortino: null, finalReturn: null, hStar: null };
-        let bs = subset[0], br = subset[0], bh = null;
-        for (const r of subset) {
-          if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
-          if (r.finalRatio > br.finalRatio) br = r;
-          if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
-        }
-        return { sortino: bs, finalReturn: br, hStar: bh };
-      };
-      const w = {
-        step5:    pick(rs.filter(r => r.kinds && r.kinds.has("step5"))),
-        doubling: pick(rs.filter(r => r.kinds && r.kinds.has("doubling"))),
-        user:     rs[0] || null,
-      };
-      return w;
+      if (rs.length === 0) return { sortino: null, finalReturn: null, hStar: null, user: null };
+      let bs = rs[0], br = rs[0], bh = null;
+      for (const r of rs) {
+        if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
+        if (r.finalRatio > br.finalRatio) br = r;
+        if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
+      }
+      return { sortino: bs, finalReturn: br, hStar: bh, user: rs[0] };
     };
 
     setTimeout(() => processChunk(0), 30);
@@ -2950,7 +2978,7 @@ function App() {
                 setUserWeights(scaled);
               }}>Normalize to 100</button>
               <button className="btn btn-xs btn-ghost" onClick={() => { setUserWeights({}); setUserSMA({}); }}>Clear</button>
-              <button className="btn btn-xs btn-ghost" onClick={() => setUserWeights({ coIQ: 13, momentum: 13, value: 12, quality: 13, minvol: 12, world: 13, gold: 12, bitcoin: 12 })}>Reset to default</button>
+              <button className="btn btn-xs btn-ghost" onClick={() => setUserWeights(DEFAULT_USER_WEIGHTS)}>Reset to default</button>
               <span style={{ flex: 1 }}></span>
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (ACWI IMI)</strong></span>
             </div>
@@ -3433,10 +3461,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates two weight grids over your <strong>{userPortfolio.assets.length}-asset basket</strong> in one pass and dedupes:
-                  <strong> (a) 5% steps</strong> — every weight vector where each share is a multiple of 5% and shares sum to 100% (falls back to 10% steps on baskets larger than ~6 assets);
-                  <strong> (b) doubling ratios</strong> — every non-zero share is exactly twice the previous, e.g. <code>1 : 2 : 4 → 1/7 : 2/7 : 4/7</code>. All non-empty subsets of the basket and every permutation within a subset are considered.
-                  The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> where each share is a multiple of <strong>5%</strong> and they sum to 100% (falls back to 10% steps on baskets larger than ~6 assets to keep runtime sane). The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. After the grid finishes, two <strong>benchmark portfolios</strong> are evaluated: <strong>100% ACWI IMI</strong> and <strong>100% coIQ</strong>. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. Grid size grows with the basket — ~250 samples on a 3-asset basket, ~2000 on a 4-asset basket, ~12000 on a 5-asset basket (capped: 5% grid skipped if it would exceed 12k).</div>}
                 {efResults && (() => {
@@ -3483,18 +3508,43 @@ function App() {
                         </div>
                       </div>
                       {(() => {
-                        const renderTable = (label, w, footnote) => {
-                          const rows = [
-                            { key: "hStar", label: "Shortest real-preservation horizon", row: w.hStar },
-                            { key: "sortino", label: "Largest Sortino ratio",            row: w.sortino },
-                            { key: "finalReturn", label: "Largest absolute return",      row: w.finalReturn },
-                          ];
-                          const anyRow = rows.some(x => x.row);
+                        const renderRow = (key, label, row) => row ? (
+                          <tr key={key}>
+                            <td className="name">{label}</td>
+                            <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
+                            <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
+                            <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
+                          </tr>
+                        ) : null;
+                        const renderBenchRow = (key, bm) => {
+                          if (!bm) return null;
+                          // Synthesize a weights-display: 100% of bm.assetId.
+                          const fakeRow = {
+                            weights: [1], hStar: bm.hStar, sortino: bm.sortino,
+                            maxDD: bm.maxDD, finalRatio: bm.finalRatio,
+                          };
+                          const meta = ASSETS.find(x => x.id === bm.assetId);
+                          const shortLabel = (meta?.shortName || meta?.label.split(" ")[0] || bm.assetId);
                           return (
+                            <tr key={key}>
+                              <td className="name">{bm.label}</td>
+                              <td className="mono" style={{ fontSize: 11 }}>{shortLabel} 100%</td>
+                              <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "—"}</td>
+                              <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.sortino, 3)}</td>
+                              <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
+                              <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
+                            </tr>
+                          );
+                        };
+                        const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "market");
+                        const bmCoIQ = (efResults.benchmarks || []).find(b => b.assetId === "coIQ");
+                        return (
+                          <>
                             <div style={{ marginBottom: 18 }}>
-                              <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.06, marginBottom: 6 }}>{label}</div>
-                              {!anyRow && <div className="footnote">No samples in this grid (basket too small or all filtered out).</div>}
-                              {anyRow && <table className="bt">
+                              <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.06, marginBottom: 6 }}>5%-step grid · best of {efResults.samples.length} samples</div>
+                              <table className="bt">
                                 <thead><tr>
                                   <th>Recommendation</th>
                                   <th>Composition</th>
@@ -3504,53 +3554,31 @@ function App() {
                                   <th style={{ textAlign: "right" }}>Gain</th>
                                 </tr></thead>
                                 <tbody>
-                                  {rows.map(({ key, label: lbl, row }) => row ? (
-                                    <tr key={key}>
-                                      <td className="name">{lbl}</td>
-                                      <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
-                                      <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
-                                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
-                                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
-                                      <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
-                                    </tr>
-                                  ) : null)}
+                                  {renderRow("hStar", "Shortest real-preservation horizon", efResults.winners.hStar)}
+                                  {renderRow("sortino", "Largest Sortino ratio", efResults.winners.sortino)}
+                                  {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}
                                 </tbody>
-                              </table>}
-                              {footnote && <div className="footnote" style={{ marginTop: 6, fontSize: 10.5 }}>{footnote}</div>}
+                              </table>
+                              <div className="footnote" style={{ marginTop: 6, fontSize: 10.5 }}>Every weight is a multiple of 5% (10% on baskets larger than ~6 assets) summing to 100%.</div>
                             </div>
-                          );
-                        };
-                        const step5Count = efResults.samples.filter(r => r.kinds && r.kinds.has("step5")).length;
-                        const doublingCount = efResults.samples.filter(r => r.kinds && r.kinds.has("doubling")).length;
-                        return (
-                          <>
-                            {renderTable("5%-step compositions · best of " + step5Count + " samples", efResults.winners.step5, "Every weight is a multiple of 5% (or 10% on large baskets) summing to 100%.")}
-                            {renderTable("Doubling ratios · best of " + doublingCount + " samples", efResults.winners.doubling, "Non-zero shares follow 1 : 2 : 4 : … doubling pattern; smallest non-zero share ≥ 1% (subsets up to 6 assets).")}
-                            {efResults.winners.user && (
-                              <div>
-                                <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.06, marginBottom: 6 }}>Your current weights · reference</div>
-                                <table className="bt">
-                                  <thead><tr>
-                                    <th>Recommendation</th>
-                                    <th>Composition</th>
-                                    <th style={{ textAlign: "right" }}>h*</th>
-                                    <th style={{ textAlign: "right" }}>Sortino</th>
-                                    <th style={{ textAlign: "right" }}>Max DD</th>
-                                    <th style={{ textAlign: "right" }}>Gain</th>
-                                  </tr></thead>
-                                  <tbody>
-                                    <tr>
-                                      <td className="name">Your current weights</td>
-                                      <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(efResults.winners.user)}</td>
-                                      <td className="num" style={{ textAlign: "right" }}>{efResults.winners.user.hStar != null ? efResults.winners.user.hStar + "y" : "—"}</td>
-                                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(efResults.winners.user.sortino, 3)}</td>
-                                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(efResults.winners.user.maxDD)}</td>
-                                      <td className={"num " + (efResults.winners.user.finalRatio > 1 ? "pos" : efResults.winners.user.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(efResults.winners.user.finalRatio - 1)}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
+                            <div style={{ marginBottom: 18 }}>
+                              <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.06, marginBottom: 6 }}>Benchmarks · pure asset comparisons</div>
+                              <table className="bt">
+                                <thead><tr>
+                                  <th>Portfolio</th>
+                                  <th>Composition</th>
+                                  <th style={{ textAlign: "right" }}>h*</th>
+                                  <th style={{ textAlign: "right" }}>Sortino</th>
+                                  <th style={{ textAlign: "right" }}>Max DD</th>
+                                  <th style={{ textAlign: "right" }}>Gain</th>
+                                </tr></thead>
+                                <tbody>
+                                  {renderBenchRow("acwi", bmACWI)}
+                                  {renderBenchRow("coiq", bmCoIQ)}
+                                  {efResults.winners.user && renderRow("user", "Your current weights", efResults.winners.user)}
+                                </tbody>
+                              </table>
+                            </div>
                           </>
                         );
                       })()}

@@ -299,6 +299,8 @@ const ASSETS = [
     label: "iShares Edge MSCI World Quality Factor ETF", isin: "IE00BP3QZ601", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3Q)" },
   { id: "minvol",   file: "minvol.csv",   manifestKey: "minvol",   taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Min Volatility ETF", isin: "IE00B8FHGS14", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IQQ0)" },
+  { id: "world",    file: "world.csv",    manifestKey: "world",    taxLike: "fund", holdable: true,
+    label: "Amundi MSCI World UCITS ETF Acc",            isin: "LU1681043599", equity: true, defaultOngoing: 0.12, defaultBuySpread: 0.05, defaultSellSpread: 0.05, defaultTF: 30, note: "EUR price (Xetra WEBN) — formerly Lyxor Core MSCI World." },
   { id: "gold",     file: "gold.csv",     manifestKey: "gold",     taxLike: "debt", holdable: true,
     label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT" },
   { id: "market",   file: "market.csv",   manifestKey: "market",   taxLike: "fund", holdable: true,
@@ -409,6 +411,8 @@ const PORTFOLIOS = [
     equityId: "coIQ", weights: { gold: 1 / 3, coIQ: 1 / 3, quality: 1 / 3 }, fixedWeights: true },
   { id: "triple_coIQ_minvol",  name: "⅓ coIQ + ⅓ Gold + ⅓ MinVol (IQQ0)",     assets: ["gold", "coIQ", "minvol"],
     equityId: "coIQ", weights: { gold: 1 / 3, coIQ: 1 / 3, minvol: 1 / 3 }, fixedWeights: true },
+  { id: "triple_coIQ_world",   name: "⅓ coIQ + ⅓ Gold + ⅓ MSCI World (WEBN)", assets: ["gold", "coIQ", "world"],
+    equityId: "coIQ", weights: { gold: 1 / 3, coIQ: 1 / 3, world: 1 / 3 }, fixedWeights: true },
   { id: "market",        name: "Market (100% ACWI IMI)", assets: ["market"], defaultGold: 0, equityId: "market", isMarket: true },
 ];
 
@@ -1434,13 +1438,13 @@ function App() {
   const storage = useStorage();
 
   // --- raw CSVs (text) and parsed monthly series ---
-  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", value: "", quality: "", minvol: "", gold: "", market: "", lev3x: "", lev2xNdx: "", lev2xWld: "", bitcoin: "", signal: "", cpi: "" });
-  const [series, setSeries] = useState({ coIQ: null, momentum: null, value: null, quality: null, minvol: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null, cpi: null });
+  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", gold: "", market: "", lev3x: "", lev2xNdx: "", lev2xWld: "", bitcoin: "", signal: "", cpi: "" });
+  const [series, setSeries] = useState({ coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null, cpi: null });
   // Daily series — populated alongside monthly when at least one portfolio
   // has 200-SMA timing ON. Used by buildTimedRiskLegMonthly.
-  const [seriesDaily, setSeriesDaily] = useState({ coIQ: null, momentum: null, value: null, quality: null, minvol: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null });
+  const [seriesDaily, setSeriesDaily] = useState({ coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null });
   const [seriesError, setSeriesError] = useState({});
-  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", value: "net", quality: "net", minvol: "net", gold: "net", market: "net", lev3x: "net", lev2xNdx: "net", lev2xWld: "net", bitcoin: "net" });
+  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", value: "net", quality: "net", minvol: "net", world: "net", gold: "net", market: "net", lev3x: "net", lev2xNdx: "net", lev2xWld: "net", bitcoin: "net" });
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
   const [manifest, setManifest] = useState(null);
 
@@ -1452,14 +1456,14 @@ function App() {
   // --- taxes ---
   const [taxRate, setTaxRate] = useState(26.375);
   const [allowance, setAllowance] = useState(1000);
-  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, market: 30, lev2xNdx: 30, lev2xWld: 30, value: 30, quality: 30, minvol: 30 });
+  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, market: 30, lev2xNdx: 30, lev2xWld: 30, value: 30, quality: 30, minvol: 30, world: 30 });
   const [basiszins, setBasiszins] = useState({ ...DEFAULT_BASISZINS });
 
   // --- inputs ---
   const [starting, setStarting] = useState(10000);
   const [monthly, setMonthly] = useState(500);
   const [rebalance, setRebalance] = useState("yearly");
-  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "gold_lev3x", "gold_lev2xNdx", "gold_lev2xWld", "bitcoin", "triple_coIQ", "triple_momentumSMA", "triple_momBH_coIQsma", "triple_momMom", "triple_coIQ_value", "triple_coIQ_quality", "triple_coIQ_minvol", "market"]);
+  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "gold_lev3x", "gold_lev2xNdx", "gold_lev2xWld", "bitcoin", "triple_coIQ", "triple_momentumSMA", "triple_momBH_coIQsma", "triple_momMom", "triple_coIQ_value", "triple_coIQ_quality", "triple_coIQ_minvol", "triple_coIQ_world", "market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30, gold_lev3x: 30 });
 
   // --- v2: planning horizon + cash rate (200-SMA toggle's risk-off leg) ---
@@ -2587,8 +2591,8 @@ function App() {
               <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />
               <NumField label="Sparer-Pauschbetrag (EUR/yr)" value={allowance} step={100} onChange={setAllowance} />
               <div></div>
-              {["coIQ", "momentum", "market", "lev2xNdx", "lev2xWld", "value", "quality", "minvol"].map(id => {
-                const lbls = { coIQ: "coIQ", momentum: "Momentum", market: "ACWI IMI", lev2xNdx: "2x Nasdaq (A0LC12)", lev2xWld: "2x World (ETF888)", value: "Value (IS3S)", quality: "Quality (IS3Q)", minvol: "MinVol (IQQ0)" };
+              {["coIQ", "momentum", "market", "lev2xNdx", "lev2xWld", "value", "quality", "minvol", "world"].map(id => {
+                const lbls = { coIQ: "coIQ", momentum: "Momentum", market: "ACWI IMI", lev2xNdx: "2x Nasdaq (A0LC12)", lev2xWld: "2x World (ETF888)", value: "Value (IS3S)", quality: "Quality (IS3Q)", minvol: "MinVol (IQQ0)", world: "MSCI World (WEBN)" };
                 return (
                   <NumField key={id} label={`Teilfreistellung — ${lbls[id]} (%)`}
                             value={teilfreistellung[id] ?? 30} step={1}

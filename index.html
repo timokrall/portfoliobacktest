@@ -1526,7 +1526,7 @@ function App() {
   // assets (coIQ, momentum, value, quality, minvol, prime/PRAW, gold, BTC).
   // 12% × 4 + 13% × 4 = 100. Leveraged ETFs (lev3x, lev2x*) excluded by
   // default — too volatile for a strategic-core baseline.
-  const DEFAULT_USER_WEIGHTS = { coIQ: 13, momentum: 13, value: 12, quality: 13, minvol: 12, world: 13, gold: 12, bitcoin: 12 };
+  const DEFAULT_USER_WEIGHTS = { coIQ: 40, gold: 20, value: 20, world: 20 };
   const [userWeights, setUserWeights] = useState(DEFAULT_USER_WEIGHTS);
   // Per-asset 200-SMA toggle for the user portfolio's legs (gold is never timed).
   const [userSMA, setUserSMA] = useState({});

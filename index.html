@@ -1969,10 +1969,10 @@ function App() {
   const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
   const [efComputeHStar, setEfComputeHStar] = useState(true);
-  // v3.2: pick ONE grid, not the union. "step5" = every 5%-step composition
-  // that sums to 100. "ratio" = small-integer ratios (1..RATIO_MAX), every
-  // non-zero share is a multiple of the smallest (e.g. 1/7 : 2/7 : 4/7).
-  const [efGridMode, setEfGridMode] = useState("step5");
+  // v3.3: run BOTH grids in one go, union+dedupe.
+  // "step5"     = every 5%-step composition summing to 100
+  // "doubling"  = every non-zero share doubles from the smallest (1:2:4:...)
+  // Removed efGridMode — both run together.
   const [efResults, setEfResults] = useState(null);   // {samples, winners, includesUserSMA, basket}
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
@@ -1990,12 +1990,17 @@ function App() {
     let cutCPI = months.length;
     if (cpiAligned) { for (let i = 0; i < months.length; i++) if (cpiAligned[i] == null) { cutCPI = i; break; } }
 
-    // v3.2: enumerate ONE grid (efGridMode), not both unioned:
-    //   "step5" = every composition in 5%-steps that sums to 100
-    //   "ratio" = every non-zero share is an integer 1..RATIO_MAX (multiples
-    //             of the smallest non-zero share), normalized to 1
-    // Always include the user's current weights as sample 0.
-    const RATIO_MAX = 6;
+    // v3.3: run BOTH grids in one pass, then dedupe.
+    //   (a) "step5"    — every weight vector where each share is a multiple of
+    //                    5% and shares sum to 100. Falls back to 10% steps
+    //                    above ~50k combinations to keep runtime sane.
+    //   (b) "doubling" — every non-zero share is exactly 2× the previous one
+    //                    along the basket order (e.g. for a 3-asset subset of
+    //                    the basket, the shares are 1 : 2 : 4 → 1/7 : 2/7 : 4/7).
+    //                    All non-empty subsets of the basket are enumerated,
+    //                    and every PERMUTATION of that subset is considered
+    //                    (so each subset of size k yields k! ordered triples).
+    //                    The user's current weights are always sample 0.
     const STEP_PCT = 5;
     const userSample = basket.map(a => userPortfolio.weights[a] || 0);
     const grid = new Map();
@@ -2010,8 +2015,9 @@ function App() {
     push(userSample);
 
     const n = basket.length;
-    if (efGridMode === "step5") {
-      // (a) 5% step grid: integer compositions of 100/STEP_PCT into n parts.
+
+    // (a) 5% step grid: integer compositions of 100/STEP_PCT into n parts.
+    {
       const STEPS = Math.round(100 / STEP_PCT);
       const buildSteps = (idx, remaining, acc) => {
         if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT / 100)); acc.pop(); return; }
@@ -2028,9 +2034,7 @@ function App() {
       })();
       if (combosA <= 50000) buildSteps(0, STEPS, []);
       else {
-        // basket too big for the full 5% grid; sparse-sample it by stepping
-        // through compositions of 10% instead. C(10+n-1, n-1) is manageable
-        // up to n=8 (~12k).
+        // Sparse fallback: 10% steps.
         const STEPS_COARSE = 10;
         const STEP_PCT_COARSE = 10;
         const buildStepsCoarse = (idx, remaining, acc) => {
@@ -2043,17 +2047,36 @@ function App() {
         };
         buildStepsCoarse(0, STEPS_COARSE, []);
       }
-    } else if (efGridMode === "ratio") {
-      // (b) ratio grid: each asset gets an integer 0..RATIO_MAX. Skip the all-zeros.
-      const buildRatios = (idx, acc) => {
-        if (idx === n) { if (acc.some(v => v > 0)) push(acc.slice()); return; }
-        for (let v = 0; v <= RATIO_MAX; v++) {
-          acc.push(v);
-          buildRatios(idx + 1, acc);
-          acc.pop();
-        }
-      };
-      buildRatios(0, []);
+    }
+
+    // (b) doubling grid. For each non-empty subset of the basket of size k,
+    //     for each permutation of that subset, assign ratios 1, 2, 4, ..., 2^(k-1)
+    //     to the chosen basket slots in permutation order and normalize.
+    {
+      // Enumerate subsets via bitmask 1..(1<<n)-1.
+      const factorials = [1];
+      for (let i = 1; i <= n; i++) factorials.push(factorials[i - 1] * i);
+      // Cap subsets at size 7 (5040 perms) to avoid runaway.
+      const MAX_K = 7;
+      for (let mask = 1; mask < (1 << n); mask++) {
+        const chosen = [];
+        for (let i = 0; i < n; i++) if (mask & (1 << i)) chosen.push(i);
+        if (chosen.length > MAX_K) continue;
+        // Permute chosen.
+        const permute = (arr, picked) => {
+          if (arr.length === 0) {
+            const vec = new Array(n).fill(0);
+            for (let r = 0; r < picked.length; r++) vec[picked[r]] = Math.pow(2, r);
+            push(vec);
+            return;
+          }
+          for (let i = 0; i < arr.length; i++) {
+            const next = arr.slice(0, i).concat(arr.slice(i + 1));
+            permute(next, picked.concat(arr[i]));
+          }
+        };
+        permute(chosen, []);
+      }
     }
 
     // Materialize, with the user sample first.
@@ -2065,7 +2088,6 @@ function App() {
     if (userKey && grid.has(userKey)) { samplesWeights.push(grid.get(userKey)); grid.delete(userKey); }
     else samplesWeights.push(userSample.map(v => v / Math.max(1e-12, userSample.reduce((a, b) => a + b, 0))));
     for (const v of grid.values()) samplesWeights.push(v);
-    // Update the progress total + the (now-meaningful) sample count.
     setEfProgress({ done: 0, total: samplesWeights.length });
 
     const liveMap = pfAssetSeries.user || {};
@@ -2089,7 +2111,7 @@ function App() {
 
     const processChunk = (start) => {
       if (efCancelRef.current) {
-        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA, gridMode: efGridMode, cancelled: true });
+        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA, cancelled: true });
         setEfRunning(false);
         return;
       }
@@ -2138,7 +2160,7 @@ function App() {
       if (end < samplesWeights.length) {
         setTimeout(() => processChunk(end), 0);
       } else {
-        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA, gridMode: efGridMode });
+        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA });
         setEfRunning(false);
       }
     };
@@ -2913,7 +2935,7 @@ function App() {
                 setUserWeights(scaled);
               }}>Normalize to 100</button>
               <button className="btn btn-xs btn-ghost" onClick={() => { setUserWeights({}); setUserSMA({}); }}>Clear</button>
-              <button className="btn btn-xs btn-ghost" onClick={() => setUserWeights({ coIQ: 33, gold: 34, market: 33 })}>Reset to default</button>
+              <button className="btn btn-xs btn-ghost" onClick={() => setUserWeights({ coIQ: 13, momentum: 13, value: 12, quality: 13, minvol: 12, world: 13, gold: 12, bitcoin: 12 })}>Reset to default</button>
               <span style={{ flex: 1 }}></span>
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (ACWI IMI)</strong></span>
             </div>
@@ -3374,10 +3396,6 @@ function App() {
               <div className="panel-h">
                 <h2>Efficient Frontier · grid search on my-portfolio basket</h2>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <div className="seg">
-                    <button className={efGridMode === "step5" ? "on" : ""} onClick={() => setEfGridMode("step5")}>5% steps</button>
-                    <button className={efGridMode === "ratio" ? "on" : ""} onClick={() => setEfGridMode("ratio")}>integer ratios (1..6)</button>
-                  </div>
                   <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
@@ -3400,10 +3418,10 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  {efGridMode === "step5"
-                    ? <>Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> where each share is a multiple of <strong>5%</strong> and shares sum to 100%. For baskets larger than ~6 assets the engine falls back to 10% steps to keep sample count manageable.</>
-                    : <>Enumerates weight vectors where every non-zero share is a small-integer multiple of the smallest non-zero share (e.g. <code>1 : 2 : 4 → 1/7 : 2/7 : 4/7</code>), with integers drawn from 1 to 6.</>
-                  } The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
+                  Enumerates two weight grids over your <strong>{userPortfolio.assets.length}-asset basket</strong> in one pass and dedupes:
+                  <strong> (a) 5% steps</strong> — every weight vector where each share is a multiple of 5% and shares sum to 100% (falls back to 10% steps on baskets larger than ~6 assets);
+                  <strong> (b) doubling ratios</strong> — every non-zero share is exactly twice the previous, e.g. <code>1 : 2 : 4 → 1/7 : 2/7 : 4/7</code>. All non-empty subsets of the basket and every permutation within a subset are considered.
+                  The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. Grid size grows with the basket — ~250 samples on a 3-asset basket, ~2000 on a 4-asset basket, ~12000 on a 5-asset basket (capped: 5% grid skipped if it would exceed 12k).</div>}
                 {efResults && (() => {

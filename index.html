@@ -1447,19 +1447,69 @@ function App() {
   const storage = useStorage();
 
   // --- raw CSVs (text) and parsed monthly series ---
-  const [csvText, setCsvText] = useState({ coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", gold: "", market: "", lev3x: "", lev2xNdx: "", lev2xWld: "", bitcoin: "", signal: "", cpi: "" });
-  const [series, setSeries] = useState({ coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null, cpi: null });
+  // CSV text is LAZY-INITIALIZED from localStorage so user-uploaded data
+  // is available on the very first render. Without this, the autosave effect
+  // would fire with the empty defaults and overwrite the persisted data
+  // before the bootstrap restore could read it.
+  const _ASSET_DEFAULTS_TEXT = { coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", gold: "", market: "", lev3x: "", lev2xNdx: "", lev2xWld: "", bitcoin: "", signal: "", cpi: "" };
+  const _readUploadedCsvs = () => {
+    try {
+      const raw = localStorage.getItem("backtester-uploaded-csvs.json");
+      if (!raw) return {};
+      const map = JSON.parse(raw);
+      return (map && typeof map === "object") ? map : {};
+    } catch { return {}; }
+  };
+  const [csvText, setCsvText] = useState(() => {
+    const defaults = { ..._ASSET_DEFAULTS_TEXT };
+    const uploaded = _readUploadedCsvs();
+    for (const id of Object.keys(uploaded)) {
+      const txt = uploaded[id];
+      if (typeof txt === "string" && txt.length > 0 && id in defaults) defaults[id] = txt;
+    }
+    return defaults;
+  });
+  const [series, setSeries] = useState(() => {
+    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null, cpi: null };
+    const uploaded = _readUploadedCsvs();
+    for (const id of Object.keys(uploaded)) {
+      const txt = uploaded[id];
+      if (typeof txt === "string" && txt.length > 0 && id in defaults) {
+        try { defaults[id] = parseCsvToMonthly(txt); } catch {}
+      }
+    }
+    return defaults;
+  });
   // Daily series — populated alongside monthly when at least one portfolio
   // has 200-SMA timing ON. Used by buildTimedRiskLegMonthly.
-  const [seriesDaily, setSeriesDaily] = useState({ coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null });
+  const [seriesDaily, setSeriesDaily] = useState(() => {
+    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null };
+    const uploaded = _readUploadedCsvs();
+    for (const id of Object.keys(uploaded)) {
+      const txt = uploaded[id];
+      if (typeof txt === "string" && txt.length > 0 && id in defaults && id !== "cpi") {
+        try { defaults[id] = parseCsvToDaily(txt); } catch {}
+      }
+    }
+    return defaults;
+  });
   const [seriesError, setSeriesError] = useState({});
   const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", value: "net", quality: "net", minvol: "net", world: "net", gold: "net", market: "net", lev3x: "net", lev2xNdx: "net", lev2xWld: "net", bitcoin: "net" });
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
   const [manifest, setManifest] = useState(null);
 
   // --- per-asset costs ---
-  const [ongoingCost, setOngoingCost] = useState({});
-  const [spreads, setSpreads] = useState({});
+  // Lazy-init from ASSETS defaults so the simulator can find spreads on the
+  // very first render. (Previously the useEffect-based init triggered after
+  // first render — fine when series was also empty, but with the new lazy
+  // CSV restore series is populated synchronously and runSim fires too early.)
+  const _initCosts = () => {
+    const oc = {}, sp = {};
+    for (const a of ASSETS) { oc[a.id] = a.defaultOngoing; sp[a.id] = { buy: a.defaultBuySpread, sell: a.defaultSellSpread }; }
+    return { oc, sp };
+  };
+  const [ongoingCost, setOngoingCost] = useState(() => _initCosts().oc);
+  const [spreads, setSpreads] = useState(() => _initCosts().sp);
   const [orderFee, setOrderFee] = useState({ fixed: 0, pct: 0 });
 
   // --- taxes ---
@@ -1508,13 +1558,7 @@ function App() {
   // --- monte carlo ---
   const [mc, setMc] = useState({ paths: 2000, horizon: 120, block: 6 });
 
-  // initialize cost / spread defaults — include synthetic assets so the
-  // simulation engine can resolve ongoingCost[coIQ_t] etc. without crashing.
-  useEffect(() => {
-    const oc = {}, sp = {};
-    for (const a of ASSETS) { oc[a.id] = a.defaultOngoing; sp[a.id] = { buy: a.defaultBuySpread, sell: a.defaultSellSpread }; }
-    setOngoingCost(oc); setSpreads(sp);
-  }, []);
+  // (Cost/spread defaults are now applied via lazy init above — no useEffect needed.)
 
   // v3: resolve a portfolio definition. For pid === "user", we override the
   // stub PORTFOLIOS entry with a dynamic def built from state.userWeights —
@@ -1635,11 +1679,49 @@ function App() {
   };
   const onFileLoad = (id, file) => {
     const r = new FileReader();
-    r.onload = (e) => onCsvChange(id, e.target.result);
+    r.onload = (e) => onUserCsvChange(id, e.target.result);
     r.readAsText(file);
   };
 
+  // Per-asset user-uploaded flag. We persist ONLY assets the user explicitly
+  // uploaded/pasted/typed (not assets just populated by the same-origin
+  // committed-CSV bootstrap).
+  const [userUploadedIds, setUserUploadedIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem("backtester-uploaded-ids.json");
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("backtester-uploaded-ids.json", JSON.stringify([...userUploadedIds])); } catch {}
+  }, [userUploadedIds]);
+
+  // User-initiated CSV change: marks the asset as user-uploaded (persists
+  // across reloads). All UI entry points (textarea typing, file upload,
+  // Clear button) route through this wrapper.
+  const onUserCsvChange = (id, text) => {
+    setUserUploadedIds(prev => {
+      const next = new Set(prev);
+      if (text && text.trim()) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    onCsvChange(id, text);
+  };
+
+  // Ref-mirror of userUploadedIds so reloadAsset (called by the bootstrap
+  // effect) can read the CURRENT value, not a stale closure capture.
+  const userUploadedIdsRef = useRef(userUploadedIds);
+  useEffect(() => { userUploadedIdsRef.current = userUploadedIds; }, [userUploadedIds]);
+
   const reloadAsset = async (asset) => {
+    // Skip if the user has uploaded their own CSV for this asset — their
+    // version always wins over the committed-CSV bootstrap. Use the ref so
+    // we read the live value (not the closure-captured one).
+    if (userUploadedIdsRef.current.has(asset.id)) {
+      setFetchStatus(s => ({ ...s, [asset.id]: { kind: "info", msg: "user upload preserved" } }));
+      return;
+    }
     setFetchStatus(s => ({ ...s, [asset.id]: { kind: "info", msg: "loading\u2026" } }));
     try {
       const csv = await loadCommittedCsv(asset);
@@ -1661,50 +1743,33 @@ function App() {
   };
 
   // bootstrap: same-origin load of committed CSVs + manifest, once on mount.
-  // Also rehydrates any CSVs the user previously pasted/uploaded into the
-  // browser (persisted to localStorage via the autosave effect below).
+  // User-uploaded CSVs are restored synchronously via the lazy-init of
+  // csvText / series / seriesDaily; reloadAsset will skip any asset that's
+  // marked as user-uploaded (via userUploadedIdsRef), so the user's data
+  // is never clobbered by the committed bootstrap.
   const bootstrappedRef = useRef(false);
   useEffect(() => {
     if (bootstrappedRef.current) return;
     bootstrappedRef.current = true;
-    // 1) restore user-uploaded CSVs from localStorage BEFORE fetching the
-    //    committed defaults. If the user later overrides via Upload/Paste,
-    //    the autosave effect persists it. If they only want the committed
-    //    ./data/*.csv they can use the per-card Clear button to drop the
-    //    localStorage copy.
-    try {
-      const raw = localStorage.getItem("backtester-uploaded-csvs.json");
-      if (raw) {
-        const map = JSON.parse(raw);
-        if (map && typeof map === "object") {
-          for (const id of Object.keys(map)) {
-            const txt = map[id];
-            if (typeof txt === "string" && txt.length > 0) onCsvChange(id, txt);
-          }
-        }
-      }
-    } catch {}
     reloadAll();
     // eslint-disable-next-line
   }, []);
 
-  // Auto-persist uploaded/pasted CSVs to localStorage so they survive a
-  // page reload. Only persists assets whose text is non-empty (no point
-  // wasting space on empty cards). Debounced via the next-tick effect cycle.
+  // Auto-persist user-uploaded CSV text to localStorage so it survives reload.
+  // Persists ONLY the assets in userUploadedIds.
   useEffect(() => {
     try {
       const out = {};
-      for (const id of Object.keys(csvText)) {
+      for (const id of userUploadedIds) {
         const t = csvText[id];
         if (typeof t === "string" && t.trim().length > 0) out[id] = t;
       }
-      // ~5MB localStorage cap. CSVs are tiny (~30KB each), but be safe.
       const serialized = JSON.stringify(out);
       if (serialized.length < 4_000_000) {
         localStorage.setItem("backtester-uploaded-csvs.json", serialized);
       }
     } catch {}
-  }, [csvText]);
+  }, [csvText, userUploadedIds]);
 
   // ---- compute common window for selected portfolios ----
   // ---- per-portfolio monthly series (with optional 200-SMA timing applied
@@ -2668,7 +2733,7 @@ function App() {
                   manifestEntry={manifest?.assets?.[a.manifestKey]}
                   onReload={() => reloadAsset(a)}
                   onSetType={(t) => setSeriesType(p => ({ ...p, [a.id]: t }))}
-                  onText={(t) => onCsvChange(a.id, t)}
+                  onText={(t) => onUserCsvChange(a.id, t)}
                   onFile={(f) => onFileLoad(a.id, f)}
                 />
               )}
@@ -2683,7 +2748,7 @@ function App() {
                 manifestEntry={manifest?.assets?.cpi}
                 onReload={() => reloadAsset(CPI_ASSET)}
                 onSetType={null}
-                onText={(t) => onCsvChange("cpi", t)}
+                onText={(t) => onUserCsvChange("cpi", t)}
                 onFile={(f) => onFileLoad("cpi", f)}
               />
             </div>

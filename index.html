@@ -414,6 +414,15 @@ const PORTFOLIOS = [
   { id: "triple_coIQ_world",   name: "⅓ coIQ + ⅓ Gold + ⅓ MSCI World (WEBN)", assets: ["gold", "coIQ", "world"],
     equityId: "coIQ", weights: { gold: 1 / 3, coIQ: 1 / 3, world: 1 / 3 }, fixedWeights: true },
   { id: "market",        name: "Market (100% ACWI IMI)", assets: ["market"], defaultGold: 0, equityId: "market", isMarket: true },
+  // v3: free-form user portfolio (assets + weights driven by state.userWeights /
+  // state.userSMA). The static entry here is a stub — pfAssetSeries / simResults
+  // / etc. resolve "user" via the memoized userPortfolio object instead.
+  { id: "user",          name: "My Portfolio", assets: [], weights: {},
+    equityId: "coIQ", isMarket: false, fixedWeights: true, dynamic: true },
+  // v3: explicit 100% coIQ benchmark — kept as a SEPARATE entry from gold_coIQ
+  // so the user composer can always be compared to a pure-coIQ baseline.
+  { id: "bench_coIQ",    name: "100% coIQ (benchmark)", assets: ["coIQ"], defaultGold: 0, equityId: "coIQ", isMarket: true,
+    benchmark: true },
 ];
 
 const DEFAULT_BASISZINS = { 2018: 0.87, 2019: 0.52, 2020: 0.07, 2021: 0.00, 2022: 0.00, 2023: 2.55, 2024: 2.29, 2025: 2.53, 2026: 2.53 };
@@ -1463,7 +1472,14 @@ function App() {
   const [starting, setStarting] = useState(10000);
   const [monthly, setMonthly] = useState(500);
   const [rebalance, setRebalance] = useState("yearly");
-  const [selectedPortfolios, setSelectedPortfolios] = useState(["gold_coIQ", "gold_momentum", "gold_lev3x", "gold_lev2xNdx", "gold_lev2xWld", "bitcoin", "triple_coIQ", "triple_momentumSMA", "triple_momBH_coIQsma", "triple_momMom", "triple_coIQ_value", "triple_coIQ_quality", "triple_coIQ_minvol", "triple_coIQ_world", "market"]);
+  // v3: free-form user portfolio composer. Default = ⅓ coIQ + ⅓ gold + ⅓ market.
+  const [userWeights, setUserWeights] = useState({
+    coIQ: 33, gold: 34, market: 33,
+  });
+  // Per-asset 200-SMA toggle for the user portfolio's legs (gold is never timed).
+  const [userSMA, setUserSMA] = useState({});
+
+  const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30, gold_lev3x: 30 });
 
   // --- v2: planning horizon + cash rate (200-SMA toggle's risk-off leg) ---
@@ -1500,7 +1516,33 @@ function App() {
     setOngoingCost(oc); setSpreads(sp);
   }, []);
 
-  // ---- save / load entire state ----
+  // v3: resolve a portfolio definition. For pid === "user", we override the
+  // stub PORTFOLIOS entry with a dynamic def built from state.userWeights —
+  // non-zero entries become its assets, weights normalize to sum-1, and
+  // equityId is the first non-gold asset for fallbacks.
+  const userPortfolio = useMemo(() => {
+    const w = userWeights || {};
+    const assets = Object.keys(w).filter(a => (w[a] || 0) > 0);
+    const sum = assets.reduce((s, a) => s + w[a], 0);
+    const weights = {};
+    assets.forEach(a => { weights[a] = sum > 0 ? w[a] / sum : 0; });
+    const equityId = assets.find(a => a !== "gold") || "coIQ";
+    return {
+      id: "user", name: "My Portfolio",
+      assets, weights, equityId,
+      isMarket: false, fixedWeights: true, dynamic: true,
+    };
+  }, [userWeights]);
+
+  // The total of user weights (raw, before normalization) — shown in UI.
+  const userWeightTotal = useMemo(() => {
+    return Object.values(userWeights || {}).reduce((s, v) => s + (v || 0), 0);
+  }, [userWeights]);
+
+  const getPF = useCallback((pid) => {
+    if (pid === "user") return userPortfolio;
+    return PORTFOLIOS.find(p => p.id === pid);
+  }, [userPortfolio]);
   const collectState = useCallback(() => ({
     csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee,
     taxRate, allowance, teilfreistellung, basiszins,
@@ -1633,7 +1675,7 @@ function App() {
   const pfAssetSeries = useMemo(() => {
     const out = {};
     for (const pid of selectedPortfolios) {
-      const pf = PORTFOLIOS.find(p => p.id === pid);
+      const pf = getPF(pid);
       if (!pf) continue;
       const map = {};
       const timed = !!portfolioTiming[pid];
@@ -1666,7 +1708,13 @@ function App() {
           map.__syntheticFallback = a;
           continue;
         }
-        if (a === pf.equityId && timed) {
+        // v3: per-asset SMA for the user portfolio (userSMA[a]); legacy
+        // behaviour for the predefined portfolios (single portfolioTiming flag
+        // applied to pf.equityId).
+        const shouldTime = pid === "user"
+          ? (!!userSMA[a] && a !== "gold")
+          : (a === pf.equityId && timed);
+        if (shouldTime) {
           const eqDaily = seriesDaily[a];
           const sigDaily = seriesDaily.signal;
           const sp = spreads[a] || { buy: 0, sell: 0 };
@@ -1689,13 +1737,13 @@ function App() {
       out[pid] = map;
     }
     return out;
-  }, [selectedPortfolios, portfolioTiming, seriesDaily, series, cashRate, ecbRate, spreads, orderFee, taxRate, teilfreistellung]);
+  }, [selectedPortfolios, portfolioTiming, userSMA, seriesDaily, series, cashRate, ecbRate, spreads, orderFee, taxRate, teilfreistellung, getPF]);
 
   // ---- per-portfolio windows (each portfolio's own intersection) ----------
   const perPortfolioWindow = useMemo(() => {
     const out = {};
     for (const pid of selectedPortfolios) {
-      const pf = PORTFOLIOS.find(p => p.id === pid);
+      const pf = getPF(pid);
       if (!pf) continue;
       const map = pfAssetSeries[pid];
       if (!map) { out[pid] = { ok: false }; continue; }
@@ -1721,7 +1769,7 @@ function App() {
       // surface a useful message
       const missing = [];
       for (const pid of selectedPortfolios) {
-        const pf = PORTFOLIOS.find(p => p.id === pid);
+        const pf = getPF(pid);
         const map = pfAssetSeries[pid] || {};
         for (const a of pf.assets) if (!map[a]) {
           const meta = ASSETS.find(x => x.id === a);
@@ -1772,7 +1820,7 @@ function App() {
     if (!commonWindow || !commonWindow.ok) return null;
     const out = {};
     for (const pid of selectedPortfolios) {
-      const pf = PORTFOLIOS.find(p => p.id === pid);
+      const pf = getPF(pid);
       const months = ownNativeHistory ? perPortfolioWindow[pid]?.months : commonWindow.months;
       if (!months) continue;
       const data = buildPortfolioData(pf, months, pfAssetSeries[pid]);
@@ -1802,6 +1850,125 @@ function App() {
   const [sweepResults, setSweepResults] = useState({});
   const [sweepRunning, setSweepRunning] = useState(false);
 
+  // ---- v3: efficient frontier (random Dirichlet sampling on the chosen basket)
+  const [efRunning, setEfRunning] = useState(false);
+  const [efSamples, setEfSamples] = useState(1500);
+  const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
+  const [efResults, setEfResults] = useState(null);   // {samples:[{weights, sortino, finalRatio, maxDD, hStar}], best:{...}}
+
+  const runEfficientFrontier = () => {
+    if (!commonWindow || !commonWindow.ok || userPortfolio.assets.length < 2) return;
+    setEfRunning(true);
+    setTimeout(() => {
+      const basket = userPortfolio.assets.slice();
+      const n = basket.length;
+      const months = commonWindow.months;
+      const cpiMap = series.cpi ? new Map(series.cpi.map(r => [r.month, r.value])) : null;
+      // Dirichlet(1,...,1) sampling via exponential RVs.
+      let seed = 0xdeadbeef;
+      const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+      const exp = () => -Math.log(1 - rand() + 1e-12);
+      // For each sample, build a dynamic portfolio definition + asset map and run runSim.
+      // Per-asset SMA state from userSMA (if efIncludeUserSMA), else all OFF.
+      const cpiAligned = cpiMap ? months.map(m => cpiMap.get(m)) : null;
+      // Cut to the prefix that has CPI data.
+      let cutCPI = months.length;
+      if (cpiAligned) { for (let i = 0; i < months.length; i++) if (cpiAligned[i] == null) { cutCPI = i; break; } }
+      const samples = [];
+      // Always include the user's current normalized weights as the first sample.
+      const userSample = basket.map(a => userPortfolio.weights[a] || 0);
+      const samplesWeights = [userSample];
+      for (let s = 0; s < efSamples; s++) {
+        const u = basket.map(() => exp());
+        const tot = u.reduce((a, b) => a + b, 0) || 1;
+        samplesWeights.push(u.map(v => v / tot));
+      }
+      // Pre-build series map by asset from pfAssetSeries — but for asset SMA
+      // states that differ from the live userSMA, we'd need to re-derive.
+      // To keep things simple we reuse the live pfAssetSeries[user] map (which
+      // already respects userSMA). If efIncludeUserSMA is false we must use
+      // the raw monthly series. The latter is straightforward via state.series.
+      const liveMap = pfAssetSeries.user || {};
+      const seriesMap = {};
+      for (const a of basket) {
+        seriesMap[a] = efIncludeUserSMA && liveMap[a] ? liveMap[a] : series[a];
+      }
+      // Build per-asset data trimmed to the common window.
+      const dataBase = {};
+      const monthSet = new Set(months);
+      for (const a of basket) {
+        const arr = seriesMap[a];
+        if (!arr) { setEfRunning(false); return; }
+        dataBase[a] = arr.filter(r => monthSet.has(r.month));
+        if (dataBase[a].length === 0) { setEfRunning(false); return; }
+      }
+      const effSeriesType = { ...seriesType };
+      for (const a of basket) if (efIncludeUserSMA && userSMA[a]) effSeriesType[a] = "net";
+
+      const H_MAX_EF = 30;
+
+      const results = [];
+      for (const wv of samplesWeights) {
+        const wmap = {};
+        basket.forEach((a, i) => { wmap[a] = wv[i]; });
+        const dynPf = {
+          id: "ef_sample", name: "EF sample", assets: basket, weights: wmap,
+          equityId: basket.find(a => a !== "gold") || basket[0], fixedWeights: true, dynamic: true,
+        };
+        const r = runSim({
+          portfolio: dynPf, targetGoldPct: wmap.gold || 0, data: dataBase,
+          seriesType: effSeriesType, ongoingCost, spreads, orderFee,
+          tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
+          starting, monthly, rebalance,
+        });
+        if (!r || !r.metrics) continue;
+        // Real-preservation horizon h*.
+        let hStar = null;
+        if (cpiAligned && cutCPI >= 13) {
+          const upTrunc = r.unitPriceSeries.slice(0, cutCPI);
+          const cpiTrunc = cpiAligned.slice(0, cutCPI);
+          const paired = buildPairedReturns(upTrunc, cpiTrunc);
+          // Find the smallest h such that for ALL j >= i, MC worstRealCAGR >= 0.
+          // For speed we use a lighter MC (500 paths, same block as user's mc setting).
+          const curve = [];
+          for (let h = 1; h <= H_MAX_EF; h++) {
+            const mcPt = rollingRealReturnsMC(paired, h, 500, mc.block, 12345 + s);
+            curve.push(mcPt ? mcPt.worstRealCAGR : null);
+          }
+          for (let i = 0; i < curve.length; i++) {
+            let allOk = true;
+            for (let j = i; j < curve.length; j++) { if (curve[j] == null || curve[j] < 0) { allOk = false; break; } }
+            if (allOk) { hStar = i + 1; break; }
+          }
+        }
+        results.push({
+          weights: wv,
+          sortino: r.metrics.sortino,
+          maxDD: r.metrics.maxDD,
+          finalRatio: r.finalValue / r.totalInvested,
+          finalValue: r.finalValue,
+          hStar,
+        });
+      }
+      // Identify best by metric.
+      const winners = {};
+      if (results.length > 0) {
+        let bestSortino = results[0], bestRet = results[0], bestHStar = null;
+        for (const r of results) {
+          if ((r.sortino ?? -Infinity) > (bestSortino.sortino ?? -Infinity)) bestSortino = r;
+          if (r.finalRatio > bestRet.finalRatio) bestRet = r;
+          if (r.hStar != null && (bestHStar == null || r.hStar < bestHStar.hStar)) bestHStar = r;
+        }
+        winners.sortino = bestSortino;
+        winners.finalReturn = bestRet;
+        winners.hStar = bestHStar;
+        winners.user = results[0];   // user's actual portfolio = sample 0
+      }
+      setEfResults({ basket, samples: results, winners, includesUserSMA: efIncludeUserSMA });
+      setEfRunning(false);
+    }, 30);
+  };
+
   const runSweep = () => {
     if (!commonWindow || !commonWindow.ok) return;
     setSweepRunning(true);
@@ -1811,8 +1978,9 @@ function App() {
 
       const out = {};
       for (const pid of selectedPortfolios) {
-        const pf = PORTFOLIOS.find(p => p.id === pid);
+        const pf = getPF(pid);
         if (pf.isMarket) continue;
+        if (pf.dynamic) continue;   // user portfolio has no single gold weight
         const pfMonths = ownNativeHistory ? perPortfolioWindow[pid]?.months : commonWindow.months;
         if (!pfMonths) continue;
         const cpiAligned = cpiMap ? pfMonths.map(m => cpiMap.get(m)) : null;
@@ -2504,58 +2672,66 @@ function App() {
             </div>
 
             <hr style={{ margin: "18px 0" }} />
-            <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
-              <span>Portfolios &middot; toggle each row to include / exclude from comparison &middot; 200-SMA = daily timing of the risk leg via VT signal</span>
-              <span className="mono" style={{ fontSize: 10.5 }}>{selectedPortfolios.length} of {PORTFOLIOS.length} included</span>
+            <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>My portfolio &middot; set a % share per asset &middot; total must = 100 &middot; SMA = daily 200-SMA timing of that leg</span>
+              <span className="mono" style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 4, background: userWeightTotal === 100 ? "oklch(0.94 0.04 155)" : userWeightTotal === 0 ? "var(--hover)" : "oklch(0.95 0.06 60)", color: userWeightTotal === 100 ? "oklch(0.32 0.07 155)" : userWeightTotal === 0 ? "var(--ink-mute)" : "oklch(0.40 0.13 60)" }}>
+                Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
+              </span>
             </div>
-            {PORTFOLIOS.map(pf => {
-              const on = selectedPortfolios.includes(pf.id);
-              const timed = !!portfolioTiming[pf.id];
-              const fallback = pfAssetSeries[pf.id]?.__timedFallback && timed;
-              const toggleInclude = () => setSelectedPortfolios(s => on ? s.filter(x => x !== pf.id) : [...s, pf.id]);
-              return (
-                <div key={pf.id} className={"pf-row" + (on ? "" : " off")}>
-                  <label className="pf-include" title={on ? "Click to exclude from comparison" : "Click to include in comparison"}>
-                    <span className="switch">
-                      <input type="checkbox" checked={on} onChange={toggleInclude} />
-                      <span className="slider"></span>
-                    </span>
-                    <span className="pf-name">{pf.name}</span>
-                  </label>
-                  {pf.illustrativeOnly && <span className="tag warn" style={{ marginLeft: 0 }}>illustrative only</span>}
-                  {pf.builtInTiming && <span className="tag info" style={{ fontSize: 10 }}>SMA built-in on ⅓ coIQ leg</span>}
-                  <span style={{ flex: 1 }}></span>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: (on && !pf.builtInTiming) ? "pointer" : "not-allowed", fontSize: 11, color: "var(--ink-soft)", opacity: (on && !pf.builtInTiming) ? 1 : 0.5 }}>
-                    <input type="checkbox" checked={pf.builtInTiming ? false : timed} disabled={!on || pf.builtInTiming} onChange={(e) => setPortfolioTiming(t => ({ ...t, [pf.id]: e.target.checked }))} />
-                    {pf.builtInTiming ? "200-SMA (built-in)" : "200-SMA timing"}
-                  </label>
-                  {fallback && on && <span className="tag bad" style={{ fontSize: 10 }}>no daily/signal — falls back to monthly</span>}
-                  {timed && on && !fallback && !pf.builtInTiming && pfAssetSeries[pf.id]?.__timed && (
-                    <span className="tag info" style={{ fontSize: 10 }} title={`Engine charges ${(pfAssetSeries[pf.id].__timed.effTaxRate * 100).toFixed(2)}% effective CGT on the running gain at every risk→cash flip. Approximation: no FIFO lots, no Sparer-Pauschbetrag, no VP credit.`}>
-                      CGT ≈ {(pfAssetSeries[pf.id].__timed.effTaxRate * 100).toFixed(1)}% on flips
-                    </span>
-                  )}
-                  {pf.builtInTiming && on && pfAssetSeries[pf.id]?.__synthetic && (
-                    <span className="tag info" style={{ fontSize: 10 }} title={`SMA-timed coIQ leg: cash earns ECB−0.25% = ${pfAssetSeries[pf.id].__synthetic.cashRate.toFixed(2)}%/yr. CGT ${(pfAssetSeries[pf.id].__synthetic.res.effTaxRate * 100).toFixed(2)}% on each risk→cash flip.`}>
-                      cash @ {pfAssetSeries[pf.id].__synthetic.cashRate.toFixed(2)}% · {pfAssetSeries[pf.id].__synthetic.res.flips} flips
-                    </span>
-                  )}
-                  {pf.builtInTiming && on && pfAssetSeries[pf.id]?.__syntheticFallback && (
-                    <span className="tag bad" style={{ fontSize: 10 }}>no coIQ/signal daily — SMA leg falls back to buy-and-hold</span>
-                  )}
-                  {!pf.isMarket && !pf.fixedWeights &&
-                    <label className="field pf-w" style={{ opacity: on ? 1 : 0.5 }}>
-                      <span className="lbl"><span>Gold %</span></span>
-                      <input type="number" min="0" max="100" step="1" disabled={!on} value={goldWeights[pf.id] ?? 30}
-                             onChange={e => setGoldWeights(g => ({ ...g, [pf.id]: clamp(+e.target.value, 0, 100) }))} />
-                    </label>
-                  }
-                  {pf.fixedWeights && !pf.isMarket &&
-                    <span className="tag idle" style={{ fontSize: 10, minWidth: 96, textAlign: "center" }}>weights fixed: ⅓ / ⅓ / ⅓</span>
-                  }
-                </div>
-              );
-            })}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
+              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
+              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
+              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
+              {ASSETS.filter(a => a.holdable).map(a => {
+                const w = userWeights[a.id] ?? 0;
+                const canSMA = a.id !== "gold";
+                const sma = !!userSMA[a.id];
+                return (
+                  <React.Fragment key={a.id}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: w > 0 ? 500 : 400, color: w > 0 ? "var(--ink)" : "var(--ink-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {a.label}
+                      </div>
+                      <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
+                    </div>
+                    <input type="number" min="0" max="100" step="1" value={w}
+                           style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
+                           onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      {canSMA
+                        ? <input type="checkbox" checked={sma} disabled={w === 0}
+                                 onChange={e => setUserSMA(s => ({ ...s, [a.id]: e.target.checked }))} />
+                        : <span className="dim" style={{ fontSize: 10 }}>—</span>}
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+              <button className="btn btn-xs" onClick={() => {
+                const total = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
+                if (total <= 0) return;
+                const scaled = {};
+                let acc = 0; const keys = Object.keys(userWeights);
+                keys.forEach((k, i) => {
+                  if (i < keys.length - 1) { const v = Math.round((userWeights[k] || 0) * 100 / total); scaled[k] = v; acc += v; }
+                  else { scaled[k] = 100 - acc; }
+                });
+                setUserWeights(scaled);
+              }}>Normalize to 100</button>
+              <button className="btn btn-xs btn-ghost" onClick={() => { setUserWeights({}); setUserSMA({}); }}>Clear</button>
+              <button className="btn btn-xs btn-ghost" onClick={() => setUserWeights({ coIQ: 33, gold: 34, market: 33 })}>Reset to default</button>
+              <span style={{ flex: 1 }}></span>
+              <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (ACWI IMI)</strong></span>
+            </div>
+            {userPortfolio.assets.length > 0 && (
+              <div className="small-note" style={{ marginTop: 8 }}>
+                Effective normalized weights: {userPortfolio.assets.map(a => {
+                  const meta = ASSETS.find(x => x.id === a);
+                  return `${meta?.label.split(" ")[0] || a} ${(userPortfolio.weights[a] * 100).toFixed(1)}%`;
+                }).join(" · ")}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2637,7 +2813,7 @@ function App() {
           <div className="panel-body">
             <div className="small-note">Re-runs the full simulation (costs + CGT-gated rebalance + Vorabpauschale) at each 1% step. Computes <strong>w_safe</strong> (buffer-maximizing) and <strong>w_return</strong> (least gold to stay real-admissible) at every holding horizon. Charts and tables appear below the comparison panel after running. CPI series required.</div>
             <div style={{ marginTop: 12 }}>
-              {selectedPortfolios.filter(pid => PORTFOLIOS.find(p => p.id === pid) && !PORTFOLIOS.find(p => p.id === pid).isMarket).map(pid =>
+              {selectedPortfolios.filter(pid => getPF(pid) && !getPF(pid).isMarket).map(pid =>
                 <SweepRow key={pid} pid={pid} chosen={goldWeights[pid]} sweep={sweepResults[pid]} />
               )}
             </div>
@@ -2686,7 +2862,7 @@ function App() {
                   <div className="row">
                     <div>
                       <div className="lbl">Real-admissible @ {hp}y &middot; best absolute return</div>
-                      <div className="val">{winner ? PORTFOLIOS.find(p => p.id === winner.pid).name : "— none admissible —"}</div>
+                      <div className="val">{winner ? getPF(winner.pid).name : "— none admissible —"}</div>
                       <div className="sub mono">{winner
                         ? `${fmtEUR(winner.sim.finalValue)} on ${fmtEUR(winner.sim.totalInvested)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)} \u00b7 ${winner.atHp.kind === "mc" ? "MC" : "historical"}`
                         : "no portfolio keeps real value at this horizon under worst-window or MC paths"
@@ -2697,7 +2873,7 @@ function App() {
                       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px", marginTop: 6 }}>
                         {rows.map(r => (
                           <React.Fragment key={r.pid}>
-                            <div className="mono" style={{ opacity: 0.85, fontSize: 12 }}>{PORTFOLIOS.find(p => p.id === r.pid).name}</div>
+                            <div className="mono" style={{ opacity: 0.85, fontSize: 12 }}>{getPF(r.pid).name}</div>
                             <div className="mono" style={{ fontSize: 12 }}>{r.real.hStar != null ? `${r.real.hStar}y` : "—"}</div>
                           </React.Fragment>
                         ))}
@@ -2706,13 +2882,13 @@ function App() {
                   </div>
                   {sweepResults && Object.keys(sweepResults).length > 0 && (
                     <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid oklch(1 0 0 / 0.12)", display: "grid", gap: 6, fontSize: 12 }}>
-                      {selectedPortfolios.filter(pid => PORTFOLIOS.find(p => p.id === pid) && !PORTFOLIOS.find(p => p.id === pid).isMarket).map(pid => {
+                      {selectedPortfolios.filter(pid => getPF(pid) && !getPF(pid).isMarket).map(pid => {
                         const sw = sweepResults[pid]; if (!sw || !sw.perH) return null;
                         const at = sw.perH[hp]; if (!at) return null;
                         const target = goldWeights[pid];
                         return (
                           <div key={pid} className="mono">
-                            <strong>{PORTFOLIOS.find(p => p.id === pid).name}</strong> at {hp}y:
+                            <strong>{getPF(pid).name}</strong> at {hp}y:
                             {at.w_return != null ? <> real-admissible for gold &ge; <strong>{at.w_return.w}%</strong>;</> : <> no admissible gold weight at this horizon;</>}
                             {at.w_safe != null ? <> buffer-maximizing at <strong>{at.w_safe.w}%</strong>;</> : null}
                             <> your target <strong>{target}%</strong>.</>
@@ -2752,7 +2928,7 @@ function App() {
                 <tbody>
                   {selectedPortfolios.map(pid => {
                     const r = simResults && simResults[pid];
-                    const pf = PORTFOLIOS.find(p => p.id === pid);
+                    const pf = getPF(pid);
                     if (!r) return null;
                     const tg = pf.isMarket ? null : (goldWeights[pid] ?? 0);
                     const fg = pf.isMarket ? null : r.finalGoldWeight * 100;
@@ -2795,9 +2971,9 @@ function App() {
                     <YAxis tickFormatter={v => chartMode === "unit" ? v.toFixed(0) : v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" width={56} domain={chartMode === "dd" ? [-60, 5] : ["auto", "auto"]} />
                     <Tooltip
                       contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                      formatter={(v, name) => [chartMode === "unit" ? fmtNum(+v, 2) : fmtNum(+v, 2) + "%", PORTFOLIOS.find(p => p.id === name.replace("_dd", ""))?.name || name]}
+                      formatter={(v, name) => [chartMode === "unit" ? fmtNum(+v, 2) : fmtNum(+v, 2) + "%", getPF(name.replace("_dd", ""))?.name || name]}
                     />
-                    <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => PORTFOLIOS.find(p => p.id === v.replace("_dd", ""))?.name || v} />
+                    <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => getPF(v.replace("_dd", ""))?.name || v} />
                     {selectedPortfolios.map((pid, i) => {
                       const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)", "oklch(0.50 0.13 320)"];
                       return <Line key={pid} type="monotone" dataKey={chartMode === "unit" ? pid : pid + "_dd"}
@@ -2836,10 +3012,10 @@ function App() {
                         <YAxis tickFormatter={v => v.toFixed(1) + "%"} stroke="oklch(0.7 0.008 240)" width={56} />
                         <Tooltip
                           contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                          formatter={(v, name) => [fmtNum(+v, 2) + "%", PORTFOLIOS.find(p => p.id === name)?.name || name]}
+                          formatter={(v, name) => [fmtNum(+v, 2) + "%", getPF(name)?.name || name]}
                           labelFormatter={(h) => `horizon ${h} years`}
                         />
-                        <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => PORTFOLIOS.find(p => p.id === v)?.name || v} />
+                        <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => getPF(v)?.name || v} />
                         <RC.ReferenceLine y={0} stroke="oklch(0.5 0.13 25)" strokeDasharray="4 2" label={{ value: "0% real — CPI break-even", position: "insideTopRight", fill: "oklch(0.5 0.13 25)", fontSize: 10 }} />
                         {selectedPortfolios.map((pid, i) => {
                           const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)", "oklch(0.50 0.13 320)"];
@@ -2860,7 +3036,7 @@ function App() {
                   <tbody>
                     {selectedPortfolios.flatMap(pid => {
                       const r = realResults[pid]; if (!r || r.error) return [];
-                      const pf = PORTFOLIOS.find(p => p.id === pid);
+                      const pf = getPF(pid);
                       return [1, 3, 5, 10, 15, 20, 30].filter(h => h <= H_MAX).map(h => {
                         const pt = r.curve.find(x => x.h === h); if (!pt) return null;
                         return (
@@ -2889,7 +3065,7 @@ function App() {
                     const errs = Object.entries(realResults || {}).filter(([, r]) => r?.error);
                     if (errs.length === 0) return null;
                     return <div style={{ marginTop: 6, color: "var(--neg)" }}>
-                      <strong>Errors:</strong> {errs.map(([pid, r]) => `${PORTFOLIOS.find(p => p.id === pid)?.name || pid}: ${r.error}`).join(" · ")}
+                      <strong>Errors:</strong> {errs.map(([pid, r]) => `${getPF(pid)?.name || pid}: ${r.error}`).join(" · ")}
                     </div>;
                   })()}
                 </div>
@@ -2897,10 +3073,10 @@ function App() {
             )}
 
             {/* V2 · Gold-share optimizer charts (one panel per two-asset portfolio) */}
-            {selectedPortfolios.filter(pid => PORTFOLIOS.find(p => p.id === pid) && !PORTFOLIOS.find(p => p.id === pid).isMarket).map(pid => {
+            {selectedPortfolios.filter(pid => getPF(pid) && !getPF(pid).isMarket).map(pid => {
               const sw = sweepResults[pid];
               if (!sw || !sw.perH || !sw.cpiOk) return null;
-              const pf = PORTFOLIOS.find(p => p.id === pid);
+              const pf = getPF(pid);
               const target = goldWeights[pid];
               const data = [];
               for (let h = 1; h <= H_MAX; h++) {
@@ -2981,7 +3157,7 @@ function App() {
                   {selectedPortfolios.map(pid => {
                     const r = simResults && simResults[pid];
                     const mcr = mcResults && mcResults[pid];
-                    const pf = PORTFOLIOS.find(p => p.id === pid);
+                    const pf = getPF(pid);
                     if (!r || !mcr) return null;
                     const short = r.metrics.n < 120;
                     return (
@@ -2998,6 +3174,114 @@ function App() {
                 </tbody>
               </table>
               <div className="panel-body tight footnote">Block bootstrap on each portfolio's <em>own</em> unit-price monthly returns. Preserves short autocorrelation; assumes stationarity. The reported 95th percentile is the worst end of the distribution (5% of paths are worse).</div>
+            </div>
+
+            {/* v3 · Efficient Frontier — random Dirichlet sampling on user's basket */}
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h">
+                <h2>Efficient Frontier · my-portfolio asset basket</h2>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    samples
+                    <input type="number" min="100" max="20000" step="100" value={efSamples}
+                           onChange={e => setEfSamples(Math.max(100, Math.min(20000, +e.target.value || 1500)))}
+                           style={{ width: 80, padding: "4px 6px", fontSize: 12, textAlign: "right" }} />
+                  </label>
+                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
+                    use my SMA toggles
+                  </label>
+                  <button className="btn btn-accent" disabled={efRunning || userPortfolio.assets.length < 2 || userWeightTotal === 0} onClick={runEfficientFrontier}>
+                    {efRunning && <span className="spin"></span>} Run frontier
+                  </button>
+                </div>
+              </div>
+              <div className="panel-body">
+                <div className="small-note" style={{ marginBottom: 12 }}>
+                  Random-samples weight vectors in the simplex of your <strong>{userPortfolio.assets.length}-asset basket</strong> (Dirichlet(1,…,1)). Each sample runs the full engine (costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip). Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong> (smallest h beyond which the worst-window real CAGR stays ≥ 0), <strong>largest Sortino</strong>, <strong>largest absolute return</strong> (final value ÷ total invested). Real-preservation requires the CPI series — without it the h* column is blank.
+                </div>
+                {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. {efSamples} samples ≈ {(efSamples / 100).toFixed(0)}s.</div>}
+                {efResults && (() => {
+                  const data = efResults.samples.map(s => ({
+                    sortino: s.sortino,
+                    finalRatio: (s.finalRatio - 1) * 100,    // % gain
+                    maxDD: s.maxDD * 100,
+                    hStar: s.hStar,
+                  }));
+                  const fmtWeights = (sample) => efResults.basket.map((a, i) => {
+                    const w = sample.weights[i] * 100;
+                    if (w < 0.5) return null;
+                    const meta = ASSETS.find(x => x.id === a);
+                    return `${meta?.label.split(" ")[0] || a} ${w.toFixed(0)}%`;
+                  }).filter(Boolean).join(" · ");
+                  return (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                        <div style={{ height: 280 }}>
+                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>Sortino vs absolute gain — each dot = one weight sample</div>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RC.ScatterChart margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
+                              <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" />
+                              <XAxis type="number" dataKey="finalRatio" name="gain %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" />
+                              <YAxis type="number" dataKey="sortino" name="sortino" tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
+                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                                formatter={(v, name) => [typeof v === "number" ? v.toFixed(2) : v, name === "finalRatio" ? "gain %" : name]} />
+                              <RC.Scatter data={data} fill="oklch(0.55 0.05 220 / 0.35)" />
+                            </RC.ScatterChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div style={{ height: 280 }}>
+                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>Max drawdown vs absolute gain</div>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RC.ScatterChart margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
+                              <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" />
+                              <XAxis type="number" dataKey="finalRatio" name="gain %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" />
+                              <YAxis type="number" dataKey="maxDD" name="max DD %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" width={56} />
+                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                                formatter={(v) => typeof v === "number" ? v.toFixed(2) + "%" : v} />
+                              <RC.Scatter data={data} fill="oklch(0.55 0.13 25 / 0.35)" />
+                            </RC.ScatterChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                      <table className="bt">
+                        <thead><tr>
+                          <th>Recommendation</th>
+                          <th>Composition</th>
+                          <th style={{ textAlign: "right" }}>h*</th>
+                          <th style={{ textAlign: "right" }}>Sortino</th>
+                          <th style={{ textAlign: "right" }}>Max DD</th>
+                          <th style={{ textAlign: "right" }}>Gain</th>
+                        </tr></thead>
+                        <tbody>
+                          {[
+                            { key: "hStar", label: "Shortest real-preservation horizon", row: efResults.winners.hStar },
+                            { key: "sortino", label: "Largest Sortino ratio",            row: efResults.winners.sortino },
+                            { key: "finalReturn", label: "Largest absolute return",      row: efResults.winners.finalReturn },
+                            { key: "user", label: "Your current weights",                row: efResults.winners.user },
+                          ].map(({ key, label, row }) => row ? (
+                            <tr key={key}>
+                              <td className="name">{label}</td>
+                              <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
+                              <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
+                              <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
+                              <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
+                              <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
+                            </tr>
+                          ) : null)}
+                        </tbody>
+                      </table>
+                      <div className="footnote" style={{ marginTop: 8 }}>
+                        Tested {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => ASSETS.find(x => x.id === a)?.label.split(" ")[0] || a).join(" · ")}.
+                        {efResults.includesUserSMA && " Per-asset SMA states inherited from your composer (CGT charged on each risk→cash flip)."}
+                        {!efResults.includesUserSMA && " SMA toggles ignored — all legs buy-and-hold."}
+                        {!series.cpi && <> · <strong>CPI not loaded</strong> — h* unavailable.</>}
+                        Caveat: random sampling, not analytical optimization — winners are best-among-samples, not provably optimal. Increase the sample count for stability; expect a few seconds per 1000 samples.
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* regression card */}

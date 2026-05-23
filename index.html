@@ -2003,16 +2003,20 @@ function App() {
     //                    The user's current weights are always sample 0.
     const STEP_PCT = 5;
     const userSample = basket.map(a => userPortfolio.weights[a] || 0);
+    // Each grid entry: { vec, kinds: Set<"step5"|"doubling"> }. The user sample
+    // is its own pseudo-kind so it isn't counted under either grid's winner.
     const grid = new Map();
     const keyOf = (vec) => vec.map(v => Math.round(v * 10000) / 10000).join("|");
-    const push = (vec) => {
+    const push = (vec, kind) => {
       const s = vec.reduce((a, b) => a + b, 0);
       if (s <= 0) return;
       const norm = vec.map(v => v / s);
       const k = keyOf(norm);
-      if (!grid.has(k)) grid.set(k, norm);
+      const entry = grid.get(k);
+      if (entry) entry.kinds.add(kind);
+      else grid.set(k, { vec: norm, kinds: new Set([kind]) });
     };
-    push(userSample);
+    push(userSample, "user");
 
     const n = basket.length;
 
@@ -2020,7 +2024,7 @@ function App() {
     {
       const STEPS = Math.round(100 / STEP_PCT);
       const buildSteps = (idx, remaining, acc) => {
-        if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT / 100)); acc.pop(); return; }
+        if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT / 100), "step5"); acc.pop(); return; }
         for (let v = 0; v <= remaining; v++) {
           acc.push(v);
           buildSteps(idx + 1, remaining - v, acc);
@@ -2038,7 +2042,7 @@ function App() {
         const STEPS_COARSE = 10;
         const STEP_PCT_COARSE = 10;
         const buildStepsCoarse = (idx, remaining, acc) => {
-          if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT_COARSE / 100)); acc.pop(); return; }
+          if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT_COARSE / 100), "step5"); acc.pop(); return; }
           for (let v = 0; v <= remaining; v++) {
             acc.push(v);
             buildStepsCoarse(idx + 1, remaining - v, acc);
@@ -2052,22 +2056,21 @@ function App() {
     // (b) doubling grid. For each non-empty subset of the basket of size k,
     //     for each permutation of that subset, assign ratios 1, 2, 4, ..., 2^(k-1)
     //     to the chosen basket slots in permutation order and normalize.
+    //
+    //     Cap: smallest non-zero share must be >= 1%. For k assets the smallest
+    //     normalized share is 1/(2^k - 1). 1/63 ≈ 1.59% (k=6) is fine; 1/127
+    //     ≈ 0.79% (k=7) violates the floor. So enumerate subsets of size 1..6.
     {
-      // Enumerate subsets via bitmask 1..(1<<n)-1.
-      const factorials = [1];
-      for (let i = 1; i <= n; i++) factorials.push(factorials[i - 1] * i);
-      // Cap subsets at size 7 (5040 perms) to avoid runaway.
-      const MAX_K = 7;
+      const MAX_K = 6;
       for (let mask = 1; mask < (1 << n); mask++) {
         const chosen = [];
         for (let i = 0; i < n; i++) if (mask & (1 << i)) chosen.push(i);
         if (chosen.length > MAX_K) continue;
-        // Permute chosen.
         const permute = (arr, picked) => {
           if (arr.length === 0) {
             const vec = new Array(n).fill(0);
             for (let r = 0; r < picked.length; r++) vec[picked[r]] = Math.pow(2, r);
-            push(vec);
+            push(vec, "doubling");
             return;
           }
           for (let i = 0; i < arr.length; i++) {
@@ -2079,15 +2082,23 @@ function App() {
       }
     }
 
-    // Materialize, with the user sample first.
+    // Materialize, with the user sample first. samplesMeta tracks which grids
+    // each sample belongs to, so winners can be computed per grid.
     const userKey = (() => {
       const s = userSample.reduce((a, b) => a + b, 0);
       return s > 0 ? keyOf(userSample.map(v => v / s)) : null;
     })();
     const samplesWeights = [];
-    if (userKey && grid.has(userKey)) { samplesWeights.push(grid.get(userKey)); grid.delete(userKey); }
-    else samplesWeights.push(userSample.map(v => v / Math.max(1e-12, userSample.reduce((a, b) => a + b, 0))));
-    for (const v of grid.values()) samplesWeights.push(v);
+    const samplesKinds = [];   // parallel array: Set<string> per sample
+    if (userKey && grid.has(userKey)) {
+      const entry = grid.get(userKey);
+      samplesWeights.push(entry.vec); samplesKinds.push(entry.kinds);
+      grid.delete(userKey);
+    } else {
+      samplesWeights.push(userSample.map(v => v / Math.max(1e-12, userSample.reduce((a, b) => a + b, 0))));
+      samplesKinds.push(new Set(["user"]));
+    }
+    for (const entry of grid.values()) { samplesWeights.push(entry.vec); samplesKinds.push(entry.kinds); }
     setEfProgress({ done: 0, total: samplesWeights.length });
 
     const liveMap = pfAssetSeries.user || {};
@@ -2149,6 +2160,7 @@ function App() {
         }
         results.push({
           weights: wv,
+          kinds: samplesKinds[idx],
           sortino: r.metrics.sortino,
           maxDD: r.metrics.maxDD,
           finalRatio: r.finalValue / r.totalInvested,
@@ -2166,18 +2178,21 @@ function App() {
     };
 
     const computeWinners = (rs) => {
-      const w = {};
-      if (rs.length === 0) return w;
-      let bestSortino = rs[0], bestRet = rs[0], bestHStar = null;
-      for (const r of rs) {
-        if ((r.sortino ?? -Infinity) > (bestSortino.sortino ?? -Infinity)) bestSortino = r;
-        if (r.finalRatio > bestRet.finalRatio) bestRet = r;
-        if (r.hStar != null && (bestHStar == null || r.hStar < bestHStar.hStar)) bestHStar = r;
-      }
-      w.sortino = bestSortino;
-      w.finalReturn = bestRet;
-      w.hStar = bestHStar;
-      w.user = rs[0];
+      const pick = (subset) => {
+        if (subset.length === 0) return { sortino: null, finalReturn: null, hStar: null };
+        let bs = subset[0], br = subset[0], bh = null;
+        for (const r of subset) {
+          if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
+          if (r.finalRatio > br.finalRatio) br = r;
+          if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
+        }
+        return { sortino: bs, finalReturn: br, hStar: bh };
+      };
+      const w = {
+        step5:    pick(rs.filter(r => r.kinds && r.kinds.has("step5"))),
+        doubling: pick(rs.filter(r => r.kinds && r.kinds.has("doubling"))),
+        user:     rs[0] || null,
+      };
       return w;
     };
 
@@ -3467,39 +3482,83 @@ function App() {
                           </ResponsiveContainer>
                         </div>
                       </div>
-                      <table className="bt">
-                        <thead><tr>
-                          <th>Recommendation</th>
-                          <th>Composition</th>
-                          <th style={{ textAlign: "right" }}>h*</th>
-                          <th style={{ textAlign: "right" }}>Sortino</th>
-                          <th style={{ textAlign: "right" }}>Max DD</th>
-                          <th style={{ textAlign: "right" }}>Gain</th>
-                        </tr></thead>
-                        <tbody>
-                          {[
-                            { key: "hStar", label: "Shortest real-preservation horizon", row: efResults.winners.hStar },
-                            { key: "sortino", label: "Largest Sortino ratio",            row: efResults.winners.sortino },
-                            { key: "finalReturn", label: "Largest absolute return",      row: efResults.winners.finalReturn },
-                            { key: "user", label: "Your current weights",                row: efResults.winners.user },
-                          ].map(({ key, label, row }) => row ? (
-                            <tr key={key}>
-                              <td className="name">{label}</td>
-                              <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
-                              <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
-                              <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
-                              <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
-                              <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
-                            </tr>
-                          ) : null)}
-                        </tbody>
-                      </table>
+                      {(() => {
+                        const renderTable = (label, w, footnote) => {
+                          const rows = [
+                            { key: "hStar", label: "Shortest real-preservation horizon", row: w.hStar },
+                            { key: "sortino", label: "Largest Sortino ratio",            row: w.sortino },
+                            { key: "finalReturn", label: "Largest absolute return",      row: w.finalReturn },
+                          ];
+                          const anyRow = rows.some(x => x.row);
+                          return (
+                            <div style={{ marginBottom: 18 }}>
+                              <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.06, marginBottom: 6 }}>{label}</div>
+                              {!anyRow && <div className="footnote">No samples in this grid (basket too small or all filtered out).</div>}
+                              {anyRow && <table className="bt">
+                                <thead><tr>
+                                  <th>Recommendation</th>
+                                  <th>Composition</th>
+                                  <th style={{ textAlign: "right" }}>h*</th>
+                                  <th style={{ textAlign: "right" }}>Sortino</th>
+                                  <th style={{ textAlign: "right" }}>Max DD</th>
+                                  <th style={{ textAlign: "right" }}>Gain</th>
+                                </tr></thead>
+                                <tbody>
+                                  {rows.map(({ key, label: lbl, row }) => row ? (
+                                    <tr key={key}>
+                                      <td className="name">{lbl}</td>
+                                      <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
+                                      <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
+                                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
+                                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
+                                      <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
+                                    </tr>
+                                  ) : null)}
+                                </tbody>
+                              </table>}
+                              {footnote && <div className="footnote" style={{ marginTop: 6, fontSize: 10.5 }}>{footnote}</div>}
+                            </div>
+                          );
+                        };
+                        const step5Count = efResults.samples.filter(r => r.kinds && r.kinds.has("step5")).length;
+                        const doublingCount = efResults.samples.filter(r => r.kinds && r.kinds.has("doubling")).length;
+                        return (
+                          <>
+                            {renderTable("5%-step compositions · best of " + step5Count + " samples", efResults.winners.step5, "Every weight is a multiple of 5% (or 10% on large baskets) summing to 100%.")}
+                            {renderTable("Doubling ratios · best of " + doublingCount + " samples", efResults.winners.doubling, "Non-zero shares follow 1 : 2 : 4 : … doubling pattern; smallest non-zero share ≥ 1% (subsets up to 6 assets).")}
+                            {efResults.winners.user && (
+                              <div>
+                                <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.06, marginBottom: 6 }}>Your current weights · reference</div>
+                                <table className="bt">
+                                  <thead><tr>
+                                    <th>Recommendation</th>
+                                    <th>Composition</th>
+                                    <th style={{ textAlign: "right" }}>h*</th>
+                                    <th style={{ textAlign: "right" }}>Sortino</th>
+                                    <th style={{ textAlign: "right" }}>Max DD</th>
+                                    <th style={{ textAlign: "right" }}>Gain</th>
+                                  </tr></thead>
+                                  <tbody>
+                                    <tr>
+                                      <td className="name">Your current weights</td>
+                                      <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(efResults.winners.user)}</td>
+                                      <td className="num" style={{ textAlign: "right" }}>{efResults.winners.user.hStar != null ? efResults.winners.user.hStar + "y" : "—"}</td>
+                                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(efResults.winners.user.sortino, 3)}</td>
+                                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(efResults.winners.user.maxDD)}</td>
+                                      <td className={"num " + (efResults.winners.user.finalRatio > 1 ? "pos" : efResults.winners.user.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(efResults.winners.user.finalRatio - 1)}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                       <div className="footnote" style={{ marginTop: 8 }}>
                         Tested {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => (ASSETS.find(x => x.id === a)?.shortName || ASSETS.find(x => x.id === a)?.label.split(" ")[0] || a)).join(" · ")}.
                         {efResults.includesUserSMA && " Per-asset SMA states inherited from your composer (CGT charged on each risk→cash flip)."}
                         {!efResults.includesUserSMA && " SMA toggles ignored — all legs buy-and-hold."}
                         {!series.cpi && <> · <strong>CPI not loaded</strong> — h* unavailable.</>}
-                        Caveat: random sampling, not analytical optimization — winners are best-among-samples, not provably optimal. Increase the sample count for stability; expect a few seconds per 1000 samples.
                       </div>
                     </>
                   );

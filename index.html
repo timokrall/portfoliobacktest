@@ -1661,13 +1661,50 @@ function App() {
   };
 
   // bootstrap: same-origin load of committed CSVs + manifest, once on mount.
+  // Also rehydrates any CSVs the user previously pasted/uploaded into the
+  // browser (persisted to localStorage via the autosave effect below).
   const bootstrappedRef = useRef(false);
   useEffect(() => {
     if (bootstrappedRef.current) return;
     bootstrappedRef.current = true;
+    // 1) restore user-uploaded CSVs from localStorage BEFORE fetching the
+    //    committed defaults. If the user later overrides via Upload/Paste,
+    //    the autosave effect persists it. If they only want the committed
+    //    ./data/*.csv they can use the per-card Clear button to drop the
+    //    localStorage copy.
+    try {
+      const raw = localStorage.getItem("backtester-uploaded-csvs.json");
+      if (raw) {
+        const map = JSON.parse(raw);
+        if (map && typeof map === "object") {
+          for (const id of Object.keys(map)) {
+            const txt = map[id];
+            if (typeof txt === "string" && txt.length > 0) onCsvChange(id, txt);
+          }
+        }
+      }
+    } catch {}
     reloadAll();
     // eslint-disable-next-line
   }, []);
+
+  // Auto-persist uploaded/pasted CSVs to localStorage so they survive a
+  // page reload. Only persists assets whose text is non-empty (no point
+  // wasting space on empty cards). Debounced via the next-tick effect cycle.
+  useEffect(() => {
+    try {
+      const out = {};
+      for (const id of Object.keys(csvText)) {
+        const t = csvText[id];
+        if (typeof t === "string" && t.trim().length > 0) out[id] = t;
+      }
+      // ~5MB localStorage cap. CSVs are tiny (~30KB each), but be safe.
+      const serialized = JSON.stringify(out);
+      if (serialized.length < 4_000_000) {
+        localStorage.setItem("backtester-uploaded-csvs.json", serialized);
+      }
+    } catch {}
+  }, [csvText]);
 
   // ---- compute common window for selected portfolios ----
   // ---- per-portfolio monthly series (with optional 200-SMA timing applied
@@ -1851,64 +1888,79 @@ function App() {
   const [sweepRunning, setSweepRunning] = useState(false);
 
   // ---- v3: efficient frontier (random Dirichlet sampling on the chosen basket)
+  //
+  // Performance notes — why this used to hang:
+  //   N samples × 30 horizons × 500 MC paths × ~60 months = ~1B path-iterations
+  //   for the default 1500 samples, all on the main thread with no yields. The
+  //   browser appeared frozen for 30–90 seconds and the spinner never updated.
+  //
+  // Fix: chunk the work — process ~25 samples per setTimeout slice, update
+  // progress state, and surface a Cancel button. Also drop the default sample
+  // count to 500 (still plenty for picking winners) and the per-sample MC paths
+  // to 200 (h* is robust at that level).
   const [efRunning, setEfRunning] = useState(false);
-  const [efSamples, setEfSamples] = useState(1500);
+  const [efProgress, setEfProgress] = useState({ done: 0, total: 0 });
+  const efCancelRef = useRef(false);
+  const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
-  const [efResults, setEfResults] = useState(null);   // {samples:[{weights, sortino, finalRatio, maxDD, hStar}], best:{...}}
+  const [efComputeHStar, setEfComputeHStar] = useState(true);
+  const [efResults, setEfResults] = useState(null);   // {samples, winners, includesUserSMA, basket}
+
+  const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
   const runEfficientFrontier = () => {
     if (!commonWindow || !commonWindow.ok || userPortfolio.assets.length < 2) return;
     setEfRunning(true);
-    setTimeout(() => {
-      const basket = userPortfolio.assets.slice();
-      const n = basket.length;
-      const months = commonWindow.months;
-      const cpiMap = series.cpi ? new Map(series.cpi.map(r => [r.month, r.value])) : null;
-      // Dirichlet(1,...,1) sampling via exponential RVs.
-      let seed = 0xdeadbeef;
-      const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-      const exp = () => -Math.log(1 - rand() + 1e-12);
-      // For each sample, build a dynamic portfolio definition + asset map and run runSim.
-      // Per-asset SMA state from userSMA (if efIncludeUserSMA), else all OFF.
-      const cpiAligned = cpiMap ? months.map(m => cpiMap.get(m)) : null;
-      // Cut to the prefix that has CPI data.
-      let cutCPI = months.length;
-      if (cpiAligned) { for (let i = 0; i < months.length; i++) if (cpiAligned[i] == null) { cutCPI = i; break; } }
-      const samples = [];
-      // Always include the user's current normalized weights as the first sample.
-      const userSample = basket.map(a => userPortfolio.weights[a] || 0);
-      const samplesWeights = [userSample];
-      for (let s = 0; s < efSamples; s++) {
-        const u = basket.map(() => exp());
-        const tot = u.reduce((a, b) => a + b, 0) || 1;
-        samplesWeights.push(u.map(v => v / tot));
-      }
-      // Pre-build series map by asset from pfAssetSeries — but for asset SMA
-      // states that differ from the live userSMA, we'd need to re-derive.
-      // To keep things simple we reuse the live pfAssetSeries[user] map (which
-      // already respects userSMA). If efIncludeUserSMA is false we must use
-      // the raw monthly series. The latter is straightforward via state.series.
-      const liveMap = pfAssetSeries.user || {};
-      const seriesMap = {};
-      for (const a of basket) {
-        seriesMap[a] = efIncludeUserSMA && liveMap[a] ? liveMap[a] : series[a];
-      }
-      // Build per-asset data trimmed to the common window.
-      const dataBase = {};
-      const monthSet = new Set(months);
-      for (const a of basket) {
-        const arr = seriesMap[a];
-        if (!arr) { setEfRunning(false); return; }
-        dataBase[a] = arr.filter(r => monthSet.has(r.month));
-        if (dataBase[a].length === 0) { setEfRunning(false); return; }
-      }
-      const effSeriesType = { ...seriesType };
-      for (const a of basket) if (efIncludeUserSMA && userSMA[a]) effSeriesType[a] = "net";
+    efCancelRef.current = false;
+    setEfProgress({ done: 0, total: efSamples + 1 });
 
-      const H_MAX_EF = 30;
+    const basket = userPortfolio.assets.slice();
+    const months = commonWindow.months;
+    const cpiMap = series.cpi ? new Map(series.cpi.map(r => [r.month, r.value])) : null;
+    const cpiAligned = cpiMap ? months.map(m => cpiMap.get(m)) : null;
+    let cutCPI = months.length;
+    if (cpiAligned) { for (let i = 0; i < months.length; i++) if (cpiAligned[i] == null) { cutCPI = i; break; } }
 
-      const results = [];
-      for (const wv of samplesWeights) {
+    // Dirichlet(1,...,1) via exponentials.
+    let seed = 0xdeadbeef;
+    const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const expR = () => -Math.log(1 - rand() + 1e-12);
+    const userSample = basket.map(a => userPortfolio.weights[a] || 0);
+    const samplesWeights = [userSample];
+    for (let s = 0; s < efSamples; s++) {
+      const u = basket.map(() => expR());
+      const tot = u.reduce((a, b) => a + b, 0) || 1;
+      samplesWeights.push(u.map(v => v / tot));
+    }
+
+    const liveMap = pfAssetSeries.user || {};
+    const seriesMap = {};
+    for (const a of basket) seriesMap[a] = efIncludeUserSMA && liveMap[a] ? liveMap[a] : series[a];
+    const dataBase = {};
+    const monthSet = new Set(months);
+    for (const a of basket) {
+      const arr = seriesMap[a];
+      if (!arr) { setEfRunning(false); return; }
+      dataBase[a] = arr.filter(r => monthSet.has(r.month));
+      if (dataBase[a].length === 0) { setEfRunning(false); return; }
+    }
+    const effSeriesType = { ...seriesType };
+    for (const a of basket) if (efIncludeUserSMA && userSMA[a]) effSeriesType[a] = "net";
+
+    const H_MAX_EF = 30;
+    const MC_PATHS_EF = 200;   // light MC — enough for picking winners on h*
+    const CHUNK = 25;          // samples processed per animation frame
+    const results = [];
+
+    const processChunk = (start) => {
+      if (efCancelRef.current) {
+        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA, cancelled: true });
+        setEfRunning(false);
+        return;
+      }
+      const end = Math.min(start + CHUNK, samplesWeights.length);
+      for (let idx = start; idx < end; idx++) {
+        const wv = samplesWeights[idx];
         const wmap = {};
         basket.forEach((a, i) => { wmap[a] = wv[i]; });
         const dynPf = {
@@ -1922,17 +1974,14 @@ function App() {
           starting, monthly, rebalance,
         });
         if (!r || !r.metrics) continue;
-        // Real-preservation horizon h*.
         let hStar = null;
-        if (cpiAligned && cutCPI >= 13) {
+        if (efComputeHStar && cpiAligned && cutCPI >= 13) {
           const upTrunc = r.unitPriceSeries.slice(0, cutCPI);
           const cpiTrunc = cpiAligned.slice(0, cutCPI);
           const paired = buildPairedReturns(upTrunc, cpiTrunc);
-          // Find the smallest h such that for ALL j >= i, MC worstRealCAGR >= 0.
-          // For speed we use a lighter MC (500 paths, same block as user's mc setting).
           const curve = [];
           for (let h = 1; h <= H_MAX_EF; h++) {
-            const mcPt = rollingRealReturnsMC(paired, h, 500, mc.block, 12345 + s);
+            const mcPt = rollingRealReturnsMC(paired, h, MC_PATHS_EF, mc.block, 12345 + idx * 7 + h);
             curve.push(mcPt ? mcPt.worstRealCAGR : null);
           }
           for (let i = 0; i < curve.length; i++) {
@@ -1950,23 +1999,32 @@ function App() {
           hStar,
         });
       }
-      // Identify best by metric.
-      const winners = {};
-      if (results.length > 0) {
-        let bestSortino = results[0], bestRet = results[0], bestHStar = null;
-        for (const r of results) {
-          if ((r.sortino ?? -Infinity) > (bestSortino.sortino ?? -Infinity)) bestSortino = r;
-          if (r.finalRatio > bestRet.finalRatio) bestRet = r;
-          if (r.hStar != null && (bestHStar == null || r.hStar < bestHStar.hStar)) bestHStar = r;
-        }
-        winners.sortino = bestSortino;
-        winners.finalReturn = bestRet;
-        winners.hStar = bestHStar;
-        winners.user = results[0];   // user's actual portfolio = sample 0
+      setEfProgress({ done: end, total: samplesWeights.length });
+      if (end < samplesWeights.length) {
+        setTimeout(() => processChunk(end), 0);
+      } else {
+        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA });
+        setEfRunning(false);
       }
-      setEfResults({ basket, samples: results, winners, includesUserSMA: efIncludeUserSMA });
-      setEfRunning(false);
-    }, 30);
+    };
+
+    const computeWinners = (rs) => {
+      const w = {};
+      if (rs.length === 0) return w;
+      let bestSortino = rs[0], bestRet = rs[0], bestHStar = null;
+      for (const r of rs) {
+        if ((r.sortino ?? -Infinity) > (bestSortino.sortino ?? -Infinity)) bestSortino = r;
+        if (r.finalRatio > bestRet.finalRatio) bestRet = r;
+        if (r.hStar != null && (bestHStar == null || r.hStar < bestHStar.hStar)) bestHStar = r;
+      }
+      w.sortino = bestSortino;
+      w.finalReturn = bestRet;
+      w.hStar = bestHStar;
+      w.user = rs[0];
+      return w;
+    };
+
+    setTimeout(() => processChunk(0), 30);
   };
 
   const runSweep = () => {
@@ -3180,20 +3238,31 @@ function App() {
             <div className="panel" style={{ marginBottom: 18 }}>
               <div className="panel-h">
                 <h2>Efficient Frontier · my-portfolio asset basket</h2>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                   <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
                     samples
                     <input type="number" min="100" max="20000" step="100" value={efSamples}
-                           onChange={e => setEfSamples(Math.max(100, Math.min(20000, +e.target.value || 1500)))}
+                           onChange={e => setEfSamples(Math.max(100, Math.min(20000, +e.target.value || 500)))}
                            style={{ width: 80, padding: "4px 6px", fontSize: 12, textAlign: "right" }} />
                   </label>
                   <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
                   </label>
-                  <button className="btn btn-accent" disabled={efRunning || userPortfolio.assets.length < 2 || userWeightTotal === 0} onClick={runEfficientFrontier}>
-                    {efRunning && <span className="spin"></span>} Run frontier
-                  </button>
+                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <input type="checkbox" checked={efComputeHStar} onChange={e => setEfComputeHStar(e.target.checked)} />
+                    compute h* (slow)
+                  </label>
+                  {efRunning && (
+                    <span className="mono" style={{ fontSize: 11 }}>
+                      <span className="spin"></span> {efProgress.done} / {efProgress.total} ({Math.round(100 * efProgress.done / Math.max(1, efProgress.total))}%)
+                    </span>
+                  )}
+                  {efRunning
+                    ? <button className="btn btn-xs" onClick={cancelEfficientFrontier}>Cancel</button>
+                    : <button className="btn btn-accent" disabled={userPortfolio.assets.length < 2 || userWeightTotal === 0} onClick={runEfficientFrontier}>
+                        Run frontier
+                      </button>}
                 </div>
               </div>
               <div className="panel-body">

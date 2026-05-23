@@ -69,6 +69,9 @@ def sanitize_header(name, value):
 STOOQ_SOURCES = [
     # (output asset name, stooq symbol)
     ("momentum", "is3r.de"),   # iShares Edge MSCI World Momentum Factor (IE00BP3QZ825)
+    ("value",    "is3s.de"),   # iShares Edge MSCI World Value Factor (IE00BP3QZB59)
+    ("quality",  "is3q.de"),   # iShares Edge MSCI World Quality Factor (IE00BP3QZ601)
+    ("minvol",   "iqq0.de"),   # iShares Edge MSCI World Min Volatility (IE00B8FHGS14)
     ("market",   "spyi.de"),   # SPDR MSCI ACWI IMI UCITS ETF (IE00B3YLTY66)
     ("signal",   "vt.us"),     # Vanguard Total World VT — used ONLY as the 200-SMA signal
     # Best-effort: Amundi 2x leveraged UCITS ETFs. Confirmed on Stooq as
@@ -85,6 +88,9 @@ STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if
 # is more brittle than Stooq's CSV API, so it's not the primary.
 YFINANCE_SYMBOLS = {
     "momentum":  ["IS3R.DE", "IWMO.L"],
+    "value":     ["IS3S.DE", "IWVL.L"],
+    "quality":   ["IS3Q.DE", "IWQU.L"],
+    "minvol":    ["IQQ0.DE", "MVOL.L"],
     "market":    ["SPYI.DE", "IMIE.DE", "SPYI.L"],
     "gold":      ["4GLD.DE", "4GLD.SG"],
     "signal":    ["VT", "ACWI"],

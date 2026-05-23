@@ -1969,6 +1969,10 @@ function App() {
   const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
   const [efComputeHStar, setEfComputeHStar] = useState(true);
+  // v3.2: pick ONE grid, not the union. "step5" = every 5%-step composition
+  // that sums to 100. "ratio" = small-integer ratios (1..RATIO_MAX), every
+  // non-zero share is a multiple of the smallest (e.g. 1/7 : 2/7 : 4/7).
+  const [efGridMode, setEfGridMode] = useState("step5");
   const [efResults, setEfResults] = useState(null);   // {samples, winners, includesUserSMA, basket}
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
@@ -1986,11 +1990,11 @@ function App() {
     let cutCPI = months.length;
     if (cpiAligned) { for (let i = 0; i < months.length; i++) if (cpiAligned[i] == null) { cutCPI = i; break; } }
 
-    // v3.1: enumerate two structured grids instead of random Dirichlet:
-    //   (a) 5%-step grid — every combination of {0,5,10,...,100} that sums to 100
-    //   (b) small-integer ratio grid — for every subset of assets with ratio
-    //       weights drawn from {1,2,...,RATIO_MAX}, normalized to 1
-    // Union and dedupe. Always include the user's current weights as sample 0.
+    // v3.2: enumerate ONE grid (efGridMode), not both unioned:
+    //   "step5" = every composition in 5%-steps that sums to 100
+    //   "ratio" = every non-zero share is an integer 1..RATIO_MAX (multiples
+    //             of the smallest non-zero share), normalized to 1
+    // Always include the user's current weights as sample 0.
     const RATIO_MAX = 6;
     const STEP_PCT = 5;
     const userSample = basket.map(a => userPortfolio.weights[a] || 0);
@@ -2005,37 +2009,52 @@ function App() {
     };
     push(userSample);
 
-    // (a) 5% step grid: integer compositions of 100/STEP_PCT into n parts.
-    const STEPS = Math.round(100 / STEP_PCT);
     const n = basket.length;
-    const buildSteps = (idx, remaining, acc) => {
-      if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT / 100)); acc.pop(); return; }
-      for (let v = 0; v <= remaining; v++) {
-        acc.push(v);
-        buildSteps(idx + 1, remaining - v, acc);
-        acc.pop();
+    if (efGridMode === "step5") {
+      // (a) 5% step grid: integer compositions of 100/STEP_PCT into n parts.
+      const STEPS = Math.round(100 / STEP_PCT);
+      const buildSteps = (idx, remaining, acc) => {
+        if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT / 100)); acc.pop(); return; }
+        for (let v = 0; v <= remaining; v++) {
+          acc.push(v);
+          buildSteps(idx + 1, remaining - v, acc);
+          acc.pop();
+        }
+      };
+      const combosA = (() => {
+        let num = 1, den = 1;
+        for (let i = 1; i <= n - 1; i++) { num *= STEPS + i; den *= i; }
+        return Math.round(num / den);
+      })();
+      if (combosA <= 50000) buildSteps(0, STEPS, []);
+      else {
+        // basket too big for the full 5% grid; sparse-sample it by stepping
+        // through compositions of 10% instead. C(10+n-1, n-1) is manageable
+        // up to n=8 (~12k).
+        const STEPS_COARSE = 10;
+        const STEP_PCT_COARSE = 10;
+        const buildStepsCoarse = (idx, remaining, acc) => {
+          if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT_COARSE / 100)); acc.pop(); return; }
+          for (let v = 0; v <= remaining; v++) {
+            acc.push(v);
+            buildStepsCoarse(idx + 1, remaining - v, acc);
+            acc.pop();
+          }
+        };
+        buildStepsCoarse(0, STEPS_COARSE, []);
       }
-    };
-    // Cap explosion: skip the 5% grid if it would produce > 10k samples.
-    // C(STEPS + n - 1, n - 1). For n=4, STEPS=20 → 1771 samples (fine);
-    // n=5 → 10626 (still ok); n=6 → 53130 (skip).
-    const combosA = (() => {
-      let num = 1, den = 1;
-      for (let i = 1; i <= n - 1; i++) { num *= STEPS + i; den *= i; }
-      return Math.round(num / den);
-    })();
-    if (combosA <= 12000) buildSteps(0, STEPS, []);
-
-    // (b) ratio grid: each asset gets an integer 0..RATIO_MAX. Skip the all-zeros.
-    const buildRatios = (idx, acc) => {
-      if (idx === n) { if (acc.some(v => v > 0)) push(acc.slice()); return; }
-      for (let v = 0; v <= RATIO_MAX; v++) {
-        acc.push(v);
-        buildRatios(idx + 1, acc);
-        acc.pop();
-      }
-    };
-    buildRatios(0, []);
+    } else if (efGridMode === "ratio") {
+      // (b) ratio grid: each asset gets an integer 0..RATIO_MAX. Skip the all-zeros.
+      const buildRatios = (idx, acc) => {
+        if (idx === n) { if (acc.some(v => v > 0)) push(acc.slice()); return; }
+        for (let v = 0; v <= RATIO_MAX; v++) {
+          acc.push(v);
+          buildRatios(idx + 1, acc);
+          acc.pop();
+        }
+      };
+      buildRatios(0, []);
+    }
 
     // Materialize, with the user sample first.
     const userKey = (() => {
@@ -2070,7 +2089,7 @@ function App() {
 
     const processChunk = (start) => {
       if (efCancelRef.current) {
-        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA, cancelled: true });
+        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA, gridMode: efGridMode, cancelled: true });
         setEfRunning(false);
         return;
       }
@@ -2119,7 +2138,7 @@ function App() {
       if (end < samplesWeights.length) {
         setTimeout(() => processChunk(end), 0);
       } else {
-        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA });
+        setEfResults({ basket, samples: results, winners: computeWinners(results), includesUserSMA: efIncludeUserSMA, gridMode: efGridMode });
         setEfRunning(false);
       }
     };
@@ -3355,6 +3374,10 @@ function App() {
               <div className="panel-h">
                 <h2>Efficient Frontier · grid search on my-portfolio basket</h2>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <div className="seg">
+                    <button className={efGridMode === "step5" ? "on" : ""} onClick={() => setEfGridMode("step5")}>5% steps</button>
+                    <button className={efGridMode === "ratio" ? "on" : ""} onClick={() => setEfGridMode("ratio")}>integer ratios (1..6)</button>
+                  </div>
                   <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
@@ -3377,7 +3400,10 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates weight vectors on two structured grids over your <strong>{userPortfolio.assets.length}-asset basket</strong>: <strong>(a)</strong> every combination in 5%-steps that sums to 100%, and <strong>(b)</strong> small-integer ratios where every non-zero share is a multiple of the smallest (1 : 1 : 1, 1 : 1 : 2, …, up to 6 : 6 : 6, normalized). The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
+                  {efGridMode === "step5"
+                    ? <>Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> where each share is a multiple of <strong>5%</strong> and shares sum to 100%. For baskets larger than ~6 assets the engine falls back to 10% steps to keep sample count manageable.</>
+                    : <>Enumerates weight vectors where every non-zero share is a small-integer multiple of the smallest non-zero share (e.g. <code>1 : 2 : 4 → 1/7 : 2/7 : 4/7</code>), with integers drawn from 1 to 6.</>
+                  } The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. Grid size grows with the basket — ~250 samples on a 3-asset basket, ~2000 on a 4-asset basket, ~12000 on a 5-asset basket (capped: 5% grid skipped if it would exceed 12k).</div>}
                 {efResults && (() => {

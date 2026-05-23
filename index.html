@@ -1986,17 +1986,68 @@ function App() {
     let cutCPI = months.length;
     if (cpiAligned) { for (let i = 0; i < months.length; i++) if (cpiAligned[i] == null) { cutCPI = i; break; } }
 
-    // Dirichlet(1,...,1) via exponentials.
-    let seed = 0xdeadbeef;
-    const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    const expR = () => -Math.log(1 - rand() + 1e-12);
+    // v3.1: enumerate two structured grids instead of random Dirichlet:
+    //   (a) 5%-step grid — every combination of {0,5,10,...,100} that sums to 100
+    //   (b) small-integer ratio grid — for every subset of assets with ratio
+    //       weights drawn from {1,2,...,RATIO_MAX}, normalized to 1
+    // Union and dedupe. Always include the user's current weights as sample 0.
+    const RATIO_MAX = 6;
+    const STEP_PCT = 5;
     const userSample = basket.map(a => userPortfolio.weights[a] || 0);
-    const samplesWeights = [userSample];
-    for (let s = 0; s < efSamples; s++) {
-      const u = basket.map(() => expR());
-      const tot = u.reduce((a, b) => a + b, 0) || 1;
-      samplesWeights.push(u.map(v => v / tot));
-    }
+    const grid = new Map();
+    const keyOf = (vec) => vec.map(v => Math.round(v * 10000) / 10000).join("|");
+    const push = (vec) => {
+      const s = vec.reduce((a, b) => a + b, 0);
+      if (s <= 0) return;
+      const norm = vec.map(v => v / s);
+      const k = keyOf(norm);
+      if (!grid.has(k)) grid.set(k, norm);
+    };
+    push(userSample);
+
+    // (a) 5% step grid: integer compositions of 100/STEP_PCT into n parts.
+    const STEPS = Math.round(100 / STEP_PCT);
+    const n = basket.length;
+    const buildSteps = (idx, remaining, acc) => {
+      if (idx === n - 1) { acc.push(remaining); push(acc.map(v => v * STEP_PCT / 100)); acc.pop(); return; }
+      for (let v = 0; v <= remaining; v++) {
+        acc.push(v);
+        buildSteps(idx + 1, remaining - v, acc);
+        acc.pop();
+      }
+    };
+    // Cap explosion: skip the 5% grid if it would produce > 10k samples.
+    // C(STEPS + n - 1, n - 1). For n=4, STEPS=20 → 1771 samples (fine);
+    // n=5 → 10626 (still ok); n=6 → 53130 (skip).
+    const combosA = (() => {
+      let num = 1, den = 1;
+      for (let i = 1; i <= n - 1; i++) { num *= STEPS + i; den *= i; }
+      return Math.round(num / den);
+    })();
+    if (combosA <= 12000) buildSteps(0, STEPS, []);
+
+    // (b) ratio grid: each asset gets an integer 0..RATIO_MAX. Skip the all-zeros.
+    const buildRatios = (idx, acc) => {
+      if (idx === n) { if (acc.some(v => v > 0)) push(acc.slice()); return; }
+      for (let v = 0; v <= RATIO_MAX; v++) {
+        acc.push(v);
+        buildRatios(idx + 1, acc);
+        acc.pop();
+      }
+    };
+    buildRatios(0, []);
+
+    // Materialize, with the user sample first.
+    const userKey = (() => {
+      const s = userSample.reduce((a, b) => a + b, 0);
+      return s > 0 ? keyOf(userSample.map(v => v / s)) : null;
+    })();
+    const samplesWeights = [];
+    if (userKey && grid.has(userKey)) { samplesWeights.push(grid.get(userKey)); grid.delete(userKey); }
+    else samplesWeights.push(userSample.map(v => v / Math.max(1e-12, userSample.reduce((a, b) => a + b, 0))));
+    for (const v of grid.values()) samplesWeights.push(v);
+    // Update the progress total + the (now-meaningful) sample count.
+    setEfProgress({ done: 0, total: samplesWeights.length });
 
     const liveMap = pfAssetSeries.user || {};
     const seriesMap = {};
@@ -3302,14 +3353,8 @@ function App() {
             {/* v3 · Efficient Frontier — random Dirichlet sampling on user's basket */}
             <div className="panel" style={{ marginBottom: 18 }}>
               <div className="panel-h">
-                <h2>Efficient Frontier · my-portfolio asset basket</h2>
+                <h2>Efficient Frontier · grid search on my-portfolio basket</h2>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    samples
-                    <input type="number" min="100" max="20000" step="100" value={efSamples}
-                           onChange={e => setEfSamples(Math.max(100, Math.min(20000, +e.target.value || 500)))}
-                           style={{ width: 80, padding: "4px 6px", fontSize: 12, textAlign: "right" }} />
-                  </label>
                   <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
@@ -3332,9 +3377,9 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Random-samples weight vectors in the simplex of your <strong>{userPortfolio.assets.length}-asset basket</strong> (Dirichlet(1,…,1)). Each sample runs the full engine (costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip). Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong> (smallest h beyond which the worst-window real CAGR stays ≥ 0), <strong>largest Sortino</strong>, <strong>largest absolute return</strong> (final value ÷ total invested). Real-preservation requires the CPI series — without it the h* column is blank.
+                  Enumerates weight vectors on two structured grids over your <strong>{userPortfolio.assets.length}-asset basket</strong>: <strong>(a)</strong> every combination in 5%-steps that sums to 100%, and <strong>(b)</strong> small-integer ratios where every non-zero share is a multiple of the smallest (1 : 1 : 1, 1 : 1 : 2, …, up to 6 : 6 : 6, normalized). The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
                 </div>
-                {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. {efSamples} samples ≈ {(efSamples / 100).toFixed(0)}s.</div>}
+                {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. Grid size grows with the basket — ~250 samples on a 3-asset basket, ~2000 on a 4-asset basket, ~12000 on a 5-asset basket (capped: 5% grid skipped if it would exceed 12k).</div>}
                 {efResults && (() => {
                   const data = efResults.samples.map(s => ({
                     sortino: s.sortino,

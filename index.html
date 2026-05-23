@@ -289,32 +289,32 @@ function parseCsvToDaily(text) {
 // (gold + lev3x ETP) skips both: taxed only on actual sale via §23 EStG.
 // `holdable: false` means the series is loaded as a SIGNAL ONLY — never held.
 const ASSETS = [
-  { id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",     taxLike: "fund", holdable: true,
+  { shortName: "coIQ", id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",     taxLike: "fund", holdable: true,
     label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series" },
-  { id: "momentum", file: "momentum.csv", manifestKey: "momentum", taxLike: "fund", holdable: true,
+  { shortName: "momentum", id: "momentum", file: "momentum.csv", manifestKey: "momentum", taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)" },
-  { id: "value",    file: "value.csv",    manifestKey: "value",    taxLike: "fund", holdable: true,
+  { shortName: "value", id: "value",    file: "value.csv",    manifestKey: "value",    taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Value Factor ETF",   isin: "IE00BP3QZB59", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3S)" },
-  { id: "quality",  file: "quality.csv",  manifestKey: "quality",  taxLike: "fund", holdable: true,
+  { shortName: "quality", id: "quality",  file: "quality.csv",  manifestKey: "quality",  taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Quality Factor ETF", isin: "IE00BP3QZ601", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3Q)" },
-  { id: "minvol",   file: "minvol.csv",   manifestKey: "minvol",   taxLike: "fund", holdable: true,
+  { shortName: "minvol", id: "minvol",   file: "minvol.csv",   manifestKey: "minvol",   taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Min Volatility ETF", isin: "IE00B8FHGS14", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IQQ0)" },
-  { id: "world",    file: "world.csv",    manifestKey: "world",    taxLike: "fund", holdable: true,
+  { shortName: "prime", id: "world",    file: "world.csv",    manifestKey: "world",    taxLike: "fund", holdable: true,
     label: "Amundi MSCI World UCITS ETF Acc",            isin: "LU1681043599", equity: true, defaultOngoing: 0.12, defaultBuySpread: 0.05, defaultSellSpread: 0.05, defaultTF: 30, note: "EUR price (Xetra WEBN) — formerly Lyxor Core MSCI World." },
-  { id: "gold",     file: "gold.csv",     manifestKey: "gold",     taxLike: "debt", holdable: true,
+  { shortName: "gold", id: "gold",     file: "gold.csv",     manifestKey: "gold",     taxLike: "debt", holdable: true,
     label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT" },
-  { id: "market",   file: "market.csv",   manifestKey: "market",   taxLike: "fund", holdable: true,
+  { shortName: "ACWI", id: "market",   file: "market.csv",   manifestKey: "market",   taxLike: "fund", holdable: true,
     label: "SPDR MSCI ACWI IMI UCITS ETF",        isin: "IE00B3YLTY66", equity: true,  defaultOngoing: 0.18, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra SPYI / IMIE)" },
-  { id: "lev3x",    file: "lev3x.csv",    manifestKey: "lev3x",    taxLike: "debt", holdable: true,
+  { shortName: "world3x", id: "lev3x",    file: "lev3x.csv",    manifestKey: "lev3x",    taxLike: "debt", holdable: true,
     label: "Leverage Shares 3x Long Total World ETP", isin: "XS2399364822", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,
     note: "ETP / debt security — 3x daily, decay & financing already in price. WKN A3GWC0." },
-  { id: "lev2xNdx", file: "lev2x-ndx.csv", manifestKey: "lev2x_ndx", taxLike: "fund", holdable: true,
+  { shortName: "nasdaq2x", id: "lev2xNdx", file: "lev2x-ndx.csv", manifestKey: "lev2x_ndx", taxLike: "fund", holdable: true,
     label: "Amundi Nasdaq-100 Daily (2x) Leveraged ETF", isin: "FR0010342592", equity: true, defaultOngoing: 0.60, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30,
     note: "WKN A0LC12 · UCITS fund (VP + TF) · synthetic 2x daily — decay risk." },
-  { id: "lev2xWld", file: "lev2x-wld.csv", manifestKey: "lev2x_wld", taxLike: "fund", holdable: true,
+  { shortName: "world2x", id: "lev2xWld", file: "lev2x-wld.csv", manifestKey: "lev2x_wld", taxLike: "fund", holdable: true,
     label: "Amundi MSCI World (2x) Leveraged ETF",     isin: "FR0014010HV4", equity: true, defaultOngoing: 0.60, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30,
     note: "WKN ETF888 · UCITS fund (VP + TF) · launched 30.09.2025 — short history." },
-  { id: "bitcoin",  file: "bitcoin.csv",  manifestKey: "bitcoin",  taxLike: "crypto", holdable: true,
+  { shortName: "BTC", id: "bitcoin",  file: "bitcoin.csv",  manifestKey: "bitcoin",  taxLike: "crypto", holdable: true,
     label: "Bitcoin (EUR)", isin: "BTC-EUR", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.50, defaultSellSpread: 0.50, defaultTF: 0,
     note: "§23 EStG: held >1y tax-free, held <1y taxed at PERSONAL income-tax rate (NOT Abgeltungsteuer 25%). Model uses the configured CGT rate — adjust for your marginal rate if needed." },
   // Synthetic asset: coIQ with 200-SMA timing baked into the monthly series.
@@ -322,16 +322,16 @@ const ASSETS = [
   // NOT a real instrument — never appears in Data / Costs UI panels (holdable:false).
   // Tax treatment piggy-backs on coIQ (UCITS fund: VP + 30% TF). CGT on every
   // risk→cash flip is charged inside buildTimedRiskLegMonthly.
-  { id: "coIQ_t",   file: "",             manifestKey: "coiq",     taxLike: "fund", holdable: false, synthetic: true, sourceAsset: "coIQ",
+  { shortName: "coIQ-SMA", id: "coIQ_t",   file: "",             manifestKey: "coiq",     taxLike: "fund", holdable: false, synthetic: true, sourceAsset: "coIQ",
     label: "coIQ — 200-SMA timed (ECB−0.25% cash)", isin: "DE000A3C91C5", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30,
     note: "synthetic: coIQ NAV driven through SMA timing on VT signal; cash earns ECB−0.25%." },
   // Synthetic: Momentum with 200-SMA timing. Same construction as coIQ_t,
   // sources from momentum daily, tax-piggybacks on momentum (UCITS fund TF=30%).
   // Spreads come from the underlying momentum asset (0.10%/0.10% on Xetra).
-  { id: "momentum_t", file: "",           manifestKey: "momentum", taxLike: "fund", holdable: false, synthetic: true, sourceAsset: "momentum",
+  { shortName: "momentum-SMA", id: "momentum_t", file: "",           manifestKey: "momentum", taxLike: "fund", holdable: false, synthetic: true, sourceAsset: "momentum",
     label: "Momentum — 200-SMA timed (ECB−0.25% cash)", isin: "IE00BP3QZ825", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30,
     note: "synthetic: Momentum (IS3R) ETF price driven through SMA timing on VT signal; cash earns ECB−0.25%." },
-  { id: "signal",   file: "signal.csv",   manifestKey: "signal",   taxLike: null,   holdable: false,
+  { shortName: "signal", id: "signal",   file: "signal.csv",   manifestKey: "signal",   taxLike: null,   holdable: false,
     label: "FTSE All-World (VT) — 200-SMA signal only",  isin: "US9220427424", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 0,
     note: "NEVER held. Signal for 200-day SMA timing toggle. ACWI IMI may proxy if VT unavailable." },
 ];
@@ -2851,7 +2851,7 @@ function App() {
               <div className="small-note" style={{ marginTop: 8 }}>
                 Effective normalized weights: {userPortfolio.assets.map(a => {
                   const meta = ASSETS.find(x => x.id === a);
-                  return `${meta?.label.split(" ")[0] || a} ${(userPortfolio.weights[a] * 100).toFixed(1)}%`;
+                  return `${meta?.shortName || meta?.label.split(" ")[0] || a} ${(userPortfolio.weights[a] * 100).toFixed(1)}%`;
                 }).join(" · ")}
               </div>
             )}
@@ -3346,7 +3346,7 @@ function App() {
                     const w = sample.weights[i] * 100;
                     if (w < 0.5) return null;
                     const meta = ASSETS.find(x => x.id === a);
-                    return `${meta?.label.split(" ")[0] || a} ${w.toFixed(0)}%`;
+                    return `${meta?.shortName || meta?.label.split(" ")[0] || a} ${w.toFixed(0)}%`;
                   }).filter(Boolean).join(" · ");
                   return (
                     <>
@@ -3406,7 +3406,7 @@ function App() {
                         </tbody>
                       </table>
                       <div className="footnote" style={{ marginTop: 8 }}>
-                        Tested {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => ASSETS.find(x => x.id === a)?.label.split(" ")[0] || a).join(" · ")}.
+                        Tested {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => (ASSETS.find(x => x.id === a)?.shortName || ASSETS.find(x => x.id === a)?.label.split(" ")[0] || a)).join(" · ")}.
                         {efResults.includesUserSMA && " Per-asset SMA states inherited from your composer (CGT charged on each risk→cash flip)."}
                         {!efResults.includesUserSMA && " SMA toggles ignored — all legs buy-and-hold."}
                         {!series.cpi && <> · <strong>CPI not loaded</strong> — h* unavailable.</>}

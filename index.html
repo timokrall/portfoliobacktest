@@ -486,6 +486,8 @@ const PORTFOLIOS = [
   // so the user composer can always be compared to a pure-coIQ baseline.
   { id: "bench_coIQ",    name: "100% coIQ (benchmark)", assets: ["coIQ"], defaultGold: 0, equityId: "coIQ", isMarket: true,
     benchmark: true },
+  { id: "bench_market",  name: "Market (Prime ACWI)", assets: ["world"], defaultGold: 0, equityId: "world", isMarket: true,
+    benchmark: true },
 ];
 
 const DEFAULT_BASISZINS = { 2018: 0.87, 2019: 0.52, 2020: 0.07, 2021: 0.00, 2022: 0.00, 2023: 2.55, 2024: 2.29, 2025: 2.53, 2026: 2.53 };
@@ -1735,7 +1737,7 @@ function App() {
   // for funds). Default: all OFF — no rebalancing between assets.
   const [userRebalance, setUserRebalance] = useState({});
 
-  const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ"]);
+  const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
 
   // --- v2: planning horizon + cash rate (200-SMA toggle's risk-off leg) ---
@@ -2852,7 +2854,7 @@ function App() {
           </div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 12 }}>
-              {ASSETS.map(a =>
+              {ASSETS.filter(a => !a.synthetic).map(a =>
                 <CsvCard
                   key={a.id}
                   asset={a}
@@ -3006,7 +3008,7 @@ function App() {
               <button className="btn btn-xs btn-ghost" onClick={() => { setUserWeights({}); setUserSMA({}); }}>Clear</button>
               <button className="btn btn-xs btn-ghost" onClick={() => setUserWeights(DEFAULT_USER_WEIGHTS)}>Reset to default</button>
               <span style={{ flex: 1 }}></span>
-              <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (ACWI IMI)</strong></span>
+              <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3497,7 +3499,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> where each share is a multiple of <strong>5%</strong> and they sum to 100% (falls back to 10% steps on baskets larger than ~6 assets to keep runtime sane). The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. After the grid finishes, two <strong>benchmark portfolios</strong> are evaluated: <strong>100% ACWI IMI</strong> and <strong>100% coIQ</strong>. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> where each share is a multiple of <strong>5%</strong> and they sum to 100% (falls back to 10% steps on baskets larger than ~6 assets to keep runtime sane). The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. After the grid finishes, two <strong>benchmark portfolios</strong> are evaluated: <strong>100% Prime ACWI</strong> and <strong>100% coIQ</strong>. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. Grid size grows with the basket — ~250 samples on a 3-asset basket, ~2000 on a 4-asset basket, ~12000 on a 5-asset basket (capped: 5% grid skipped if it would exceed 12k).</div>}
                 {efResults && (() => {

@@ -170,10 +170,7 @@
   .pf-row .pf-include { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; }
   .pf-row .pf-include .pf-name { flex: none; }
 
-  /* basiszins editor */
-  .bz-grid { display:grid; grid-template-columns: repeat(6, 1fr); gap: 8px; max-height: 260px; overflow-y: auto; }
-  .bz-grid label { display:flex; flex-direction:column; gap: 3px; font-size: 10.5px; color: var(--ink-mute);}
-  .bz-grid input { padding: 5px 7px; }
+  /* basiszins editor (removed — now auto-derived from ECB DFR) */
 
   .small-note { font-size: 10.5px; color: var(--ink-mute); margin-top: 8px; }
 
@@ -3018,14 +3015,40 @@ function App() {
               })}
             </div>
             <details className="fold" style={{ marginTop: 14 }} open>
-              <summary>Basiszins table (%/yr) — used for Basisertrag</summary>
-              <div className="bz-grid" style={{ marginTop: 8 }}>
-                {Object.keys(basiszins).sort().map(y =>
-                  <label key={y}><span>{y}</span>
-                    <input type="number" step="0.01" value={basiszins[y]} onChange={e => setBasiszins(b => ({ ...b, [y]: +e.target.value }))} />
-                  </label>)}
-              </div>
-              <div className="small-note">2018+ values are BMF-published (Jan letter). Pre-2018 values are derived from the ECB rate at Jan 1 of each year (proxy — actual Basiszins was not defined under the old InvStG). 0 means no Vorabpauschale for that year. Gold (EUWAX Gold II) is an <em>Inhaberschuldverschreibung</em>, not a fund, and is exempt from Vorabpauschale and Teilfreistellung — taxed only on sale via §23 EStG (Spekulationsfrist 12 months).</div>
+              <summary>ECB Deposit Facility Rate — backtest window</summary>
+              {(() => {
+                if (!series.ecb || series.ecb.length === 0) return <div className="small-note">No ECB data loaded. Upload in the data panel above.</div>;
+                const wStart = windowDates?.start;
+                const wEnd = windowDates?.end;
+                if (!wStart) return <div className="small-note">No backtest window computed yet.</div>;
+                // Convert month keys to epoch for filtering
+                const tStart = Date.parse(wStart + "-01");
+                const tEnd = Date.parse(wEnd + "-28");
+                // Find rate at window start + all changes within window
+                let startRate = null;
+                const visible = [];
+                for (const pt of series.ecb) {
+                  if (pt.t <= tStart) startRate = pt;
+                  if (pt.t >= tStart && pt.t <= tEnd) visible.push(pt);
+                }
+                const fmt = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+                const all = startRate && (!visible.length || visible[0].t !== startRate.t)
+                  ? [{ ...startRate, label: fmt(tStart) + " (inherited)" }].concat(visible.map(p => ({ ...p, label: fmt(p.t) })))
+                  : visible.map(p => ({ ...p, label: fmt(p.t) }));
+                return (
+                  <div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: "11.5px", fontFamily: "var(--mono, monospace)" }}>
+                      {all.map((p, i) => (
+                        <span key={i} style={{ color: p.rate < 0 ? "var(--red, #c33)" : "var(--ink-mute)" }}>
+                          <span style={{ color: "var(--ink-mute)", opacity: 0.6 }}>{p.label}</span>{" "}
+                          <strong style={{ color: p.rate < 0 ? "var(--red, #c33)" : "var(--ink)" }}>{p.rate.toFixed(2)}%</strong>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="small-note" style={{ marginTop: 8 }}>Drives both SMA cash-period returns (floored at 0%) and Vorabpauschale Basisertrag (rate at Jan 1 × 0.70; 2018+ overridden by BMF-published Basiszins). Gold is exempt (Inhaberschuldverschreibung, §23 EStG only).</div>
+                  </div>
+                );
+              })()}
             </details>
           </div>
         </div>

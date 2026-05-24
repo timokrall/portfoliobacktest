@@ -1,9 +1,6 @@
 <!doctype html>
 <html lang="en">
 <head>
-<style data-omelette-injected>html,body{background:transparent}</style><script data-omelette-injected>(()=>{var j=["https://claude.ai","https://preview.claude.ai"];var x=true;var S=30000;var f=3000;document.addEventListener("DOMContentLoaded",()=>{const H=window.Babel;const G="om-src-id";if(H&&H.registerPlugin&&!(H.availablePlugins&&H.availablePlugins[G])){H.registerPlugin(G,({types:Y})=>({visitor:{JSXOpeningElement(U,Q){const J=U.node;if(J.name&&J.name.type==="JSXMemberExpression")return;for(let V=0;V<J.attributes.length;V++){const L=J.attributes[V];if(L.type==="JSXAttribute"&&L.name&&L.name.name==="data-om-id")return}const W=Q.file&&Q.file.opts&&Q.file.opts.filename||"?";const Z=J.loc&&J.loc.start;const z=`jsx:${W}:${J.start??0}:${Z?Z.line:0}:${Z?Z.column+1:0}`;J.attributes.push(Y.jsxAttribute(Y.jsxIdentifier("data-om-id"),Y.stringLiteral(z)))}}}))}const k="om-text-extract";let A=false;if(x&&H&&H.registerPlugin&&!(H.availablePlugins&&H.availablePlugins[k])){const Y=window.React;if(Y&&Y.useSyncExternalStore&&Y.createElement){A=true;const U={};const Q=new Set;let J=0;window.__omTextO=U;window.__omTextSet=(z)=>{for(const V in z){const L=z[V];if(L==null)delete U[V];else U[V]=L}J++;Q.forEach((V)=>V())};const W=(z)=>{Q.add(z);return()=>Q.delete(z)};const Z=()=>J;window.__OmT=function z(V){Y.useSyncExternalStore(W,Z,Z);return Y.createElement("span",{"data-om-text":V.i,className:"__om-t"},V.i in U?U[V.i]:V.children)};H.registerPlugin(k,({types:z})=>{const V={style:1,script:1,noscript:1,textarea:1,title:1,option:1,text:1,tspan:1,textPath:1};const L={placeholder:1,alt:1,title:1,label:1,"aria-label":1,"aria-description":1,"aria-placeholder":1};const _=($,C)=>z.logicalExpression("??",z.memberExpression(z.logicalExpression("||",z.memberExpression(z.identifier("window"),z.identifier("__omTextO")),z.objectExpression([])),z.stringLiteral($),true),C);const E=($)=>$.file&&$.file.opts&&$.file.opts.filename||"?";const B=($)=>$.file&&$.file.code||"";const b=($,C)=>{const X=(F)=>F&&F.start!=null&&F.end!=null&&(F.type==="StringLiteral"||F.type==="TemplateLiteral"&&F.expressions.length===0)?[F.start,F.end]:null;const N=X(C);if(N)return N;if(C&&C.type==="Identifier"){const F=$.scope.getBinding(C.name);if(F&&F.constant&&F.path.node.type==="VariableDeclarator"){return X(F.path.node.init)}}return null};const M=($,C,X)=>{const N=$.node;let F=false;const w=(K,q)=>{F=true;return z.jsxElement(z.jsxOpeningElement(z.jsxIdentifier("__OmT"),[z.jsxAttribute(z.jsxIdentifier("i"),z.stringLiteral(K))],false),z.jsxClosingElement(z.jsxIdentifier("__OmT")),[q],false)};const D=N.children.map((K)=>{if(K.type==="JSXText"){if(K.start==null||K.end==null)return K;const q=X.slice(K.start,K.end);const R=q.length-q.trimStart().length;const m=q.length-q.trimEnd().length;if(R+m>=q.length)return K;return w(`txt:${C}:${K.start+R}:${K.end-m}`,K)}if(K.type==="JSXExpressionContainer"){const q=b($,K.expression);if(q)return w(`str:${C}:${q[0]}:${q[1]}`,K)}return K});if(F)N.children=D};return{visitor:{JSXOpeningElement($,C){const X=$.node;const N=E(C);const F={};for(let w=0;w<X.attributes.length;w++){const D=X.attributes[w];if(D.type!=="JSXAttribute"||!D.name)continue;const K=D.name.name;if(!L[K])continue;if(!D.value||D.value.type!=="StringLiteral")continue;if(D.value.start==null||D.value.end==null)continue;const q=`txt:${N}:${D.value.start}:${D.value.end}`;F[K]=q;D.value=z.jsxExpressionContainer(_(q,z.stringLiteral(D.value.value)))}if(Object.keys(F).length){X.attributes.push(z.jsxAttribute(z.jsxIdentifier("data-om-text-attrs"),z.stringLiteral(JSON.stringify(F))))}},JSXElement($,C){const X=$.node.openingElement;const N=X&&X.name&&X.name.name;if(N==="__OmT")return;if(typeof N==="string"&&V[N])return;M($,E(C),B(C))},JSXFragment($,C){M($,E(C),B(C))}}}})}}const u=A?["transform-react-jsx-source",G,k]:["transform-react-jsx-source",G];document.querySelectorAll('script[type="text/babel"],script[type="text/jsx"]').forEach((Y,U)=>{const Q=Y.getAttribute("data-plugins")||"";const J=u.filter((W)=>Q.indexOf(W)<0);if(J.length){Y.setAttribute("data-plugins",Q?`${Q},${J.join(",")}`:J.join(","))}if(!Y.hasAttribute("data-filename")){Y.setAttribute("data-filename",Y.getAttribute("src")||`inline-${U}`)}})});var y=window.parent;if(y&&y!==window){const H=(Q,J)=>{try{y.postMessage({__omelette_log:true,type:Q,data:J},"*")}catch{}};["log","warn","error"].forEach((Q)=>{const J=console[Q];console[Q]=(...W)=>{const Z=W.map((z)=>{try{return typeof z==="object"?JSON.stringify(z):String(z)}catch{try{return String(z)}catch{return"[unstringifiable]"}}}).join(" ");H(Q,Z);J.apply(console,W)}});window.addEventListener("error",(Q)=>{const J=Q.target;if(J&&J!==window&&J.tagName){const W=J.src||J.href||"";H("resource_error",`${J.tagName} failed to load: ${W}`)}else{H("error",`${Q.message||"Unknown error"} at ${Q.filename||"?"}:${Q.lineno||0}:${Q.colno||0}`)}},true);window.addEventListener("unhandledrejection",(Q)=>{const J=Q.reason;const W=J instanceof Error?`${J.message} ${J.stack}`:String(J);H("error",`Unhandled rejection: ${W}`)});const G=()=>{try{y.postMessage({type:"omelette:height",height:document.documentElement.scrollHeight},"*")}catch{}};if(document.readyState==="complete")G();else window.addEventListener("load",G);if(window.ResizeObserver)new ResizeObserver(G).observe(document.documentElement);const k={};let A=0;window.claude={complete(Q){return new Promise((J,W)=>{if(!j.length){W(new Error("claude.complete: no parent origin"));return}const Z=`c${++A}`;const z=()=>setTimeout(()=>{delete k[Z];W(new Error(`claude.complete: no data for ${S/1000}s`))},S);const V=z();k[Z]={resolve:J,reject:W,text:"",t:V,arm:z};try{for(const L of j){y.postMessage({__om_api:true,id:Z,body:Q},L)}}catch(L){clearTimeout(V);delete k[Z];W(L)}})}};const u={};let Y=0;window.omelette={writeFile:(Q,J)=>new Promise((W,Z)=>{if(!j.length){W();return}const z=`f${++Y}`;const V=setTimeout(()=>{delete u[z];W()},f);u[z]={resolve:W,reject:Z,t:V};try{for(const L of j){y.postMessage({__om_file:true,id:z,op:"write",path:Q,content:J},L)}}catch{clearTimeout(V);delete u[z];W()}})};const U=(Q)=>{try{return JSON.stringify(Q)}catch{return JSON.stringify(String(Q))}};window.addEventListener("message",(Q)=>{if(j.indexOf(Q.origin)<0)return;if(Q.source!==y)return;const J=Q.data;if(!J)return;if(J.type==="omelette-preview-refresh"){if(typeof J.token!=="string"||!/^[0-9a-f.-]+(\.(rc|pr-[0-9]+))?(\.[0-9]+\.[0-9a-f]{16})?$/.test(J.token))return;const z=Math.max(1,Math.floor((J.expiresAt||0)-Date.now()/1000));document.cookie="__Host-omelette-preview="+J.token+"; Path=/; Secure; SameSite=None; Partitioned; Max-Age="+z;return}if(J.__om_file_r){const z=u[J.id];if(!z)return;clearTimeout(z.t);delete u[J.id];if(J.ok)z.resolve();else z.reject(new Error(J.error||"write failed"));return}if(J.__om_api_r){const z=k[J.id];if(!z)return;if(J.error!=null){clearTimeout(z.t);delete k[J.id];z.reject(new Error(J.error));return}if(J.chunk!=null){clearTimeout(z.t);z.t=z.arm();z.text+=J.chunk;return}if(J.done){clearTimeout(z.t);delete k[J.id];z.resolve(J.text!=null?J.text:z.text);return}return}if(!J.__om_eval)return;const W=J;const Z=(z)=>{Q.source.postMessage({...z,__om_eval_r:1,id:W.id},Q.origin)};try{const z=(0,eval)(W.code);if(z&&typeof z.then==="function"){z.then((V)=>Z({ok:1,v:U(V)}),(V)=>Z({ok:0,e:String(V)}))}else{Z({ok:1,v:U(z)})}}catch(z){Z({ok:0,e:String(z)})}})}})();
-</script>
-
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Portfolio Backtest</title>
@@ -224,12 +221,60 @@ const monthKeyToYM = (k) => { const [y, m] = k.split("-").map(Number); return { 
 const addMonths = (key, n) => { const { y, m } = monthKeyToYM(key); const idx = y * 12 + m + n; return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`; };
 const monthsBetween = (a, b) => { const A = monthKeyToYM(a), B = monthKeyToYM(b); return (B.y - A.y) * 12 + (B.m - A.m); };
 
+// ---------- ECB rate parser ----------
+// ECB SDW "changes-only" CSV: DATE, "TIME PERIOD", level%. Some users export
+// just date,value. We accept both shapes. Output: sorted [{t: epoch_ms, rate: pct}].
+function parseEcbRateChanges(text) {
+  const out = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, dynamicTyping: false });
+  // If headers are weird (no "DATE" col), fall back to header-less parse.
+  let rows = out.data;
+  if (!rows || rows.length === 0 || (Object.keys(rows[0]).length === 1 && !Object.keys(rows[0])[0])) {
+    const out2 = Papa.parse(text.trim(), { header: false, skipEmptyLines: true });
+    rows = out2.data.map((arr) => Object.fromEntries(arr.map((v, i) => [String(i), v])));
+  }
+  const cols = Object.keys(rows[0] || {});
+  const dateCol = cols.find(c => /^date$/i.test(c)) || cols.find(c => /date/i.test(c)) || cols[0];
+  // Value column: prefer one named "level" / "rate" / "value"; else the last numeric col.
+  let valCol = cols.find(c => /(level|rate|value|deposit|lending)/i.test(c));
+  if (!valCol) {
+    // try last column
+    valCol = cols[cols.length - 1];
+  }
+  if (!dateCol || !valCol) throw new Error("ECB CSV: need date + rate columns");
+  const pts = [];
+  for (const r of rows) {
+    const ds = (r[dateCol] || "").toString().trim();
+    const vs = (r[valCol] || "").toString().replace(/[,"]/g, ".").trim();
+    if (!ds || !vs) continue;
+    const t = Date.parse(ds);
+    const v = parseFloat(vs.replace(/\.\./g, "."));
+    if (!isFinite(t) || !isFinite(v)) continue;
+    pts.push({ t, rate: v });
+  }
+  if (pts.length === 0) throw new Error("ECB CSV: no rows parsed");
+  pts.sort((a, b) => a.t - b.t);
+  return pts;
+}
+
+// Look up the active ECB rate at a given epoch_ms (last change ≤ t).
+// Returns null if no change has happened yet (before-series); caller defaults to 0.
+function ecbRateAt(changes, t) {
+  if (!changes || changes.length === 0) return null;
+  // Binary search for the last change.t ≤ t
+  let lo = 0, hi = changes.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (changes[mid].t <= t) { ans = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return ans >= 0 ? changes[ans].rate : null;
+}
+
 // ---------- CSV parse + monthly resample ----------
 function parseCsvToMonthly(text) {
   const out = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, dynamicTyping: false });
   if (out.errors.length > 0 && (!out.data || out.data.length === 0)) throw new Error(out.errors[0].message);
-  const rows = out.data;
-  // tolerate column variants
+  const rows = out.data;  // tolerate column variants
   const cols = Object.keys(rows[0] || {});
   const dateCol = cols.find(c => /^date$/i.test(c)) || cols.find(c => /date/i.test(c)) || cols[0];
   const valCol  = cols.find(c => /^(value|close|nav|price|adj.?close)$/i.test(c)) || cols.find(c => /(value|close|nav|price)/i.test(c)) || cols[1];
@@ -307,9 +352,8 @@ const ASSETS = [
     label: "Invesco MSCI World Equal Weight UCITS ETF Acc", isin: "IE000OEF25S1", equity: true, defaultOngoing: 0.20, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra MWEQ) — WKN A40G12. Equal-weighted developed-world index." },
   { shortName: "silver", id: "silver",   file: "silver.csv",   manifestKey: "silver",   taxLike: "debt", holdable: true,
     label: "iShares Physical Silver ETC",          isin: "IE00B4NCWG09", equity: false, defaultOngoing: 0.20, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,  note: "EUR price (Xetra SSLN) — WKN A1KWPR. Physically-backed silver ETC (debt-like, §23 EStG)." },
-  { shortName: "BTC", id: "bitcoin",  file: "bitcoin.csv",  manifestKey: "bitcoin",  taxLike: "crypto", holdable: true,
-    label: "Bitcoin (EUR)", isin: "BTC-EUR", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.50, defaultSellSpread: 0.50, defaultTF: 0,
-    note: "§23 EStG: held >1y tax-free, held <1y taxed at PERSONAL income-tax rate (NOT Abgeltungsteuer 25%). Model uses the configured CGT rate — adjust for your marginal rate if needed." },
+  { shortName: "em", id: "em",         file: "em.csv",       manifestKey: "em",       taxLike: "fund", holdable: true,
+    label: "iShares MSCI EM UCITS ETF (Acc)",        isin: "IE00B4L5YC18", equity: true, defaultOngoing: 0.18, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30, note: "WKN A0RPWJ · EM equity factor exposure (Acc)." },
   // Synthetic asset: coIQ with 200-SMA timing baked into the monthly series.
   // Driven off coIQ's daily series + the VT signal; cash leg earns ECB−0.25%.
   // NOT a real instrument — never appears in Data / Costs UI panels (holdable:false).
@@ -327,9 +371,8 @@ const ASSETS = [
 ];
 
 // IDs that are taxed like a debt security: no Vorabpauschale, no
-// Teilfreistellung. (gold = Inhaberschuldverschreibung; lev3x = ETP; bitcoin
-// = private sale §23 EStG when held <1y; SMA flips realize gain in <1y.)
-const DEBT_TAX_IDS = new Set(["gold", "silver", "bitcoin"]);
+// Teilfreistellung. (gold/silver = Inhaberschuldverschreibung; §23 EStG.)
+const DEBT_TAX_IDS = new Set(["gold", "silver"]);
 
 // IDs that the engine NEVER sells (no maturity gate, no rebalance sale).
 // Risk legs are always one-way; gold IS sold by the rebalancing gate.
@@ -356,13 +399,16 @@ async function loadManifest() {
 }
 
 const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "German CPI (FRED DEUCPIALLMINMEI)", isin: "FRED:DEUCPIALLMINMEI", note: "monthly CPI level, 2015=100" };
+// ECB deposit-facility-rate "changes-only" series. Manual upload only.
+// Format: rows of "date, level%" (e.g. "1999-01-01,3.00"). The exporter from
+// ECB SDW also includes a "TIME PERIOD" middle column we just ignore.
+// At any date, the active rate is the LAST change with date ≤ that date.
+// During SMA cash periods we earn max(rate, 0) on the synthetic risk leg.
+const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Deposit Facility Rate (changes-only)", isin: "ECB:DFR", note: "step function: each row is a rate change. Used as time-varying cash rate during SMA cash periods. Min earned = 0%." };
 
 const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
   { id: "gold_momentum", name: "Gold + Momentum",        assets: ["gold", "momentum"], defaultGold: 30, equityId: "momentum" },
-  { id: "bitcoin",       name: "100% Bitcoin",            assets: ["bitcoin"], defaultGold: 0, equityId: "bitcoin", isMarket: true,
-    illustrativeOnly: true,
-    cryptoShortTax: true },
   // Three-leg portfolio: 1/3 coIQ buy-and-hold, 1/3 coIQ-SMA, 1/3 gold.
   // Explicit weights override the usual gold-equity split. SMA timing here is
   // PART of the portfolio definition (not the per-portfolio toggle) — the
@@ -916,7 +962,7 @@ function simulatePortfolio(state) {
 // We need to instead precompute per-asset price history BEFORE the loop and reference it.
 // Let me rewrite simulatePortfolio to PRECOMPUTE prices.
 function simulatePortfolioV2(state) {
-  const { portfolio, targetGoldPct, data, seriesType, ongoingCost, spreads, orderFee, tax, starting, monthly, rebalance } = state;
+  const { portfolio, targetGoldPct, data, seriesType, ongoingCost, spreads, orderFee, tax, starting, monthly, rebalance, rebalanceFlags } = state;
   const assets = portfolio.assets;
   const months = data[assets[0]].map(r => r.month);
   const N = months.length;
@@ -950,9 +996,17 @@ function simulatePortfolioV2(state) {
 
   const holdings = {}; for (const a of assets) holdings[a] = 0;
   const assetUnits = {}; for (const a of assets) assetUnits[a] = 0;
-  const goldLots = [];
+  // Per-asset debt lots (gold, silver, etc.): each lot { units, acqMonth }.
+  // Sold only by the rebalance gate, FIFO, ONLY when (idx - acqMonth) >= 12
+  // months (§23 EStG Spekulationsfrist). Tax-free on sale of matured lots.
+  const debtLots = {};
+  // Per-asset equity (fund) lots: tracked for Vorabpauschale + cost basis on
+  // tax-aware rebalance sells.
   const equityLots = {};
-  for (const a of assets) if (a !== "gold") equityLots[a] = [];
+  for (const a of assets) {
+    if (DEBT_TAX_IDS.has(a)) debtLots[a] = [];
+    else equityLots[a] = [];
+  }
 
   let unitPrice = 100;
   const unitPriceSeries = [];
@@ -977,19 +1031,23 @@ function simulatePortfolioV2(state) {
     const units = eff / buySide;
     assetUnits[a] += units;
     holdings[a] = assetUnits[a] * priceHist[a][idx];
-    if (a === "gold") goldLots.push({ units, acqMonth: idx });
+    if (DEBT_TAX_IDS.has(a)) debtLots[a].push({ units, acqMonth: idx });
     else equityLots[a].push({ units, acqMonth: idx });
     return units;
   };
 
-  const sellMaturedGold = (eurTarget, idx) => {
+  // Sell EUR worth of a debt-like asset (gold/silver) from MATURED lots only
+  // (lot age >= 12 months, §23 EStG). Tax-free on the gain. FIFO. Returns net
+  // EUR proceeds after the asset's sell spread + per-order fee.
+  const sellMaturedDebt = (a, eurTarget, idx) => {
     let need = eurTarget;
     let unitsSold = 0;
-    for (const lot of goldLots) {
+    const lots = debtLots[a] || [];
+    for (const lot of lots) {
       if (need <= 1e-6) break;
       if (idx - lot.acqMonth < 12) continue;
       if (lot.units <= 0) continue;
-      const lotMidValue = lot.units * priceHist.gold[idx];
+      const lotMidValue = lot.units * priceHist[a][idx];
       const take = Math.min(need, lotMidValue);
       const portion = take / lotMidValue;
       const unitsTaken = lot.units * portion;
@@ -998,13 +1056,53 @@ function simulatePortfolioV2(state) {
       need -= take;
     }
     if (unitsSold === 0) return 0;
-    assetUnits.gold -= unitsSold;
-    holdings.gold = assetUnits.gold * priceHist.gold[idx];
-    const sellSide = priceHist.gold[idx] * (1 - (spreads.gold.sell / 100));
+    assetUnits[a] -= unitsSold;
+    holdings[a] = assetUnits[a] * priceHist[a][idx];
+    const sellSide = priceHist[a][idx] * (1 - (spreads[a].sell / 100));
     const grossEur = unitsSold * sellSide;
     const fee = orderFee.fixed + (orderFee.pct / 100) * grossEur;
     return Math.max(0, grossEur - fee);
   };
+
+  // Sell EUR worth of a fund-like equity asset. FIFO across equityLots;
+  // realized gain is taxed at rate × (1 − Teilfreistellung) (no allowance
+  // tracking — same quick approximation as the SMA flip tax). Returns NET
+  // EUR proceeds (after spread, fee, and tax).
+  const sellFundEquity = (a, eurTarget, idx) => {
+    if (eurTarget <= 0 || holdings[a] <= 0) return 0;
+    const sellSide = priceHist[a][idx] * (1 - (spreads[a].sell / 100));
+    if (sellSide <= 0) return 0;
+    // Convert EUR target into units (gross of fee/tax — conservative).
+    const targetUnits = Math.min(assetUnits[a], eurTarget / priceHist[a][idx]);
+    if (targetUnits <= 0) return 0;
+    // Walk FIFO lots to compute cost basis.
+    let unitsLeft = targetUnits;
+    let costBasis = 0;
+    const lots = equityLots[a];
+    for (const lot of lots) {
+      if (unitsLeft <= 1e-9 || lot.units <= 0) continue;
+      const take = Math.min(unitsLeft, lot.units);
+      const lotPx = priceHist[a][lot.acqMonth];
+      costBasis += take * lotPx;
+      lot.units -= take;
+      unitsLeft -= take;
+    }
+    const unitsSold = targetUnits - unitsLeft;
+    if (unitsSold <= 0) return 0;
+    assetUnits[a] -= unitsSold;
+    holdings[a] = assetUnits[a] * priceHist[a][idx];
+    const grossEur = unitsSold * sellSide;
+    const fee = orderFee.fixed + (orderFee.pct / 100) * grossEur;
+    const gain = unitsSold * priceHist[a][idx] - costBasis;
+    const tfPct = (tax.teilfreistellung[a] || 0) / 100;
+    const tax_a = Math.max(0, gain) * (tax.rate / 100) * (1 - tfPct);
+    return Math.max(0, grossEur - fee - tax_a);
+  };
+
+  // Legacy gold-only matured-lot sell kept for backward compat with predefined
+  // portfolios that use rebalance: "yearly" etc. (Same behaviour as before; now
+  // delegates to sellMaturedDebt.)
+  const sellMaturedGold = (eurTarget, idx) => sellMaturedDebt("gold", eurTarget, idx);
 
   // Month 0
   totalInvested += starting;
@@ -1018,7 +1116,7 @@ function simulatePortfolioV2(state) {
     const units = eff / buySide;
     assetUnits[a] += units;
     holdings[a] = assetUnits[a] * priceHist[a][0];
-    if (a === "gold") goldLots.push({ units, acqMonth: -12 });
+    if (DEBT_TAX_IDS.has(a)) debtLots[a].push({ units, acqMonth: -12 });   // matured at month 0
     else equityLots[a].push({ units, acqMonth: 0 });
   }
   unitPriceSeries.push(unitPrice);
@@ -1128,30 +1226,73 @@ function simulatePortfolioV2(state) {
       for (const a of assets) buy(a, alloc[a] || 0, i);
     }
 
-    // 4. rebalance — gold sells matured lots, proceeds split across
-    //    non-gold legs in proportion to their target weights.
-    const hasGold = targets.gold != null && targets.gold > 0;
-    if (hasGold && rebalance !== "never") {
+    // 4. rebalance.
+    //    Two modes:
+    //    (a) rebalanceFlags supplied (user portfolio): each January, for every
+    //        asset with flag ON that is OVER target, sell the excess (debt:
+    //        matured lots tax-free; fund: pay CGT on the gain), then distribute
+    //        the pooled proceeds to UNDER-target assets proportional to their
+    //        shortfall (capped at target).
+    //    (b) legacy gold-only path (predefined portfolios + rebalance prop):
+    //        gold sells matured lots, proceeds split across non-gold legs by
+    //        target weight.
+    if (rebalanceFlags) {
+      if (curMonth === 0 && i > 0) {
+        const totalV = Object.values(holdings).reduce((s, v) => s + v, 0);
+        let pooled = 0;
+        for (const a of assets) {
+          if (!rebalanceFlags[a]) continue;
+          const tgt = (targets[a] || 0) * totalV;
+          const cur = holdings[a] || 0;
+          if (cur <= tgt + 1e-6) continue;
+          const excess = cur - tgt;
+          const proceeds = DEBT_TAX_IDS.has(a)
+            ? sellMaturedDebt(a, excess, i)
+            : sellFundEquity(a, excess, i);
+          pooled += proceeds;
+        }
+        if (pooled > 0) {
+          // Recompute totals AFTER sells. Distribute to under-target assets.
+          const totalAfter = Object.values(holdings).reduce((s, v) => s + v, 0) + pooled;
+          const shortfalls = {};
+          let sfTotal = 0;
+          for (const a of assets) {
+            const tgt = (targets[a] || 0) * totalAfter;
+            const sf = Math.max(0, tgt - (holdings[a] || 0));
+            shortfalls[a] = sf;
+            sfTotal += sf;
+          }
+          if (sfTotal > 0) {
+            for (const a of assets) {
+              if (shortfalls[a] > 0) buy(a, pooled * (shortfalls[a] / sfTotal), i);
+            }
+          }
+        }
+      }
+    } else {
+      // legacy gold-only path
+      const hasGold = targets.gold != null && targets.gold > 0;
+      if (hasGold && rebalance !== "never") {
       const due =
         rebalance === "monthly" ? true :
         rebalance === "yearly"  ? (curMonth === 0) :
         rebalance === "biennial"? (curMonth === 0 && curYear % 2 === 0) :
         false;
-      if (due) {
-        const nonGold = assets.filter(a => a !== "gold");
-        const totalNonGold = nonGold.reduce((s, a) => s + (holdings[a] || 0), 0);
-        const totalV = (holdings.gold || 0) + totalNonGold;
-        const goldShare = totalV > 0 ? (holdings.gold || 0) / totalV : 0;
-        if (goldShare > targets.gold + 1e-6) {
-          const desGold = totalV * targets.gold;
-          const overflow = (holdings.gold || 0) - desGold;
-          const proceeds = sellMaturedGold(overflow, i);
-          if (proceeds > 0) {
-            // distribute across non-gold legs proportionally to their target weights
-            const wSum = nonGold.reduce((s, a) => s + (targets[a] || 0), 0);
-            for (const a of nonGold) {
-              const share = wSum > 0 ? (targets[a] || 0) / wSum : 1 / nonGold.length;
-              if (share > 0) buy(a, proceeds * share, i);
+        if (due) {
+          const nonGold = assets.filter(a => a !== "gold");
+          const totalNonGold = nonGold.reduce((s, a) => s + (holdings[a] || 0), 0);
+          const totalV = (holdings.gold || 0) + totalNonGold;
+          const goldShare = totalV > 0 ? (holdings.gold || 0) / totalV : 0;
+          if (goldShare > targets.gold + 1e-6) {
+            const desGold = totalV * targets.gold;
+            const overflow = (holdings.gold || 0) - desGold;
+            const proceeds = sellMaturedGold(overflow, i);
+            if (proceeds > 0) {
+              const wSum = nonGold.reduce((s, a) => s + (targets[a] || 0), 0);
+              for (const a of nonGold) {
+                const share = wSum > 0 ? (targets[a] || 0) / wSum : 1 / nonGold.length;
+                if (share > 0) buy(a, proceeds * share, i);
+              }
             }
           }
         }
@@ -1322,7 +1463,7 @@ function buildPairedReturns(unitPrice, cpiAligned) {
 // taxLikeDebt = true (gold / lev3x ETP) skips the Teilfreistellung reduction.
 //
 // Output is a [{month, value}] monthly series the existing engine consumes.
-function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spreadBuyPct, spreadSellPct, orderFee, taxOpts) {
+function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spreadBuyPct, spreadSellPct, orderFee, taxOpts, ecbChanges) {
   if (!riskDaily?.length || !signalDaily?.length) return null;
   // intersect by date (both must have a print that day)
   const sigMap = new Map(signalDaily.map(p => [p.date, p.value]));
@@ -1338,7 +1479,16 @@ function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spread
     if (i >= 200) sum -= sig[i - 200];
     if (i >= 199) SMA[i] = sum / 200;
   }
-  const dailyCash = Math.pow(1 + (cashRateAnnual || 0) / 100, 1 / 252) - 1;
+  // If ECB step-changes are supplied, the cash rate is the latest change ≤ each
+  // day, floored at 0. Otherwise it's the static cashRateAnnual.
+  const useEcb = ecbChanges && ecbChanges.length > 0;
+  const staticDailyCash = Math.pow(1 + (cashRateAnnual || 0) / 100, 1 / 252) - 1;
+  const dailyCashAt = (i) => {
+    if (!useEcb) return staticDailyCash;
+    const rate = ecbRateAt(ecbChanges, joined[i].t);
+    const eff = Math.max(0, rate == null ? 0 : rate);   // floor at 0
+    return Math.pow(1 + eff / 100, 1 / 252) - 1;
+  };
   const buyDrag   = 1 - (spreadBuyPct  || 0) / 100;
   const sellDrag  = 1 - (spreadSellPct || 0) / 100;
   // Per-flip percent fee. The fixed-EUR fee doesn't translate cleanly into
@@ -1389,7 +1539,7 @@ function buildTimedRiskLegMonthly(riskDaily, signalDaily, cashRateAnnual, spread
       const r = risk[i] / risk[i - 1] - 1;
       if (isFinite(r)) unit *= (1 + r);
     } else {
-      unit *= (1 + dailyCash);
+      unit *= (1 + dailyCashAt(i));
     }
     prevPos = pos;
     const mk = joined[i].date.slice(0, 7);
@@ -1434,7 +1584,7 @@ function App() {
   // is available on the very first render. Without this, the autosave effect
   // would fire with the empty defaults and overwrite the persisted data
   // before the bootstrap restore could read it.
-  const _ASSET_DEFAULTS_TEXT = { coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", eqwt: "", gold: "", silver: "", bitcoin: "", signal: "", cpi: "" };
+  const _ASSET_DEFAULTS_TEXT = { coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", eqwt: "", em: "", gold: "", silver: "", cpi: "", ecb: "" };
   const _readUploadedCsvs = () => {
     try {
       const raw = localStorage.getItem("backtester-uploaded-csvs.json");
@@ -1453,7 +1603,7 @@ function App() {
     return defaults;
   });
   const [series, setSeries] = useState(() => {
-    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, eqwt: null, gold: null, silver: null, bitcoin: null, signal: null, cpi: null };
+    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, eqwt: null, em: null, gold: null, silver: null, cpi: null, ecb: null };
     const uploaded = _readUploadedCsvs();
     for (const id of Object.keys(uploaded)) {
       const txt = uploaded[id];
@@ -1466,7 +1616,7 @@ function App() {
   // Daily series — populated alongside monthly when at least one portfolio
   // has 200-SMA timing ON. Used by buildTimedRiskLegMonthly.
   const [seriesDaily, setSeriesDaily] = useState(() => {
-    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, eqwt: null, gold: null, silver: null, bitcoin: null, signal: null };
+    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, eqwt: null, em: null, gold: null, silver: null };
     const uploaded = _readUploadedCsvs();
     for (const id of Object.keys(uploaded)) {
       const txt = uploaded[id];
@@ -1477,7 +1627,7 @@ function App() {
     return defaults;
   });
   const [seriesError, setSeriesError] = useState({});
-  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", value: "net", quality: "net", minvol: "net", world: "net", eqwt: "net", gold: "net", silver: "net", bitcoin: "net" });
+  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", value: "net", quality: "net", minvol: "net", world: "net", eqwt: "net", em: "net", gold: "net", silver: "net" });
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
   const [manifest, setManifest] = useState(null);
 
@@ -1498,7 +1648,7 @@ function App() {
   // --- taxes ---
   const [taxRate, setTaxRate] = useState(26.375);
   const [allowance, setAllowance] = useState(1000);
-  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, value: 30, quality: 30, minvol: 30, world: 30, eqwt: 30 });
+  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, value: 30, quality: 30, minvol: 30, world: 30, eqwt: 30, em: 30 });
   const [basiszins, setBasiszins] = useState({ ...DEFAULT_BASISZINS });
 
   // --- inputs ---
@@ -1511,8 +1661,14 @@ function App() {
   // default — too volatile for a strategic-core baseline.
   const DEFAULT_USER_WEIGHTS = { coIQ: 40, gold: 20, value: 20, world: 20 };
   const [userWeights, setUserWeights] = useState(DEFAULT_USER_WEIGHTS);
-  // Per-asset 200-SMA toggle for the user portfolio's legs (gold is never timed).
+  // Per-asset 200-SMA toggle for the user portfolio's legs.
   const [userSMA, setUserSMA] = useState({});
+  // Per-asset annual-rebalance-when-overperforming toggle. When ON for an
+  // asset, the engine will sell its excess vs target weight once a year and
+  // redistribute proceeds to under-target assets (subject to spreads, fees,
+  // §23 12-month rule for gold/silver, and Abgeltungsteuer × (1 − Teilfreistellung)
+  // for funds). Default: all OFF — no rebalancing between assets.
+  const [userRebalance, setUserRebalance] = useState({});
 
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
@@ -1531,7 +1687,6 @@ function App() {
   //         to compute them WITH the SMA.
   const [portfolioTiming, setPortfolioTiming] = useState({
     gold_coIQ: false, gold_momentum: false,
-    bitcoin: true,
   });
 
   // --- v2: optional "own native history" toggle (per-portfolio full window
@@ -1637,7 +1792,6 @@ function App() {
       // Merge so timing defaults from the current app version apply to any
       // portfolio ID the saved state didn't know about.
       const merged = { ...s.portfolioTiming };
-      if (!("bitcoin" in merged)) merged.bitcoin = true;
       setPortfolioTiming(merged);
     }
     if (s.hPlan != null) setHPlan(s.hPlan);
@@ -1668,6 +1822,16 @@ function App() {
       return;
     }
     try {
+      // ECB is a step-function (list of {t,rate}), not a price series — parsed
+      // separately. We store the parsed step list in series.ecb (NOT a
+      // [{month, value}] series) so the rest of the engine never confuses it
+      // with a holdable asset's price.
+      if (id === "ecb") {
+        const changes = parseEcbRateChanges(text);
+        setSeries(prev => ({ ...prev, ecb: changes }));
+        setSeriesError(p => ({ ...p, ecb: null }));
+        return;
+      }
       const monthly = parseCsvToMonthly(text);
       setSeries(prev => ({ ...prev, [id]: monthly }));
       setSeriesError(p => ({ ...p, [id]: null }));
@@ -1804,7 +1968,7 @@ function App() {
           };
           if (eqDaily && sigDaily) {
             const cash = Math.max(0, (ecbRate || 0) - 0.25);
-            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cash, sp.buy, sp.sell, orderFee, taxOpts);
+            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cash, sp.buy, sp.sell, orderFee, taxOpts, series.ecb || null);
             if (res && res.series.length >= 12) {
               map[a] = res.series;
               map.__synthetic = { id: a, src, cashRate: cash, res };
@@ -1821,7 +1985,7 @@ function App() {
         // behaviour for the predefined portfolios (single portfolioTiming flag
         // applied to pf.equityId).
         const shouldTime = pid === "user"
-          ? (!!userSMA[a] && a !== "gold")
+          ? (!!userSMA[a])
           : (a === pf.equityId && timed);
         if (shouldTime) {
           const eqDaily = seriesDaily[a];
@@ -1834,7 +1998,7 @@ function App() {
             taxLikeDebt: DEBT_TAX_IDS.has(a),
           };
           if (eqDaily && sigDaily) {
-            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cashRate, sp.buy, sp.sell, orderFee, taxOpts);
+            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cashRate, sp.buy, sp.sell, orderFee, taxOpts, series.ecb || null);
             if (res && res.series.length >= 12) { map[a] = res.series; map.__timed = res; continue; }
           }
           // fall back to raw monthly with a flag so UI can flag it
@@ -1847,7 +2011,7 @@ function App() {
       out[pid] = map;
     }
     return out;
-  }, [selectedPortfolios, portfolioTiming, userSMA, seriesDaily, series, cashRate, ecbRate, spreads, orderFee, taxRate, teilfreistellung, getPF]);
+  }, [selectedPortfolios, portfolioTiming, userSMA, seriesDaily, series, cashRate, ecbRate, spreads, orderFee, taxRate, teilfreistellung, getPF, series.ecb]);
 
   // ---- per-portfolio windows (each portfolio's own intersection) ----------
   const perPortfolioWindow = useMemo(() => {
@@ -1945,6 +2109,11 @@ function App() {
         seriesType: effectiveType, ongoingCost, spreads, orderFee,
         tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
         starting, monthly, rebalance,
+        // For the user portfolio, pass per-asset rebalance flags. The engine
+        // then ignores the legacy `rebalance` string and runs annually only
+        // for assets whose flag is true. For predefined portfolios this stays
+        // undefined → legacy gold-only behaviour preserved.
+        rebalanceFlags: pid === "user" ? userRebalance : undefined,
       };
       out[pid] = runSim(state);
       if (out[pid] && pfAssetSeries[pid]?.__timed) {
@@ -1952,7 +2121,7 @@ function App() {
       }
     }
     return out;
-  }, [commonWindow, perPortfolioWindow, pfAssetSeries, selectedPortfolios, goldWeights, seriesType, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData, ownNativeHistory, portfolioTiming]);
+  }, [commonWindow, perPortfolioWindow, pfAssetSeries, selectedPortfolios, goldWeights, seriesType, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData, ownNativeHistory, portfolioTiming, userRebalance]);
 
   // ---- optimal gold sweep per two-asset portfolio (in-sample) ----
   const [sweepResults, setSweepResults] = useState({});
@@ -2573,256 +2742,7 @@ function App() {
         </div>
       </div>
 
-      <div className="panel" style={{ marginBottom: 18 }}>
-        <div className="panel-h">
-          <h2>0 · Setup — one-time configuration</h2>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {copyMsg && <span className="tag info">{copyMsg}</span>}
-            {repoBase && <a className="btn btn-xs" href={`${repoBase}/actions/workflows/update-data.yml`} target="_blank" rel="noreferrer">Open Actions →</a>}
-          </div>
-        </div>
-        <div className="panel-body">
-          <div className="footnote" style={{ marginBottom: 14 }}>
-            Paste your values below. They stay in <strong>your browser only</strong> (localStorage on this device — never sent anywhere, never on the deployed Pages site). The buttons then hand off to GitHub so you can save each value to the right place: the cookie as a repo secret, the ariva IDs as a committed config file.
-          </div>
-
-          {/* Step 1 — Repo URL */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Step 1 · Tell the app where your GitHub repo lives</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-              <label className="field" style={{ flex: 1, maxWidth: 540 }}>
-                <span className="lbl"><span>GitHub repo URL or <code>user/repo</code></span>
-                  <small>{parsedRepo ? <span className="pos">✓ {parsedRepo}</span> : repoSlug ? <span className="neg">unrecognized</span> : "needed for one-click links below"}</small>
-                </span>
-                <input type="text" placeholder="https://github.com/yourname/portfolio-backtest" value={repoSlug} onChange={e => setRepoSlug(e.target.value)} />
-              </label>
-            </div>
-          </div>
-
-          {/* Step 2 — Push the project (only relevant if repo is empty) */}
-          <div style={{ marginBottom: 16, padding: 14, border: "1px solid var(--line)", borderRadius: 8, background: "oklch(0.985 0.003 240)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>Step 2 · Push <strong>all</strong> the project files to your repo</div>
-              {zipStatus && <span className="tag info">{zipStatus}</span>}
-            </div>
-            <div className="footnote" style={{ marginBottom: 10 }}>
-              <strong>This is the most important step.</strong> The repo needs to contain the workflow YAML, the Python script, the app HTML, and the <code>data/</code> folder — not just a README. If your Actions tab says "Get started with GitHub Actions" instead of showing "Weekly data update", you haven't uploaded the workflow YAML <em>at the right path</em>.
-              <br/><br/>
-              <strong>⚠ Common mistake:</strong> the folder must be called <code>.github</code> (with an <strong>h</strong>) — NOT <code>.gitkeep</code>, NOT <code>github</code> without the dot. If you accidentally uploaded to the wrong path, open the file on GitHub, click the pencil icon, and edit the filename at the top of the editor to fix the path (e.g. change <code>.gitkeep/workflows/update-data.yml</code> → <code>.github/workflows/update-data.yml</code>), then "Commit changes".
-            </div>
-
-            <ol style={{ margin: "8px 0 6px 18px", padding: 0, fontSize: 12 }}>
-              <li style={{ marginBottom: 8 }}>
-                <strong>Download the zip</strong> (contains every file you need):
-                <div style={{ marginTop: 4 }}>
-                  <button className="btn btn-xs btn-accent" onClick={downloadProjectZip}>Download project as .zip</button>
-                </div>
-              </li>
-              <li style={{ marginBottom: 8 }}>
-                <strong>Extract</strong> the zip on your device. On Android: tap the downloaded zip → "Extract" / open with a file manager.
-              </li>
-              <li style={{ marginBottom: 8 }}>
-                <strong>If your repo has no <code>main</code> branch yet</strong> (GitHub shows "Quick setup"), create one by adding any file:
-                {bootstrapReadmeUrl
-                  ? <div style={{ marginTop: 4 }}><a className="btn btn-xs" href={bootstrapReadmeUrl} target="_blank" rel="noreferrer">Open "create README.md" page →</a></div>
-                  : <span> open the repo, click "creating a new file", name it README.md, commit.</span>}
-              </li>
-              <li style={{ marginBottom: 8 }}>
-                <strong>Upload all extracted files</strong> to GitHub. Open the upload page, drag/select every file and folder from the extracted zip (including the hidden <code>.github/</code> and <code>data/</code> folders), commit.
-                {repoBase
-                  ? <div style={{ marginTop: 4 }}><a className="btn btn-xs btn-accent" href={`${repoBase}/upload/main`} target="_blank" rel="noreferrer">Open "Upload files" →</a></div>
-                  : <span className="tag idle" style={{ marginLeft: 6 }}>enter repo URL above</span>}
-                <div className="footnote" style={{ marginTop: 4 }}>
-                  Make sure the workflow file is uploaded — check by opening
-                  {repoBase
-                    ? <> <a href={`${repoBase}/blob/main/.github/workflows/update-data.yml`} target="_blank" rel="noreferrer">{repoBase}/blob/main/.github/workflows/update-data.yml</a></>
-                    : " <repo>/blob/main/.github/workflows/update-data.yml"}
-                  . If you see the file, the Actions tab will show "Weekly data update".
-                </div>
-              </li>
-              <li>
-                <strong>Trigger the workflow</strong> the first time (afterwards it runs every Monday):
-                {repoBase
-                  ? <div style={{ marginTop: 4 }}><a className="btn btn-xs btn-accent" href={`${repoBase}/actions/workflows/update-data.yml`} target="_blank" rel="noreferrer">Open workflow → Run workflow ▾ → Run</a></div>
-                  : <span className="tag idle" style={{ marginLeft: 6 }}>enter repo URL above</span>}
-                <div className="footnote" style={{ marginTop: 4 }}>
-                  You'll only see this page <em>after</em> the workflow file is in the repo. If it's still showing the "Get started with GitHub Actions" page, the file isn't uploaded yet — go back to step 4.
-                </div>
-              </li>
-            </ol>
-
-            <details className="fold">
-              <summary>Alternative: command-line git (desktop)</summary>
-              <code style={{ display: "block", margin: "6px 0", padding: "6px 8px", background: "var(--hover)", fontSize: 10.5, overflowX: "auto" }}>git init &amp;&amp; git add . &amp;&amp; git commit -m "init" &amp;&amp; git branch -M main &amp;&amp; git remote add origin {repoBase || "<your-repo-url>"} &amp;&amp; git push -u origin main</code>
-            </details>
-          </div>
-
-          {/* Step 3 — Stooq access */}
-          <div style={{ marginBottom: 16, padding: 14, border: "1px solid var(--line)", borderRadius: 8, background: "oklch(0.985 0.003 240)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>Step 3 · Stooq access (optional)</div>
-              {stooqOk
-                ? <span className="tag ok">3 / 3 Stooq assets loaded — you may not need this</span>
-                : <span className="tag warn">Stooq assets missing — add a key/cookie if anonymous fetches fail</span>}
-            </div>
-            <div className="footnote" style={{ marginBottom: 10 }}>
-              Stooq has two auth modes. Pick whichever applies — you don't need both. Anonymous (no auth) usually works for the weekly 3-symbol pull but can rate-limit.
-            </div>
-
-            <div style={{ marginBottom: 12, paddingLeft: 10, borderLeft: "2px solid var(--accent)" }}>
-              <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>Method A · API key (recommended if you have a Stooq subscription)</div>
-              <div className="footnote" style={{ marginBottom: 6 }}>
-                If your Stooq download URL contains <code>&amp;apikey=…</code>, that's your key. Copy <strong>just</strong> the key value (everything after <code>apikey=</code> up to the next <code>&amp;</code> or end of URL).
-              </div>
-              <label className="field">
-                <span className="lbl"><span>Stooq API key</span><small>stays in your browser only</small></span>
-                <input type="text" placeholder="e.g. N5RVlt1ZMIBXdQSO…" value={stooqApiKey} onChange={e => setStooqApiKey(e.target.value.trim())} />
-              </label>
-              <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <button className="btn btn-xs" disabled={!stooqApiKey} onClick={() => copyToClipboard(stooqApiKey, "API key")}>Copy key</button>
-                {repoBase
-                  ? <a className={"btn btn-xs btn-accent" + (!stooqApiKey ? " disabled" : "")} href={`${repoBase}/settings/secrets/actions/new`} target="_blank" rel="noreferrer" onClick={(e) => { if (!stooqApiKey) e.preventDefault(); }}>Open GitHub → New secret →</a>
-                  : <span className="tag idle">enter repo URL above</span>}
-                <span className="footnote">on the GitHub page: <strong>Name</strong> = <code>STOOQ_APIKEY</code>, <strong>Value</strong> = paste, <strong>Add secret</strong>.</span>
-              </div>
-            </div>
-
-            <details className="fold">
-              <summary>Method B · session cookie (free account, fallback)</summary>
-              <div style={{ paddingLeft: 10, borderLeft: "2px solid var(--line-strong)", marginTop: 6 }}>
-                <div className="footnote" style={{ marginBottom: 6 }}>
-                  On <a href="https://stooq.com" target="_blank" rel="noreferrer">stooq.com</a>: log in → DevTools → Network → click any stooq.com request → Request Headers → copy the full <code>Cookie:</code> header value (starts with something like <code>PHPSESSID=…</code>, NOT a URL). Paste it here.
-                </div>
-                <label className="field">
-                  <span className="lbl"><span>Cookie header value</span><small>stays in your browser only</small></span>
-                  <textarea rows={2} placeholder="PHPSESSID=…; other=…" value={stooqCookie} onChange={e => setStooqCookie(e.target.value)} />
-                </label>
-                <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <button className="btn btn-xs" disabled={!stooqCookie.trim()} onClick={() => copyToClipboard(stooqCookie.trim(), "cookie")}>Copy cookie</button>
-                  {repoBase
-                    ? <a className={"btn btn-xs" + (!stooqCookie.trim() ? " disabled" : "")} href={`${repoBase}/settings/secrets/actions/new`} target="_blank" rel="noreferrer" onClick={(e) => { if (!stooqCookie.trim()) e.preventDefault(); }}>Open GitHub → New secret →</a>
-                    : <span className="tag idle">enter repo URL above</span>}
-                  <span className="footnote">Name = <code>STOOQ_COOKIE</code>, paste as Value.</span>
-                </div>
-              </div>
-            </details>
-          </div>
-
-          {/* Step 4 — Ariva IDs */}
-          <div style={{ marginBottom: 4, padding: 14, border: "1px solid var(--line)", borderRadius: 8, background: "oklch(0.985 0.003 240)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>Step 4 · CoIQ ariva IDs (required for the coIQ NAV)</div>
-              {arivaOk
-                ? <span className="tag ok">coIQ NAV loaded</span>
-                : <span className="tag bad">not configured — coIQ won't update until you do this</span>}
-            </div>
-            <div className="footnote" style={{ marginBottom: 8 }}>
-              Open the <a href="https://www.ariva.de/coiq_collective_intelligence_fund_r-fonds/historische_kurse" target="_blank" rel="noreferrer">ariva CoIQ historic-prices page</a>, change "Börsenplatz" to <strong>"Fondsgesellschaft"</strong>, open DevTools → Network, click "Download" (CSV export). The request URL contains both numbers, e.g.<br/>
-              <code>…historic.csv?secu=<strong>19392834</strong>&boerse_id=<strong>143</strong>&…</code>
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <label className="field" style={{ flex: 1 }}>
-                <span className="lbl"><span>ARIVA_SECU</span></span>
-                <input type="text" placeholder="e.g. 19392834" value={arivaSecu} onChange={e => setArivaSecu(e.target.value.trim())} />
-              </label>
-              <label className="field" style={{ flex: 1 }}>
-                <span className="lbl"><span>ARIVA_BOERSE_ID</span></span>
-                <input type="text" placeholder="e.g. 143" value={arivaBoerse} onChange={e => setArivaBoerse(e.target.value.trim())} />
-              </label>
-            </div>
-
-            {arivaSecu && arivaBoerse && (
-              <div style={{ marginTop: 12 }}>
-                <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>File content (data/ariva.json)</div>
-                <pre className="mono" style={{ margin: 0, padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 6, fontSize: 11, whiteSpace: "pre-wrap", overflowX: "auto" }}>{arivaJsonContent}</pre>
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <button className="btn btn-xs" disabled={!arivaSecu || !arivaBoerse} onClick={() => copyToClipboard(arivaJsonContent, "JSON")}>1 · Copy JSON</button>
-              <button className="btn btn-xs" disabled={!arivaSecu || !arivaBoerse} onClick={downloadArivaJson}>Download as file</button>
-              {arivaNewFileUrl
-                ? <a className={"btn btn-xs btn-accent" + ((!arivaSecu || !arivaBoerse) ? " disabled" : "")}
-                     href={arivaNewFileUrl} target="_blank" rel="noreferrer"
-                     onClick={(e) => { if (!arivaSecu || !arivaBoerse) e.preventDefault(); }}>2 · Open new file on GitHub →</a>
-                : <span className="tag idle">{!repoBase ? "enter repo URL above" : "fill in both IDs"}</span>}
-            </div>
-            <div className="footnote" style={{ marginTop: 8 }}>
-              On the GitHub page: filename is pre-filled to <code>data/ariva.json</code>. Click into the editor area, <strong>paste</strong> (Cmd/Ctrl+V), scroll down, <strong>"Commit changes"</strong>. (GitHub no longer accepts pre-filled file content via URL, so the paste step is required.)
-            </div>
-
-            {/* Step 4b — Ariva cookie */}
-            <div style={{ marginTop: 14, paddingLeft: 10, borderLeft: "2px solid var(--accent)" }}>
-              <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>4b · Ariva session cookie (required as of May 2026)</div>
-              <div className="footnote" style={{ marginBottom: 6 }}>
-                Ariva now blocks anonymous CSV downloads. Create a <a href="https://www.ariva.de/registrierung" target="_blank" rel="noreferrer">free ariva.de account</a>, log in, then:
-                <br/><strong>Best method (avoids truncation):</strong> DevTools (F12) → <strong>Application / Storage</strong> tab → <strong>Cookies → https://www.ariva.de</strong> → you'll see a table of cookies. Copy each Name=Value pair from there and join with <code>; </code>.
-                <br/><strong>Network method:</strong> DevTools → Network → click any ariva.de request → <strong>right-click</strong> the Cookie row in Request Headers → "Copy value" (NOT the visible text — DevTools shows it truncated with <code>…</code> ellipsis).
-              </div>
-              <label className="field">
-                <span className="lbl"><span>Ariva cookie header value</span><small>stays in your browser only</small></span>
-                <textarea rows={2} placeholder="AWSALB=…; PHPSESSID=…; …" value={arivaCookie} onChange={e => setArivaCookie(e.target.value)} />
-              </label>
-              {arivaCookie.includes("\u2026") && (
-                <div className="meta" style={{ color: "var(--neg)", marginTop: 6 }}>
-                  ⚠ Your cookie contains a <code>…</code> (ellipsis) — DevTools truncated some values when you copied. The secret won't authenticate. Re-copy from <strong>Application → Storage → Cookies → ariva.de</strong> instead.
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <button className="btn btn-xs" disabled={!arivaCookie.trim()} onClick={() => copyToClipboard(arivaCookie.trim(), "ariva cookie")}>Copy cookie</button>
-                {repoBase
-                  ? <a className={"btn btn-xs btn-accent" + (!arivaCookie.trim() ? " disabled" : "")} href={`${repoBase}/settings/secrets/actions/new`} target="_blank" rel="noreferrer" onClick={(e) => { if (!arivaCookie.trim()) e.preventDefault(); }}>Open GitHub → New secret →</a>
-                  : <span className="tag idle">enter repo URL above</span>}
-                <span className="footnote">Name = <code>ARIVA_COOKIE</code>, paste as Value.</span>
-              </div>
-            </div>
-
-            {/* Step 4c — Xetra-Gold ariva IDs (full history) */}
-            <div style={{ marginTop: 14, paddingLeft: 10, borderLeft: "2px solid var(--accent)" }}>
-              <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>4c · Xetra-Gold ariva IDs (optional — for full history)</div>
-              <div className="footnote" style={{ marginBottom: 6 }}>
-                Stooq only returns ~1 year of Xetra-Gold data. To get the full 2007-onwards history, point gold to ariva too (same flow as coIQ).
-                <br/>1. Open the <a href="https://www.ariva.de/search/search.m?searchname=DE000A0S9GB0" target="_blank" rel="noreferrer">ariva search for ISIN DE000A0S9GB0</a> → click the Xetra-Gold result → "Historische Kurse".
-                <br/>2. Change "Börsenplatz" to <strong>Xetra</strong> (or another venue with deep history) and click <strong>Download</strong>.
-                <br/>3. The CSV URL in DevTools contains <code>secu=</code> and <code>boerse_id=</code>. Paste below.
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <label className="field" style={{ flex: 1 }}>
-                  <span className="lbl"><span>ARIVA_GOLD_SECU</span></span>
-                  <input type="text" placeholder="e.g. 1100166" value={arivaGoldSecu} onChange={e => setArivaGoldSecu(e.target.value.trim())} />
-                </label>
-                <label className="field" style={{ flex: 1 }}>
-                  <span className="lbl"><span>ARIVA_GOLD_BOERSE_ID</span></span>
-                  <input type="text" placeholder="e.g. 6" value={arivaGoldBoerse} onChange={e => setArivaGoldBoerse(e.target.value.trim())} />
-                </label>
-              </div>
-              {arivaGoldSecu && arivaGoldBoerse && (
-                <div style={{ marginTop: 10 }}>
-                  <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>File content (data/ariva-gold.json)</div>
-                  <pre className="mono" style={{ margin: 0, padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 6, fontSize: 11, whiteSpace: "pre-wrap", overflowX: "auto" }}>{arivaGoldJsonContent}</pre>
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <button className="btn btn-xs" disabled={!arivaGoldSecu || !arivaGoldBoerse} onClick={() => copyToClipboard(arivaGoldJsonContent, "gold JSON")}>1 · Copy JSON</button>
-                <button className="btn btn-xs" disabled={!arivaGoldSecu || !arivaGoldBoerse} onClick={downloadArivaGoldJson}>Download as file</button>
-                {arivaGoldNewFileUrl
-                  ? <a className={"btn btn-xs btn-accent" + ((!arivaGoldSecu || !arivaGoldBoerse) ? " disabled" : "")}
-                       href={arivaGoldNewFileUrl} target="_blank" rel="noreferrer"
-                       onClick={(e) => { if (!arivaGoldSecu || !arivaGoldBoerse) e.preventDefault(); }}>2 · Open new file on GitHub →</a>
-                  : <span className="tag idle">{!repoBase ? "enter repo URL above" : "fill in both IDs"}</span>}
-              </div>
-              <div className="footnote" style={{ marginTop: 8 }}>
-                On the GitHub page: filename is pre-filled to <code>data/ariva-gold.json</code>. Click into the editor, paste, "Commit changes". Then re-run the workflow.
-              </div>
-            </div>
-          </div>
-
-          <div className="small-note" style={{ marginTop: 12 }}>
-            Why this is not just a "save" button in the app: the deployed Pages site is public — anyone could read a cookie stored there. So the cookie has to live in GitHub's encrypted secret store, and the ariva IDs have to be in a committed file the Python script can read. The handoff buttons above just open the right GitHub pages with your values pre-filled.
-          </div>
-        </div>
-      </div>
-
+      
       <div className="grid grid-2">
         <div className="panel">
           <div className="panel-h">
@@ -2863,6 +2783,20 @@ function App() {
                 onSetType={null}
                 onText={(t) => onUserCsvChange("cpi", t)}
                 onFile={(f) => onFileLoad("cpi", f)}
+              />
+              <CsvCard
+                key="ecb"
+                asset={ECB_ASSET}
+                text={csvText.ecb || ""}
+                data={series.ecb}
+                error={seriesError.ecb}
+                seriesType={null}
+                fetchStatus={fetchStatus.ecb}
+                manifestEntry={manifest?.assets?.ecb}
+                onReload={() => reloadAsset(ECB_ASSET)}
+                onSetType={null}
+                onText={(t) => onUserCsvChange("ecb", t)}
+                onFile={(f) => onFileLoad("ecb", f)}
               />
             </div>
             <div className="small-note" style={{ marginTop: 10 }}>
@@ -2914,14 +2848,16 @@ function App() {
                 Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
               </span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
+              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
               {ASSETS.filter(a => a.holdable).map(a => {
                 const w = userWeights[a.id] ?? 0;
-                const canSMA = a.id !== "gold";
+                const canSMA = true;   // gold + silver SMA now supported
                 const sma = !!userSMA[a.id];
+                const reb = !!userRebalance[a.id];
                 return (
                   <React.Fragment key={a.id}>
                     <div style={{ minWidth: 0 }}>
@@ -2938,6 +2874,10 @@ function App() {
                         ? <input type="checkbox" checked={sma} disabled={w === 0}
                                  onChange={e => setUserSMA(s => ({ ...s, [a.id]: e.target.checked }))} />
                         : <span className="dim" style={{ fontSize: 10 }}>—</span>}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      <input type="checkbox" checked={reb} disabled={w === 0}
+                             onChange={e => setUserRebalance(s => ({ ...s, [a.id]: e.target.checked }))} />
                     </div>
                   </React.Fragment>
                 );
@@ -3036,23 +2976,6 @@ function App() {
               <NumField label="Block length (months)" value={mc.block} step={1} onChange={v => setMc(s => ({ ...s, block: Math.max(1, v) }))} />
             </div>
             <div className="small-note">Bootstrap preserves short-run autocorrelation via blocks. Caveat: stationary assumption — not a regime model.</div>
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-h">
-            <h2>6 · Gold-share optimizer (v2)</h2>
-            <button className="btn btn-accent" disabled={sweepRunning || !commonWindow?.ok} onClick={runSweep}>
-              {sweepRunning && <span className="spin"></span>} Run 0–100% sweep
-            </button>
-          </div>
-          <div className="panel-body">
-            <div className="small-note">Re-runs the full simulation (costs + CGT-gated rebalance + Vorabpauschale) at each 1% step. Computes <strong>w_safe</strong> (buffer-maximizing) and <strong>w_return</strong> (least gold to stay real-admissible) at every holding horizon. Charts and tables appear below the comparison panel after running. CPI series required.</div>
-            <div style={{ marginTop: 12 }}>
-              {selectedPortfolios.filter(pid => getPF(pid) && !getPF(pid).isMarket).map(pid =>
-                <SweepRow key={pid} pid={pid} chosen={goldWeights[pid]} sweep={sweepResults[pid]} />
-              )}
-            </div>
           </div>
         </div>
       </div>

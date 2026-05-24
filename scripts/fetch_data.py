@@ -74,6 +74,7 @@ STOOQ_SOURCES = [
     ("minvol",   "iqq0.de"),   # iShares Edge MSCI World Min Volatility (IE00B8FHGS14)
     ("world",    "webn.de"),   # Amundi Prime All Country World UCITS ETF Acc (IE000716YHJ7)
     ("eqwt",     "mweq.de"),   # Invesco MSCI World Equal Weight UCITS ETF Acc (IE000OEF25S1, WKN A40G12)
+    ("em",       "iqqe.de"),   # iShares MSCI EM UCITS ETF Acc (IE00B4L5YC18, WKN A0RPWJ)
     ("silver",   "ssln.de"),   # iShares Physical Silver ETC (IE00B4NCWG09, WKN A1KWPR)
 ]
 STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json
@@ -89,11 +90,11 @@ YFINANCE_SYMBOLS = {
     "minvol":    ["IQQ0.DE", "MVOL.L"],
     "world":     ["WEBN.DE", "WEBN.L"],
     "eqwt":      ["MWEQ.DE"],                # Invesco MSCI World Equal Weight (A40G12)
+    "em":        ["IQQE.DE", "EUNM.DE", "EIMI.L"],  # iShares MSCI EM UCITS ETF Acc (A0RPWJ)
     "silver":    ["SSLN.DE", "SSLN.L"],      # iShares Physical Silver ETC (A1KWPR)
     "gold":      ["4GLD.DE", "4GLD.SG"],
-    "bitcoin":   ["BTC-EUR"],                # Bitcoin spot in EUR (Yahoo's own quote)
 }
-# Removed: market (SPDR ACWI), lev3x, lev2x_ndx, lev2x_wld — no longer supported.
+# Removed: market (SPDR ACWI), lev3x, lev2x_ndx, lev2x_wld, bitcoin — no longer supported.
 
 # German CPI via FRED (OECD source). No auth needed.
 # DEUCPIALLMINMEI = Consumer Price Index: All Items for Germany, monthly, 2015=100.
@@ -530,30 +531,6 @@ def main():
             log(f"FAIL {name}: {e}")
             traceback.print_exc(file=sys.stderr)
             # Do NOT overwrite existing data/{name}.csv on failure.
-
-    # --- bitcoin: yfinance BTC-EUR; Stooq has BTCUSD but not stable EUR ---
-    try:
-        log("fetching bitcoin (yfinance BTC-EUR)")
-        rows, source = fetch_with_fallback("bitcoin", None)
-        # Bitcoin moves are routinely > 60% intraday during crashes/spikes;
-        # we relax the spike-warning threshold by *not* failing on big moves.
-        # The validator already only logs (doesn't raise) for big moves.
-        rows, bad, days_old = validate(rows, "bitcoin")
-        write_csv(DATA_DIR / "bitcoin.csv", rows)
-        manifest["assets"]["bitcoin"] = {
-            "source": source,
-            "lastDate": rows[-1][0],
-            "rows": len(rows),
-            "fetchedAt": manifest["fetchedAt"],
-            "warnings": (
-                ([f"{len(bad)} single-day moves > 60% (normal for BTC)"] if bad else [])
-                + ([f"{days_old} days stale"] if days_old > 10 else [])
-            ),
-        }
-        log(f"OK bitcoin: {len(rows)} rows through {rows[-1][0]} (via {source})")
-    except Exception as e:
-        errors["bitcoin"] = str(e)
-        log(f"FAIL bitcoin: {e}")
 
     # --- gold: ariva (full history) if configured, else Stooq + yfinance fallback ---
     try:

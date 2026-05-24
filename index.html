@@ -438,7 +438,7 @@ const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "Germ
 // ECB SDW also includes a "TIME PERIOD" middle column we just ignore.
 // At any date, the active rate is the LAST change with date ≤ that date.
 // During SMA cash periods we earn max(rate, 0) on the synthetic risk leg.
-const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Rate (changes-only; MLF auto-converted to DFR −0.75pp)", isin: "ECB:DFR", note: "step function: each row is a rate change. If header contains 'lending', rates are auto-converted from marginal lending facility to estimated deposit facility (−0.75pp). Used as time-varying cash rate during SMA cash periods. Min earned = 0%." };
+const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Deposit Facility Rate (changes-only)", isin: "ECB:DFR", note: "Step function: each row is a rate change date. Drives SMA cash-period returns (floored at 0%) and Vorabpauschale Basiszins (pre-2018). If header contains 'lending', rates are auto-converted to estimated DFR (−0.75pp)." };
 
 const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
@@ -1675,7 +1675,10 @@ function App() {
     for (const id of Object.keys(uploaded)) {
       const txt = uploaded[id];
       if (typeof txt === "string" && txt.length > 0 && id in defaults) {
-        try { defaults[id] = parseCsvToMonthly(txt); } catch {}
+        try {
+          if (id === "ecb") defaults[id] = parseEcbRateChanges(txt);
+          else defaults[id] = parseCsvToMonthly(txt);
+        } catch {}
       }
     }
     return defaults;
@@ -3871,7 +3874,14 @@ function Empty({ msg, kind }) {
 function CsvCard({ asset, text, data, error, seriesType, fetchStatus, manifestEntry, onReload, onSetType, onText, onFile }) {
   const fileRef = useRef(null);
   const n = data?.length || 0;
-  const range = n > 0 ? `${data[0].month} → ${data[n - 1].month}` : "";
+  // ECB data uses {t, rate}; regular series uses {month, value}
+  const isEcb = n > 0 && data[0].t != null && data[0].rate != null;
+  const fmtDate = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const range = n > 0
+    ? isEcb ? `${fmtDate(data[0].t)} → ${fmtDate(data[n - 1].t)}` : `${data[0].month} → ${data[n - 1].month}`
+    : "";
+  const lastVal = n > 0 ? (isEcb ? data[n - 1].rate : data[n - 1].value) : null;
+  const lastLabel = isEcb ? "last rate" : "last value";
   const fs = fetchStatus;
   const busy = fs?.kind === "info";
   return (
@@ -3897,13 +3907,13 @@ function CsvCard({ asset, text, data, error, seriesType, fetchStatus, manifestEn
         <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
                onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
         <button className="btn btn-xs btn-ghost" onClick={() => onText("")}>Clear</button>
-        {n > 0 && <span className="tag ok">{n} months</span>}
+        {n > 0 && <span className="tag ok">{isEcb ? n + " changes" : n + " months"}</span>}
         {!n && !error && <span className="tag idle">no data</span>}
         {error && <span className="tag bad">parse error</span>}
         {manifestEntry && <span className="tag info mono">as of {manifestEntry.lastDate}</span>}
         {fs && fs.kind !== "ok" && <span className={"tag " + (fs.kind === "bad" ? "bad" : "idle")}>{fs.msg}</span>}
       </div>
-      {n > 0 && <div className="meta">{range} · last value {fmtNum(data[n - 1].value, 4)}</div>}
+      {n > 0 && <div className="meta">{range} · {lastLabel} {fmtNum(lastVal, isEcb ? 2 : 4)}{isEcb ? "%" : ""}</div>}
       {error && <div className="meta" style={{ color: "var(--neg)" }}>{error}</div>}
       {manifestEntry?.warnings?.length > 0 && (
         <div className="meta" style={{ color: "oklch(0.4 0.13 60)" }}>⚠ {manifestEntry.warnings.join(" · ")}</div>

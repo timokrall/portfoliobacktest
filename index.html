@@ -2238,8 +2238,6 @@ function App() {
   const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
   const [efComputeHStar, setEfComputeHStar] = useState(true);
-  const [efShowSortino, setEfShowSortino] = useState(true);
-  const [efShowUPI, setEfShowUPI] = useState(true);
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
@@ -2460,15 +2458,24 @@ function App() {
     };
 
     const computeWinners = (rs) => {
-      if (rs.length === 0) return { sortino: null, upi: null, finalReturn: null, hStar: null, user: null };
-      let bs = rs[0], bu = rs[0], br = rs[0], bh = null;
+      if (rs.length === 0) return { sortino: null, upi: null, upiPure: null, combined: null, finalReturn: null, hStar: null, user: null };
+      let bs = rs[0], bu = rs[0], bup = rs[0], bc = rs[0], br = rs[0], bh = null;
+      let bcScore = -Infinity;
       for (const r of rs) {
         if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
-        if ((r.upi ?? -Infinity) > (bu.upi ?? -Infinity)) bu = r;
+        // UPI × return winner
+        const upiScore = (r.upi ?? 0) * Math.max(0, r.finalRatio - 1);
+        const buScore = (bu.upi ?? 0) * Math.max(0, bu.finalRatio - 1);
+        if (upiScore > buScore) bu = r;
+        // Pure max UPI
+        if ((r.upi ?? -Infinity) > (bup.upi ?? -Infinity)) bup = r;
+        // Combined: Sortino × UPI × gain
+        const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * Math.max(0, r.finalRatio - 1);
+        if (cs > bcScore) { bc = r; bcScore = cs; }
         if (r.finalRatio > br.finalRatio) br = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
       }
-      return { sortino: bs, upi: bu, finalReturn: br, hStar: bh, user: rs[0] };
+      return { sortino: bs, upi: bu, upiPure: bup, combined: bc, finalReturn: br, hStar: bh, user: rs[0] };
     };
 
     setTimeout(() => processChunk(0), 30);
@@ -2564,9 +2571,10 @@ function App() {
         });
         const recomputeWinners = (rs) => {
           if (rs.length === 0) return efResults.winners;
-          let bs = rs[0], bu = rs[0], br = rs[0], bh = null;
-          for (const r of rs) { if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r; if ((r.upi ?? -Infinity) > (bu.upi ?? -Infinity)) bu = r; if (r.finalRatio > br.finalRatio) br = r; if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r; }
-          return { sortino: bs, upi: bu, finalReturn: br, hStar: bh, user: rs[0] };
+          let bs = rs[0], bu = rs[0], bup = rs[0], br = rs[0], bh = null;
+          let bcScore = -Infinity, bc = rs[0];
+          for (const r of rs) { if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r; const uS = (r.upi ?? 0) * Math.max(0, r.finalRatio - 1), bS = (bu.upi ?? 0) * Math.max(0, bu.finalRatio - 1); if (uS > bS) bu = r; if ((r.upi ?? -Infinity) > (bup.upi ?? -Infinity)) bup = r; const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * Math.max(0, r.finalRatio - 1); if (cs > bcScore) { bc = r; bcScore = cs; } if (r.finalRatio > br.finalRatio) br = r; if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r; }
+          return { sortino: bs, upi: bu, upiPure: bup, combined: bc, finalReturn: br, hStar: bh, user: rs[0] };
         };
         setEfResults(prev => ({ ...prev, samples: updated, benchmarks: benchUpdated, winners: recomputeWinners(updated) }));
         setEfRunning(false);
@@ -3593,7 +3601,7 @@ function App() {
               <div className="panel-body tight footnote">Block bootstrap on each portfolio's <em>own</em> unit-price monthly returns. Preserves short autocorrelation; assumes stationarity. The reported 95th percentile is the worst end of the distribution (5% of paths are worse).</div>
             </div>
 
-            {/* v3 · Efficient Frontier — random Dirichlet sampling on user's basket */}
+            {/* v3 · Efficient Frontier */}
             <div className="panel" style={{ marginBottom: 18 }}>
               <div className="panel-h">
                 <h2>Efficient Frontier · grid search on my-portfolio basket</h2>
@@ -3602,19 +3610,9 @@ function App() {
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
                   </label>
-                  <span style={{ borderLeft: "1px solid var(--border)", height: 16 }}></span>
-                  <span style={{ fontSize: 10, color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: 0.5 }}>winners:</span>
-                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={efShowSortino} onChange={e => setEfShowSortino(e.target.checked)} />
-                    Sortino
-                  </label>
-                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={efShowUPI} onChange={e => setEfShowUPI(e.target.checked)} />
-                    UPI
-                  </label>
-                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <input type="checkbox" checked={efComputeHStar} onChange={e => setEfComputeHStar(e.target.checked)} />
-                    h* (slow)
+                    compute h* (slow)
                   </label>
                   {efRunning && (
                     <span className="mono" style={{ fontSize: 11 }}>
@@ -3637,137 +3635,116 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> where each share is a multiple of <strong>5%</strong> and they sum to 100% (falls back to 10% steps on baskets larger than ~6 assets to keep runtime sane). The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. After the grid finishes, two <strong>benchmark portfolios</strong> are evaluated: <strong>100% Prime ACWI</strong> and <strong>100% coIQ</strong>. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest UPI</strong>, <strong>largest absolute return</strong>. Toggle which winners to display with the checkboxes above. h* requires CPI data and is expensive to compute; Sortino and UPI can be toggled instantly. Real-preservation requires the CPI series.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes Sortino × UPI × gain — simultaneously optimizing risk-adjusted quality (two complementary lenses) and absolute wealth.
                 </div>
-                {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. Grid size grows with the basket — ~250 samples on a 3-asset basket, ~2000 on a 4-asset basket, ~12000 on a 5-asset basket (capped: 5% grid skipped if it would exceed 12k).</div>}
+                {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
                   const data = efResults.samples.map(s => ({
                     sortino: s.sortino,
-                    finalRatio: (s.finalRatio - 1) * 100,    // % gain
-                    maxDD: s.maxDD * 100,
-                    hStar: s.hStar,
+                    upi: s.upi,
+                    finalRatio: (s.finalRatio - 1) * 100,
+                    combined: Math.max(0, s.sortino ?? 0) * Math.max(0, s.upi ?? 0) * Math.max(0, s.finalRatio - 1),
                   }));
                   const fmtWeights = (sample) => efResults.basket.map((a, i) => {
                     const w = sample.weights[i] * 100;
                     if (w < 0.5) return null;
                     const meta = ASSETS.find(x => x.id === a);
                     return `${meta?.shortName || meta?.label.split(" ")[0] || a} ${w.toFixed(0)}%`;
-                  }).filter(Boolean).join(" · ");
+                  }).filter(Boolean).join(" \u00b7 ");
+                  const renderRow = (key, label, row, highlight) => row ? (
+                    <tr key={key} style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
+                      <td className="name" style={{ fontWeight: highlight ? 700 : 400 }}>{label}</td>
+                      <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.upi, 3)}</td>
+                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
+                      <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
+                    </tr>
+                  ) : null;
+                  const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "world");
+                  const bmCoIQ = (efResults.benchmarks || []).find(b => b.assetId === "coIQ");
+                  const renderBench = (key, bm) => bm ? (
+                    <tr key={key}>
+                      <td className="name">{bm.label}</td>
+                      <td className="mono" style={{ fontSize: 11 }}>{(ASSETS.find(x => x.id === bm.assetId)?.shortName || bm.assetId)} 100%</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.upi, 3)}</td>
+                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
+                      <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
+                    </tr>
+                  ) : null;
                   return (
                     <>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
                         <div style={{ height: 280 }}>
-                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>Sortino vs absolute gain — each dot = one weight sample</div>
+                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>Sortino vs absolute gain</div>
                           <ResponsiveContainer width="100%" height="100%">
                             <RC.ScatterChart margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
                               <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" />
                               <XAxis type="number" dataKey="finalRatio" name="gain %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" />
-                              <YAxis type="number" dataKey="sortino" name="sortino" tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
-                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                                formatter={(v, name) => [typeof v === "number" ? v.toFixed(2) : v, name === "finalRatio" ? "gain %" : name]} />
+                              <YAxis type="number" dataKey="sortino" name="Sortino" tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
+                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }} />
                               <RC.Scatter data={data} fill="oklch(0.55 0.05 220 / 0.35)" />
                             </RC.ScatterChart>
                           </ResponsiveContainer>
                         </div>
                         <div style={{ height: 280 }}>
-                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>Max drawdown vs absolute gain</div>
+                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>UPI vs absolute gain</div>
                           <ResponsiveContainer width="100%" height="100%">
                             <RC.ScatterChart margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
                               <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" />
                               <XAxis type="number" dataKey="finalRatio" name="gain %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" />
-                              <YAxis type="number" dataKey="maxDD" name="max DD %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" width={56} />
-                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                                formatter={(v) => typeof v === "number" ? v.toFixed(2) + "%" : v} />
-                              <RC.Scatter data={data} fill="oklch(0.55 0.13 25 / 0.35)" />
+                              <YAxis type="number" dataKey="upi" name="UPI" tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
+                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }} />
+                              <RC.Scatter data={data} fill="oklch(0.55 0.10 160 / 0.35)" />
                             </RC.ScatterChart>
                           </ResponsiveContainer>
                         </div>
                       </div>
-                      {(() => {
-                        const renderRow = (key, label, row) => row ? (
-                          <tr key={key}>
-                            <td className="name">{label}</td>
-                            <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.upi, 3)}</td>
-                            <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
-                            <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
-                          </tr>
-                        ) : null;
-                        const renderBenchRow = (key, bm) => {
-                          if (!bm) return null;
-                          // Synthesize a weights-display: 100% of bm.assetId.
-                          const fakeRow = {
-                            weights: [1], hStar: bm.hStar, sortino: bm.sortino, upi: bm.upi,
-                            maxDD: bm.maxDD, finalRatio: bm.finalRatio,
-                          };
-                          const meta = ASSETS.find(x => x.id === bm.assetId);
-                          const shortLabel = (meta?.shortName || meta?.label.split(" ")[0] || bm.assetId);
-                          return (
-                            <tr key={key}>
-                              <td className="name">{bm.label}</td>
-                              <td className="mono" style={{ fontSize: 11 }}>{shortLabel} 100%</td>
-                              <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "—"}</td>
-                              <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.sortino, 3)}</td>
-                              <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.upi, 3)}</td>
-                              <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
-                              <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
-                            </tr>
-                          );
-                        };
-                        const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "world");
-                        const bmCoIQ = (efResults.benchmarks || []).find(b => b.assetId === "coIQ");
-                        return (
-                          <>
-                            <div style={{ marginBottom: 18 }}>
-                              <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.06, marginBottom: 6 }}>5%-step grid · best of {efResults.samples.length} samples</div>
-                              <table className="bt">
-                                <thead><tr>
-                                  <th>Recommendation</th>
-                                  <th>Composition</th>
-                                  <th style={{ textAlign: "right" }}>h*</th>
-                                  <th style={{ textAlign: "right" }}>Sortino</th>
-                                  <th style={{ textAlign: "right" }}>UPI</th>
-                                  <th style={{ textAlign: "right" }}>Max DD</th>
-                                  <th style={{ textAlign: "right" }}>Gain</th>
-                                </tr></thead>
-                                <tbody>
-                                  {efComputeHStar && renderRow("hStar", "Shortest real-preservation horizon", efResults.winners.hStar)}
-                                  {efShowSortino && renderRow("sortino", "Largest Sortino ratio", efResults.winners.sortino)}
-                                  {efShowUPI && renderRow("upi", "Largest UPI", efResults.winners.upi)}
-                                  {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}
-                                </tbody>
-                              </table>
-                              <div className="footnote" style={{ marginTop: 6, fontSize: 10.5 }}>Every weight is a multiple of 5% (10% on baskets larger than ~6 assets) summing to 100%.</div>
-                            </div>
-                            <div style={{ marginBottom: 18 }}>
-                              <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.06, marginBottom: 6 }}>Benchmarks · pure asset comparisons</div>
-                              <table className="bt">
-                                <thead><tr>
-                                  <th>Portfolio</th>
-                                  <th>Composition</th>
-                                  <th style={{ textAlign: "right" }}>h*</th>
-                                  <th style={{ textAlign: "right" }}>Sortino</th>
-                                  <th style={{ textAlign: "right" }}>UPI</th>
-                                  <th style={{ textAlign: "right" }}>Max DD</th>
-                                  <th style={{ textAlign: "right" }}>Gain</th>
-                                </tr></thead>
-                                <tbody>
-                                  {renderBenchRow("acwi", bmACWI)}
-                                  {renderBenchRow("coiq", bmCoIQ)}
-                                  {efResults.winners.user && renderRow("user", "Your current weights", efResults.winners.user)}
-                                </tbody>
-                              </table>
-                            </div>
-                          </>
-                        );
-                      })()}
-                      <div className="footnote" style={{ marginTop: 8 }}>
-                        Tested {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => (ASSETS.find(x => x.id === a)?.shortName || ASSETS.find(x => x.id === a)?.label.split(" ")[0] || a)).join(" · ")}.
-                        {efResults.includesUserSMA && " Per-asset SMA states inherited from your composer (CGT charged on each risk→cash flip)."}
-                        {!efResults.includesUserSMA && " SMA toggles ignored — all legs buy-and-hold."}
-                        {!series.cpi && <> · <strong>CPI not loaded</strong> — h* unavailable.</>}
+                      <div style={{ marginBottom: 18 }}>
+                        <div style={{ height: 280 }}>
+                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>Sortino × UPI × gain — recommended portfolio = peak</div>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RC.ScatterChart margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
+                              <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" />
+                              <XAxis type="number" dataKey="finalRatio" name="gain %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" />
+                              <YAxis type="number" dataKey="combined" name="score" tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
+                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                                formatter={(v, name) => [typeof v === "number" ? v.toFixed(2) : v, name === "combined" ? "Sortino\u00d7UPI\u00d7gain" : name]} />
+                              <RC.Scatter data={data} fill="oklch(0.50 0.12 280 / 0.35)" />
+                            </RC.ScatterChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 18 }}>
+                        <table className="bt">
+                          <thead><tr>
+                            <th>Portfolio</th>
+                            <th>Composition</th>
+                            <th style={{ textAlign: "right" }}>h*</th>
+                            <th style={{ textAlign: "right" }}>Sortino</th>
+                            <th style={{ textAlign: "right" }}>UPI</th>
+                            <th style={{ textAlign: "right" }}>Max DD</th>
+                            <th style={{ textAlign: "right" }}>Gain</th>
+                          </tr></thead>
+                          <tbody>
+                            {renderRow("combined", "\u2b24 Recommended (Sortino\u00d7UPI\u00d7gain)", efResults.winners.combined, true)}
+                            {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
+                            {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
+                            {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}
+                            {renderRow("user", "Your current weights", efResults.winners.user)}
+                          </tbody>
+                          <tbody style={{ borderTop: "2px solid var(--border)" }}>
+                            {renderBench("acwi", bmACWI)}
+                            {renderBench("coiq", bmCoIQ)}
+                          </tbody>
+                        </table>
+                        <div className="footnote" style={{ marginTop: 6, fontSize: 10.5 }}>
+                          {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => ASSETS.find(x => x.id === a)?.shortName || a).join(" \u00b7 ")}.
+                          {efResults.includesUserSMA ? " SMA toggles applied." : " SMA off — all legs buy-and-hold."}
+                        </div>
                       </div>
                     </>
                   );

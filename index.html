@@ -1412,6 +1412,23 @@ function computeUPI(ddSeries, unitPriceSeries, months, ecbChanges) {
   return (annReturn - rf) / ulcerIndex;
 }
 
+// Average CAGR — for each year-end in the backtest, compute the CAGR from
+// inception to that point, then average. Rewards portfolios that compound
+// consistently: 1→2→4→8 (avg 100%) beats 1→1→1→8 (avg 33%).
+function avgYearlyCAGR(unitPriceSeries) {
+  if (!unitPriceSeries || unitPriceSeries.length < 13) return null;
+  const p0 = unitPriceSeries[0];
+  if (p0 <= 0) return null;
+  let sum = 0, count = 0;
+  for (let m = 12; m < unitPriceSeries.length; m += 12) {
+    const years = m / 12;
+    const cagr = Math.pow(unitPriceSeries[m] / p0, 1 / years) - 1;
+    sum += cagr;
+    count++;
+  }
+  return count > 0 ? sum / count : null;
+}
+
 // ---------- Monte Carlo block bootstrap ----------
 function monteCarloMaxDD(monthlyRets, horizonMonths, blockLen, nPaths, seed = 1) {
   if (!monthlyRets || monthlyRets.length < 2) return { median: null, mean: null, p95: null };
@@ -2378,6 +2395,7 @@ function App() {
           ecbChanges: series.ecb || null,
         });
         if (!r || !r.metrics) continue;
+        const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
         results.push({
           weights: wv,
           sortino: r.metrics.sortino,
@@ -2385,6 +2403,7 @@ function App() {
           maxDD: r.metrics.maxDD,
           finalRatio: r.finalValue / r.totalInvested,
           finalValue: r.finalValue,
+          avgCAGR,
           hStar: null,
         });
       }
@@ -2414,6 +2433,7 @@ function App() {
             sortino: r.metrics.sortino, upi: r.metrics.upi, maxDD: r.metrics.maxDD,
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
+            avgCAGR: avgYearlyCAGR(r.unitPriceSeries),
             hStar: null, _unitPrice: r.unitPriceSeries,
           });
         }
@@ -2466,30 +2486,30 @@ function App() {
     };
 
     const computeWinners = (rs) => {
-      if (rs.length === 0) return { sortino: null, upi: null, upiPure: null, sortinoUpi: null, sortinoGain: null, upiGain: null, combined: null, finalReturn: null, hStar: null, user: null };
+      if (rs.length === 0) return { sortino: null, upi: null, upiPure: null, sortinoUpi: null, sortinoAvg: null, upiAvg: null, combined: null, finalReturn: null, hStar: null, user: null };
       let bs = rs[0], bup = rs[0], bc = rs[0], br = rs[0], bh = null;
-      let bsu = rs[0], bsg = rs[0], bug = rs[0];
-      let bcScore = -Infinity, bsuScore = -Infinity, bsgScore = -Infinity, bugScore = -Infinity;
+      let bsu = rs[0], bsm = rs[0], bum = rs[0];
+      let bcScore = -Infinity, bsuScore = -Infinity, bsmScore = -Infinity, bumScore = -Infinity;
       for (const r of rs) {
+        const avg = Math.max(0, r.avgCAGR ?? 0);
         if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
         if ((r.upi ?? -Infinity) > (bup.upi ?? -Infinity)) bup = r;
         // Pairwise: Sortino × UPI
         const su = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0);
         if (su > bsuScore) { bsu = r; bsuScore = su; }
-        // Pairwise: Sortino × gain
-        const sg = Math.max(0, r.sortino ?? 0) * Math.max(0, r.finalRatio - 1);
-        if (sg > bsgScore) { bsg = r; bsgScore = sg; }
-        // Pairwise: UPI × gain
-        const ug = Math.max(0, r.upi ?? 0) * Math.max(0, r.finalRatio - 1);
-        if (ug > bugScore) { bug = r; bugScore = ug; }
-        // Combined: (UPI×gain) × (Sortino×gain) = Sortino × UPI × gain²
-        const gain = Math.max(0, r.finalRatio - 1);
-        const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * gain * gain;
+        // Pairwise: Sortino × avgCAGR
+        const sm = Math.max(0, r.sortino ?? 0) * avg;
+        if (sm > bsmScore) { bsm = r; bsmScore = sm; }
+        // Pairwise: UPI × avgCAGR
+        const um = Math.max(0, r.upi ?? 0) * avg;
+        if (um > bumScore) { bum = r; bumScore = um; }
+        // Combined: (UPI×avgCAGR) × (Sortino×avgCAGR) = Sortino × UPI × avgCAGR²
+        const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * avg * avg;
         if (cs > bcScore) { bc = r; bcScore = cs; }
         if (r.finalRatio > br.finalRatio) br = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
       }
-      return { sortino: bs, upiPure: bup, sortinoUpi: bsu, sortinoGain: bsg, upiGain: bug, combined: bc, finalReturn: br, hStar: bh, user: rs[0] };
+      return { sortino: bs, upiPure: bup, sortinoUpi: bsu, sortinoAvg: bsm, upiAvg: bum, combined: bc, finalReturn: br, hStar: bh, user: rs[0] };
     };
 
     setTimeout(() => processChunk(0), 30);
@@ -3123,7 +3143,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Risk-return ratio</strong> = (UPI × gain) × (Sortino × gain) = Sortino × UPI × gain². Squares the return component so the optimizer favors portfolios with strong absolute wealth growth while still requiring good risk-adjusted quality on both Sortino and UPI dimensions. Requires the Efficient Frontier section below to be calculated first.
+              * <strong>Risk-return ratio</strong> = (UPI × avgCAGR) × (Sortino × avgCAGR), where avgCAGR is the average of CAGRs computed at each year-end from inception. A portfolio growing 1→2→4→8 has avgCAGR=100% at every checkpoint; one growing 1→1→1→8 averages just 33%. This rewards consistent compounding across regimes, not endpoint-dependent returns. Requires the Efficient Frontier section below to be calculated first.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3265,7 +3285,7 @@ function App() {
               const admissible = rows.filter(r => r.atHp && r.atHp.worstRealCAGR != null && r.atHp.worstRealCAGR >= 0);
               const winner = admissible.length
                 ? [...admissible].sort((a, b) => {
-                    const scoreOf = (r) => { const g = Math.max(0, r.sim.finalValue / r.sim.totalInvested - 1); return Math.max(0, r.sim.metrics.sortino ?? 0) * Math.max(0, r.sim.metrics.upi ?? 0) * g * g; };
+                    const scoreOf = (r) => { const avg = Math.max(0, avgYearlyCAGR(r.sim.unitPriceSeries) ?? 0); return Math.max(0, r.sim.metrics.sortino ?? 0) * Math.max(0, r.sim.metrics.upi ?? 0) * avg * avg; };
                     return scoreOf(b) - scoreOf(a);
                   })[0]
                 : null;
@@ -3276,7 +3296,7 @@ function App() {
                       <div className="lbl">Real-admissible @ {hp}y · best risk-return ratio</div>
                       <div className="val">{winner ? getPF(winner.pid).name : "— none admissible —"}</div>
                       <div className="sub mono">{winner
-                        ? `Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 gain ${fmtPct(winner.sim.finalValue / winner.sim.totalInvested - 1)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
+                        ? `Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 avg. CAGR ${fmtPct(avgYearlyCAGR(winner.sim.unitPriceSeries) ?? 0)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
                         : "no portfolio keeps real value at this horizon under worst-window or MC paths"
                       }</div>
                     </div>
@@ -3586,7 +3606,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes (UPI×gain) × (Sortino×gain) — simultaneously optimizing risk-adjusted quality and giving extra weight to absolute wealth growth.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes (UPI×avgCAGR) × (Sortino×avgCAGR) — rewarding consistent compounding at every yearly checkpoint, not endpoint returns.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3608,6 +3628,7 @@ function App() {
                       <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "\u2014"}</td>
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.upi, 3)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.avgCAGR != null ? fmtPct(row.avgCAGR) : "\u2014"}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
                       <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
                     </tr>
@@ -3621,6 +3642,7 @@ function App() {
                       <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "\u2014"}</td>
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.sortino, 3)}</td>
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.upi, 3)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.avgCAGR != null ? fmtPct(bm.avgCAGR) : "\u2014"}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
                       <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
                     </tr>
@@ -3661,17 +3683,18 @@ function App() {
                             <th style={{ textAlign: "right" }}>h*</th>
                             <th style={{ textAlign: "right" }}>Sortino</th>
                             <th style={{ textAlign: "right" }}>UPI</th>
+                            <th style={{ textAlign: "right" }}>Avg. CAGR</th>
                             <th style={{ textAlign: "right" }}>Max DD</th>
                             <th style={{ textAlign: "right" }}>Gain</th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("combined", "\u2b24 Recommended ((UPI\u00d7gain)\u00d7(Sortino\u00d7gain))", efResults.winners.combined, true)}
+                            {renderRow("combined", "\u2b24 Recommended [ (UPI\u00d7avgCAGR)\u00d7(Sortino\u00d7avgCAGR) ]", efResults.winners.combined, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
                             {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}
                             {renderRow("sortinoUpi", "Best Sortino\u00d7UPI", efResults.winners.sortinoUpi)}
-                            {renderRow("sortinoGain", "Best Sortino\u00d7gain", efResults.winners.sortinoGain)}
-                            {renderRow("upiGain", "Best UPI\u00d7gain", efResults.winners.upiGain)}
+                            {renderRow("sortinoAvg", "Best Sortino\u00d7avgCAGR", efResults.winners.sortinoAvg)}
+                            {renderRow("upiAvg", "Best UPI\u00d7avgCAGR", efResults.winners.upiAvg)}
                             {renderRow("user", "Your current weights", efResults.winners.user)}
                           </tbody>
                           <tbody style={{ borderTop: "2px solid var(--border)" }}>

@@ -1736,8 +1736,8 @@ function App() {
   // assets (coIQ, momentum, value, quality, minvol, prime/PRAW, gold, BTC).
   // 12% × 4 + 13% × 4 = 100. Leveraged ETFs (lev3x, lev2x*) excluded by
   // default — too volatile for a strategic-core baseline.
-  const DEFAULT_USER_WEIGHTS = { coIQ: 40, gold: 20, value: 20, world: 20 };
-  const [userWeights, setUserWeights] = useState(DEFAULT_USER_WEIGHTS);
+  const FALLBACK_USER_WEIGHTS = { coIQ: 50, minvol: 25, gold: 25 };
+  const [userWeights, setUserWeights] = useState(FALLBACK_USER_WEIGHTS);
   // Per-asset 200-SMA toggle for the user portfolio's legs.
   const [userSMA, setUserSMA] = useState({});
   // Per-asset annual-rebalance-when-overperforming toggle. When ON for an
@@ -2790,6 +2790,82 @@ function App() {
     const shortName = (id) => ASSETS.find(x => x.id === id)?.shortName || id;
     return { basket, matrix, shortName, ddMonths: ddCount, totalMonths: allMonths.length };
   }, [series, userPortfolio]);
+
+  // Compute optimal allocation that maximizes negative drawdown correlations
+  // across ALL holdable assets with data (not just the current basket).
+  const ddOptimalWeights = useMemo(() => {
+    const holdable = ASSETS.filter(a => a.holdable && series[a.id] && series[a.id].length >= 12);
+    if (holdable.length < 2) return null;
+    const ids = holdable.map(a => a.id);
+    // Build monthly returns per asset
+    const maps = {};
+    for (const a of ids) {
+      const s = series[a];
+      const m = new Map();
+      for (let i = 1; i < s.length; i++) {
+        if (monthsBetween(s[i - 1].month, s[i].month) === 1) {
+          m.set(s[i].month, s[i].value / s[i - 1].value - 1);
+        }
+      }
+      maps[a] = m;
+    }
+    const allMonths = [...maps[ids[0]].keys()].filter(m => ids.every(a => maps[a].has(m))).sort();
+    if (allMonths.length < 12) return null;
+    // Equal-weight index for drawdown detection
+    let eqPeak = 1, eqLevel = 1;
+    const isDDMonth = [];
+    let ddCount = 0;
+    for (const m of allMonths) {
+      const avgRet = ids.reduce((s, a) => s + maps[a].get(m), 0) / ids.length;
+      eqLevel *= (1 + avgRet);
+      eqPeak = Math.max(eqPeak, eqLevel);
+      isDDMonth.push(eqLevel < eqPeak * 0.999);
+      if (eqLevel < eqPeak * 0.999) ddCount++;
+    }
+    if (ddCount < 6) return null;
+    const ddReturns = {};
+    for (const a of ids) ddReturns[a] = allMonths.filter((_, i) => isDDMonth[i]).map(m => maps[a].get(m));
+    const pearson = (x, y) => {
+      const n = x.length; let sx=0,sy=0,sxy=0,sxx=0,syy=0;
+      for (let i=0;i<n;i++){sx+=x[i];sy+=y[i];sxy+=x[i]*y[i];sxx+=x[i]*x[i];syy+=y[i]*y[i];}
+      const num=n*sxy-sx*sy, den=Math.sqrt((n*sxx-sx*sx)*(n*syy-sy*sy));
+      return den>0?num/den:0;
+    };
+    // Score each asset: 1 - mean(corr with all others during drawdowns)
+    const scores = {};
+    for (const a of ids) {
+      const others = ids.filter(b => b !== a);
+      const meanCorr = others.reduce((s, b) => s + pearson(ddReturns[a], ddReturns[b]), 0) / others.length;
+      scores[a] = Math.max(0, 1 - meanCorr);
+    }
+    // Only include assets with positive score (actual diversification benefit)
+    const qualifying = ids.filter(a => scores[a] > 0.1);
+    if (qualifying.length < 2) return null;
+    const total = qualifying.reduce((s, a) => s + scores[a], 0);
+    const weights = {};
+    let acc = 0;
+    for (let i = 0; i < qualifying.length; i++) {
+      if (i < qualifying.length - 1) {
+        const w = Math.round(scores[qualifying[i]] / total * 20) * 5;
+        weights[qualifying[i]] = w;
+        acc += w;
+      } else {
+        weights[qualifying[i]] = 100 - acc;
+      }
+    }
+    return weights;
+  }, [series]);
+
+  const DEFAULT_USER_WEIGHTS = ddOptimalWeights || FALLBACK_USER_WEIGHTS;
+
+  // Auto-set weights from drawdown correlations on first data load
+  const ddWeightsApplied = useRef(false);
+  useEffect(() => {
+    if (ddOptimalWeights && !ddWeightsApplied.current) {
+      ddWeightsApplied.current = true;
+      setUserWeights(ddOptimalWeights);
+    }
+  }, [ddOptimalWeights]);
 
   // ---- aggregated chart data (overlay unit prices) ----
   const chartData = useMemo(() => {

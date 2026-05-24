@@ -369,25 +369,35 @@ function parseCsvToDaily(text) {
 // `holdable: false` means the series is loaded as a SIGNAL ONLY — never held.
 const ASSETS = [
   { shortName: "coIQ", id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",     taxLike: "fund", holdable: true,
-    label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series" },
+    label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series",
+    sourceUrl: "https://stooq.com/q/d/?f=19900103&t=20260522&s=%5Endx&c=0" },
   { shortName: "momentum", id: "momentum", file: "momentum.csv", manifestKey: "momentum", taxLike: "fund", holdable: true,
-    label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)" },
+    label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)",
+    sourceUrl: "https://www.msci.com/indexes/index/892400" },
   { shortName: "value", id: "value",    file: "value.csv",    manifestKey: "value",    taxLike: "fund", holdable: true,
-    label: "iShares Edge MSCI World Value Factor ETF",   isin: "IE00BP3QZB59", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3S)" },
+    label: "iShares Edge MSCI World Value Factor ETF",   isin: "IE00BP3QZB59", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3S)",
+    sourceUrl: "https://www.msci.com/indexes/index/105868" },
   { shortName: "quality", id: "quality",  file: "quality.csv",  manifestKey: "quality",  taxLike: "fund", holdable: true,
-    label: "iShares Edge MSCI World Quality Factor ETF", isin: "IE00BP3QZ601", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3Q)" },
+    label: "iShares Edge MSCI World Quality Factor ETF", isin: "IE00BP3QZ601", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3Q)",
+    sourceUrl: "https://www.msci.com/indexes/index/702787" },
   { shortName: "minvol", id: "minvol",   file: "minvol.csv",   manifestKey: "minvol",   taxLike: "fund", holdable: true,
-    label: "iShares Edge MSCI World Min Volatility ETF", isin: "IE00B8FHGS14", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IQQ0)" },
+    label: "iShares Edge MSCI World Min Volatility ETF", isin: "IE00B8FHGS14", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IQQ0)",
+    sourceUrl: "https://www.msci.com/indexes/index/703755" },
   { shortName: "prime", id: "world",    file: "world.csv",    manifestKey: "world",    taxLike: "fund", holdable: true,
-    label: "Amundi Prime All Country World UCITS ETF Acc", isin: "IE000716YHJ7", equity: true, defaultOngoing: 0.07, defaultBuySpread: 0.05, defaultSellSpread: 0.05, defaultTF: 30, note: "EUR price (Xetra WEBN) — Solactive GBS Global Markets Large & Mid Cap." },
+    label: "Amundi Prime All Country World UCITS ETF Acc", isin: "IE000716YHJ7", equity: true, defaultOngoing: 0.07, defaultBuySpread: 0.05, defaultSellSpread: 0.05, defaultTF: 30, note: "EUR price (Xetra WEBN) — Solactive GBS Global Markets Large & Mid Cap.",
+    sourceUrl: "https://www.msci.com/indexes/index/129896" },
   { shortName: "gold", id: "gold",     file: "gold.csv",     manifestKey: "gold",     taxLike: "debt", holdable: true,
-    label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT" },
+    label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT",
+    sourceUrl: "https://stooq.com/q/d/?s=xaueur" },
   { shortName: "eqwt", id: "eqwt",     file: "eqwt.csv",     manifestKey: "eqwt",     taxLike: "fund", holdable: true,
-    label: "Invesco MSCI World Equal Weight UCITS ETF Acc", isin: "IE000OEF25S1", equity: true, defaultOngoing: 0.20, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra MWEQ) — WKN A40G12. Equal-weighted developed-world index." },
+    label: "Invesco MSCI World Equal Weight UCITS ETF Acc", isin: "IE000OEF25S1", equity: true, defaultOngoing: 0.20, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra MWEQ) — WKN A40G12. Equal-weighted developed-world index.",
+    sourceUrl: "https://www.msci.com/indexes/index/129857" },
   { shortName: "silver", id: "silver",   file: "silver.csv",   manifestKey: "silver",   taxLike: "debt", holdable: true,
-    label: "iShares Physical Silver ETC",          isin: "IE00B4NCWG09", equity: false, defaultOngoing: 0.20, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,  note: "EUR price (Xetra SSLN) — WKN A1KWPR. Physically-backed silver ETC (debt-like, §23 EStG)." },
+    label: "iShares Physical Silver ETC",          isin: "IE00B4NCWG09", equity: false, defaultOngoing: 0.20, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,  note: "EUR price (Xetra SSLN) — WKN A1KWPR. Physically-backed silver ETC (debt-like, §23 EStG).",
+    sourceUrl: "https://stooq.com/q/d/?f=19900104&t=20260522&s=xageur&c=0" },
   { shortName: "em", id: "em",         file: "em.csv",       manifestKey: "em",       taxLike: "fund", holdable: true,
-    label: "iShares MSCI EM UCITS ETF (Acc)",        isin: "IE00B4L5YC18", equity: true, defaultOngoing: 0.18, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30, note: "WKN A0RPWJ · EM equity factor exposure (Acc)." },
+    label: "iShares MSCI EM UCITS ETF (Acc)",        isin: "IE00B4L5YC18", equity: true, defaultOngoing: 0.18, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30, note: "WKN A0RPWJ · EM equity factor exposure (Acc).",
+    sourceUrl: "https://www.msci.com/indexes/index/891800" },
   // Synthetic asset: coIQ with 200-SMA timing baked into the monthly series.
   // Driven off coIQ's daily series + the VT signal; cash leg earns ECB−0.25%.
   // NOT a real instrument — never appears in Data / Costs UI panels (holdable:false).
@@ -432,13 +442,13 @@ async function loadManifest() {
   } catch { return null; }
 }
 
-const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "German CPI (FRED DEUCPIALLMINMEI)", isin: "FRED:DEUCPIALLMINMEI", note: "monthly CPI level, 2015=100" };
+const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "German CPI (FRED DEUCPIALLMINMEI)", isin: "FRED:DEUCPIALLMINMEI", note: "monthly CPI level, 2015=100", sourceUrl: "https://fred.stlouisfed.org/series/DEUCPIALLMINMEI" };
 // ECB deposit-facility-rate "changes-only" series. Manual upload only.
 // Format: rows of "date, level%" (e.g. "1999-01-01,3.00"). The exporter from
 // ECB SDW also includes a "TIME PERIOD" middle column we just ignore.
 // At any date, the active rate is the LAST change with date ≤ that date.
 // During SMA cash periods we earn max(rate, 0) on the synthetic risk leg.
-const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Deposit Facility Rate (changes-only)", isin: "ECB:DFR", note: "Step function: each row is a rate change date. Drives SMA cash-period returns (floored at 0%) and Vorabpauschale Basiszins (pre-2018). If header contains 'lending', rates are auto-converted to estimated DFR (−0.75pp)." };
+const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Deposit Facility Rate (changes-only)", isin: "ECB:DFR", note: "Step function: each row is a rate change date. Drives SMA cash-period returns (floored at 0%) and Vorabpauschale Basiszins (pre-2018). If header contains 'lending', rates are auto-converted to estimated DFR (−0.75pp).", sourceUrl: "https://data.ecb.europa.eu/data/datasets/FM/FM.B.U2.EUR.4F.KR.DFR.LEV" };
 
 const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
@@ -1697,21 +1707,19 @@ function App() {
     return defaults;
   });
   const [seriesError, setSeriesError] = useState({});
-  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", value: "net", quality: "net", minvol: "net", world: "net", eqwt: "net", em: "net", gold: "net", silver: "net" });
+  // All series are net (prices from CSV already include fund costs).
+  const seriesType = useMemo(() => Object.fromEntries(ASSETS.map(a => [a.id, "net"])), []);
+  const ongoingCost = useMemo(() => Object.fromEntries(ASSETS.map(a => [a.id, 0])), []);
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
   const [manifest, setManifest] = useState(null);
 
   // --- per-asset costs ---
-  // Lazy-init from ASSETS defaults so the simulator can find spreads on the
-  // very first render. (Previously the useEffect-based init triggered after
-  // first render — fine when series was also empty, but with the new lazy
-  // CSV restore series is populated synchronously and runSim fires too early.)
   const _initCosts = () => {
-    const oc = {}, sp = {};
-    for (const a of ASSETS) { oc[a.id] = a.defaultOngoing; sp[a.id] = { buy: a.defaultBuySpread, sell: a.defaultSellSpread }; }
-    return { oc, sp };
+    const sp = {};
+    for (const a of ASSETS) { sp[a.id] = { buy: a.defaultBuySpread, sell: a.defaultSellSpread }; }
+    return { sp };
   };
-  const [ongoingCost, setOngoingCost] = useState(() => _initCosts().oc);
+  const [spreads, setSpreads] = useState(() => _initCosts().sp);
   const [spreads, setSpreads] = useState(() => _initCosts().sp);
   const [orderFee, setOrderFee] = useState({ fixed: 0, pct: 0 });
 
@@ -1791,11 +1799,11 @@ function App() {
     return PORTFOLIOS.find(p => p.id === pid);
   }, [userPortfolio]);
   const collectState = useCallback(() => ({
-    csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee,
+    csvText, series, seriesDaily, spreads, orderFee,
     taxRate, allowance, teilfreistellung, basiszins,
     starting, monthly, rebalance, selectedPortfolios, goldWeights,
     portfolioTiming, ownNativeHistory, mc,
-  }), [csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, portfolioTiming, ownNativeHistory, mc]);
+  }), [csvText, series, seriesDaily, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, portfolioTiming, ownNativeHistory, mc]);
 
   const applyState = (s) => {
     if (!s) return;
@@ -1828,8 +1836,6 @@ function App() {
     }
     if (s.series) setSeries(prev => ({ ...prev, ...Object.fromEntries(Object.entries(s.series).filter(([, v]) => v != null && Array.isArray(v) && v.length > 0)) }));
     if (s.seriesDaily) setSeriesDaily(prev => ({ ...prev, ...Object.fromEntries(Object.entries(s.seriesDaily).filter(([, v]) => v != null && Array.isArray(v) && v.length > 0)) }));
-    if (s.seriesType) setSeriesType(s.seriesType);
-    if (s.ongoingCost) setOngoingCost(s.ongoingCost);
     if (s.spreads) setSpreads(s.spreads);
     if (s.orderFee) setOrderFee(s.orderFee);
     if (s.taxRate != null) setTaxRate(s.taxRate);
@@ -2192,11 +2198,9 @@ function App() {
       // "gross" ongoing-cost drag is suppressed for that asset because the
       // daily engine already compounds at the underlying daily-price level
       // (and we are not double-charging ETF ongoing cost on cash days).
-      const effectiveType = { ...seriesType };
-      if (portfolioTiming[pid]) effectiveType[pf.equityId] = "net";
       const state = {
         portfolio: pf, targetGoldPct, data,
-        seriesType: effectiveType, ongoingCost, spreads, orderFee,
+        seriesType, ongoingCost, spreads, orderFee,
         tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
         starting, monthly, rebalance,
         ecbChanges: series.ecb || null,
@@ -2212,7 +2216,7 @@ function App() {
       }
     }
     return out;
-  }, [commonWindow, perPortfolioWindow, pfAssetSeries, selectedPortfolios, goldWeights, seriesType, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData, ownNativeHistory, portfolioTiming, userRebalance, series.ecb]);
+  }, [commonWindow, perPortfolioWindow, pfAssetSeries, selectedPortfolios, goldWeights, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData, ownNativeHistory, portfolioTiming, userRebalance, series.ecb]);
 
   // ---- optimal gold sweep per two-asset portfolio (in-sample) ----
   const [sweepResults, setSweepResults] = useState({});
@@ -3004,11 +3008,9 @@ function App() {
                   text={csvText[a.id] || ""}
                   data={series[a.id]}
                   error={seriesError[a.id]}
-                  seriesType={seriesType[a.id]}
                   fetchStatus={fetchStatus[a.id]}
                   manifestEntry={manifest?.assets?.[a.manifestKey]}
                   onReload={() => reloadAsset(a)}
-                  onSetType={(t) => setSeriesType(p => ({ ...p, [a.id]: t }))}
                   onText={(t) => onUserCsvChange(a.id, t)}
                   onFile={(f) => onFileLoad(a.id, f)}
                 />
@@ -3019,11 +3021,9 @@ function App() {
                 text={csvText.cpi || ""}
                 data={series.cpi}
                 error={seriesError.cpi}
-                seriesType={null}
                 fetchStatus={fetchStatus.cpi}
                 manifestEntry={manifest?.assets?.cpi}
                 onReload={() => reloadAsset(CPI_ASSET)}
-                onSetType={null}
                 onText={(t) => onUserCsvChange("cpi", t)}
                 onFile={(f) => onFileLoad("cpi", f)}
               />
@@ -3033,11 +3033,9 @@ function App() {
                 text={csvText.ecb || ""}
                 data={series.ecb}
                 error={seriesError.ecb}
-                seriesType={null}
                 fetchStatus={fetchStatus.ecb}
                 manifestEntry={manifest?.assets?.ecb}
                 onReload={() => reloadAsset(ECB_ASSET)}
-                onSetType={null}
                 onText={(t) => onUserCsvChange("ecb", t)}
                 onFile={(f) => onFileLoad("ecb", f)}
               />
@@ -3152,12 +3150,11 @@ function App() {
           <div className="panel-h"><h2>3 · Costs</h2><span className="h-meta">applied at every buy + sell</span></div>
           <div className="panel-body">
             <table className="bt">
-              <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th></tr></thead>
+              <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th></tr></thead>
               <tbody>
                 {ASSETS.filter(a => a.holdable).map(a =>
                   <tr key={a.id}>
-                    <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin} · {a.note}</div></td>
-                    <td><input type="number" step="0.01" value={ongoingCost[a.id] ?? 0} onChange={e => setOngoingCost(c => ({ ...c, [a.id]: +e.target.value }))} style={{ textAlign: "right" }} /></td>
+                    <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin}</div></td>
                     <td><input type="number" step="0.01" value={spreads[a.id]?.buy ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], buy: +e.target.value } }))} style={{ textAlign: "right" }} /></td>
                     <td><input type="number" step="0.01" value={spreads[a.id]?.sell ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], sell: +e.target.value } }))} style={{ textAlign: "right" }} /></td>
                   </tr>)}
@@ -3167,7 +3164,7 @@ function App() {
               <NumField label="Per-order fixed fee (EUR)" value={orderFee.fixed} step={0.10} onChange={v => setOrderFee(o => ({ ...o, fixed: v }))} />
               <NumField label="Per-order percent fee (%)" value={orderFee.pct} step={0.01} onChange={v => setOrderFee(o => ({ ...o, pct: v }))} />
             </div>
-            <div className="small-note">Ongoing %/yr applies as a monthly drag <strong>only</strong> to assets toggled to <code>gross</code>. For <code>net</code> series (NAVs / market prices) the cost is already inside the data — no double-counting.</div>
+            <div className="small-note">All price series are assumed net (fund costs already embedded). Spreads and fees apply to every buy and sell including month-0 purchases.</div>
           </div>
         </div>
 
@@ -3825,7 +3822,7 @@ function App() {
           <p><strong>Gold &amp; silver tax (§23 EStG)</strong> — EUWAX Gold II and iShares Physical Silver are Inhaberschuldverschreibungen: no Vorabpauschale, no Teilfreistellung. Tax-free after 12-month Spekulationsfrist. Each buy creates a FIFO lot; rebalancing sells only matured lots. If matured gold &lt; rebalance target, the portfolio stays overweight gold (one-way constraint). The month-0 starting lot is backdated as already matured.</p>
           <p><strong>Equity rebalancing</strong> — equity positions are never sold (CGT liability). Rebalancing toward equity is done by selling matured gold or directing new contributions. Rebalancing toward gold is via contributions only. This one-way constraint mirrors real German CGT friction.</p>
           <p><strong>200-SMA daily timing</strong> — when toggled ON: if close(d−1) &gt; SMA200(d−1), hold equity on day d; else park in cash earning the time-varying ECB DFR (floored at 0%). Each flip incurs spread + order fees. Each risk→cash flip charges approximate CGT: <code>{taxRate.toFixed(2)}% × (1 − TF)</code> on the running gain. This is approximate — no FIFO lots, no Pauschbetrag, no VP credit — and overstates tax by a few %. Gold is never timed. Daily series is resampled to month-end for all metrics.</p>
-          <p><strong>Costs</strong> — ongoing fund cost applies as monthly drag <code>(1 − cost)^(1/12)</code> only for <code>gross</code> assets (index series); <code>net</code> series already embed costs. Buy/sell spreads and per-order fees apply to every transaction including month-0 purchases.</p>
+          <p><strong>Costs</strong> — all price series are net (fund costs already embedded in CSV prices). Buy/sell spreads and per-order fees apply to every transaction including month-0 purchases.</p>
           <hr style={{ margin: "12px 0" }} />
           <p><strong>Backtest window</strong> — intersection of available monthly data across all assets in all selected portfolios, floored at the first ECB data point. Price data before the window start is used for 200-day SMA warmup but not for NAV simulation.</p>
           <p><strong>Real-preservation (h*)</strong> — a portfolio is "real-admissible at horizon h" if its worst rolling h-year real CAGR ≥ 0. Real returns = nominal portfolio growth ÷ CPI growth per window. CPI series: <em>{(manifest?.assets?.cpi?.source) || "manual upload"}</em>{series.cpi ? <> · last point <code>{series.cpi[series.cpi.length - 1].month}</code></> : null}. h* = smallest h where all windows from h onward stay real-positive. Beyond available history, curves are extended via Monte Carlo paired bootstrap (portfolio return + CPI jointly resampled).</p>
@@ -3866,10 +3863,9 @@ function Empty({ msg, kind }) {
   </div>;
 }
 
-function CsvCard({ asset, text, data, error, seriesType, fetchStatus, manifestEntry, onReload, onSetType, onText, onFile }) {
+function CsvCard({ asset, text, data, error, fetchStatus, manifestEntry, onReload, onText, onFile }) {
   const fileRef = useRef(null);
   const n = data?.length || 0;
-  // ECB data uses {t, rate}; regular series uses {month, value}
   const isEcb = n > 0 && data[0].t != null && data[0].rate != null;
   const fmtDate = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   const range = n > 0
@@ -3881,17 +3877,9 @@ function CsvCard({ asset, text, data, error, seriesType, fetchStatus, manifestEn
   const busy = fs?.kind === "info";
   return (
     <div className={"csv-card" + (n > 0 ? " loaded" : "")}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-        <div>
-          <h3>{asset.label}</h3>
-          <div className="id">{asset.isin}</div>
-        </div>
-        {onSetType && (
-          <div className="seg">
-            <button className={seriesType === "net" ? "on" : ""} onClick={() => onSetType("net")}>net</button>
-            <button className={seriesType === "gross" ? "on" : ""} onClick={() => onSetType("gross")}>gross</button>
-          </div>
-        )}
+      <div>
+        <h3>{asset.label}</h3>
+        <div className="id">{asset.isin}</div>
       </div>
       <textarea rows={3} placeholder="date,value&#10;2020-01-31,100.00&#10;2020-02-29,101.34&#10;…" value={text} onChange={e => onText(e.target.value)} />
       <div className="ctrl">
@@ -3899,6 +3887,7 @@ function CsvCard({ asset, text, data, error, seriesType, fetchStatus, manifestEn
           {busy && <span className="spin"></span>} Reload
         </button>
         <button className="btn btn-xs" onClick={() => fileRef.current?.click()}>Upload CSV…</button>
+        {asset.sourceUrl && <a href={asset.sourceUrl} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-ghost" style={{ textDecoration: "none" }}>Source ↗</a>}
         <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
                onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
         <button className="btn btn-xs btn-ghost" onClick={() => onText("")}>Clear</button>

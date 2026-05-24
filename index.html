@@ -1429,6 +1429,32 @@ function avgYearlyCAGR(unitPriceSeries) {
   return count > 0 ? sum / count : null;
 }
 
+// Integrated risk-return score: R × G / (D × U)
+// R = annualized unit-price return, G = total gain (money-weighted),
+// D = downside deviation (all months), U = ulcer index.
+// Two return factors (rate × magnitude) over two risk factors (volatility × drawdown pain).
+// G is unbounded — a 10× portfolio scores much higher than a 2× — giving absolute
+// return pull without artificial endpoint sensitivity from squaring.
+function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio) {
+  if (!unitPriceSeries || unitPriceSeries.length < 13) return null;
+  const n = unitPriceSeries.length - 1;
+  // R: annualized return
+  const R = Math.pow(unitPriceSeries[n] / unitPriceSeries[0], 12 / n) - 1;
+  if (R <= 0) return null;
+  // G: total gain
+  const G = finalRatio - 1;
+  if (G <= 0) return null;
+  // D: downside deviation (all months as denominator)
+  const rets = [];
+  for (let i = 1; i < unitPriceSeries.length; i++) rets.push(unitPriceSeries[i] / unitPriceSeries[i - 1] - 1);
+  const D = Math.sqrt(rets.reduce((s, r) => s + Math.pow(Math.min(0, r), 2), 0) / rets.length);
+  if (D <= 0) return null;
+  // U: ulcer index
+  const U = Math.sqrt(ddSeries.reduce((s, dd) => s + dd * dd, 0) / ddSeries.length);
+  if (U <= 0) return null;
+  return R * G / (D * U);
+}
+
 // ---------- Monte Carlo block bootstrap ----------
 function monteCarloMaxDD(monthlyRets, horizonMonths, blockLen, nPaths, seed = 1) {
   if (!monthlyRets || monthlyRets.length < 2) return { median: null, mean: null, p95: null };
@@ -2396,6 +2422,7 @@ function App() {
         });
         if (!r || !r.metrics) continue;
         const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
+        const irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested);
         results.push({
           weights: wv,
           sortino: r.metrics.sortino,
@@ -2404,6 +2431,7 @@ function App() {
           finalRatio: r.finalValue / r.totalInvested,
           finalValue: r.finalValue,
           avgCAGR,
+          irrScore,
           hStar: null,
         });
       }
@@ -2434,6 +2462,7 @@ function App() {
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
             avgCAGR: avgYearlyCAGR(r.unitPriceSeries),
+            irrScore: integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested),
             hStar: null, _unitPrice: r.unitPriceSeries,
           });
         }
@@ -2509,8 +2538,8 @@ function App() {
         // Pairwise: avgCAGR × absolute return
         const ag = avg * gain;
         if (ag > bagScore) { bag = r; bagScore = ag; }
-        // Combined: Sortino × UPI × avgCAGR × gain
-        const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * avg * gain;
+        // Combined: R×G / (D×U) — integrated risk-return score
+        const cs = r.irrScore ?? -Infinity;
         if (cs > bcScore) { bc = r; bcScore = cs; }
         if (r.finalRatio > br.finalRatio) br = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
@@ -3149,7 +3178,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Risk-return ratio</strong> = Sortino × UPI × avgCAGR × gain. Four factors, each appearing once: downside-volatility-adjusted return (Sortino), drawdown-pain-adjusted return (UPI), consistency of compounding across yearly checkpoints (avgCAGR), and total wealth growth (gain). A portfolio must score well on all four to win. Requires the Efficient Frontier section below to be calculated first.
+              * <strong>Risk-return ratio</strong> = R×G / (D×U). R = annualized unit-price return, G = total gain (money-weighted), D = downside deviation (all months), U = ulcer index (√mean(dd²)). Two return factors (rate × magnitude) divided by two risk factors (downside volatility × drawdown pain). G is unbounded — a 10× portfolio scores far higher than a 2× — giving strong absolute return weighting without multiplying by external return metrics. Unlike Sortino×UPI (which is R²/(D×U)), this replaces one R with G, breaking the symmetry between rate-of-return and total-wealth dimensions. Requires the Efficient Frontier section below to be calculated first.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3291,7 +3320,7 @@ function App() {
               const admissible = rows.filter(r => r.atHp && r.atHp.worstRealCAGR != null && r.atHp.worstRealCAGR >= 0);
               const winner = admissible.length
                 ? [...admissible].sort((a, b) => {
-                    const scoreOf = (r) => { const avg = Math.max(0, avgYearlyCAGR(r.sim.unitPriceSeries) ?? 0); const gain = Math.max(0, r.sim.finalValue / r.sim.totalInvested - 1); return Math.max(0, r.sim.metrics.sortino ?? 0) * Math.max(0, r.sim.metrics.upi ?? 0) * avg * gain; };
+                    const scoreOf = (r) => integratedRiskReturn(r.sim.unitPriceSeries, r.sim.ddSeries, r.sim.finalValue / r.sim.totalInvested) ?? -Infinity;
                     return scoreOf(b) - scoreOf(a);
                   })[0]
                 : null;
@@ -3302,7 +3331,7 @@ function App() {
                       <div className="lbl">Real-admissible @ {hp}y · best risk-return ratio</div>
                       <div className="val">{winner ? getPF(winner.pid).name : "— none admissible —"}</div>
                       <div className="sub mono">{winner
-                        ? `Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 avg. CAGR ${fmtPct(avgYearlyCAGR(winner.sim.unitPriceSeries) ?? 0)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
+                        ? `R\u00d7G/D\u00d7U ${fmtNum(integratedRiskReturn(winner.sim.unitPriceSeries, winner.sim.ddSeries, winner.sim.finalValue / winner.sim.totalInvested) ?? 0, 1)} \u00b7 Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 gain ${fmtPct(winner.sim.finalValue / winner.sim.totalInvested - 1)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
                         : "no portfolio keeps real value at this horizon under worst-window or MC paths"
                       }</div>
                     </div>
@@ -3612,7 +3641,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes Sortino × UPI × avgCAGR × gain — four factors ensuring strong risk-adjusted quality, consistent compounding, and total wealth growth.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes R×G / (D×U) — annualized return × total gain, divided by downside deviation × ulcer index. Two return factors over two risk factors, with G unbounded for absolute return pull.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3637,6 +3666,7 @@ function App() {
                       <td className="num" style={{ textAlign: "right" }}>{row.avgCAGR != null ? fmtPct(row.avgCAGR) : "\u2014"}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
                       <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
+                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{row.irrScore != null ? fmtNum(row.irrScore, 1) : "\u2014"}</td>
                     </tr>
                   ) : null;
                   const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "world");
@@ -3651,6 +3681,7 @@ function App() {
                       <td className="num" style={{ textAlign: "right" }}>{bm.avgCAGR != null ? fmtPct(bm.avgCAGR) : "\u2014"}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
                       <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.irrScore != null ? fmtNum(bm.irrScore, 1) : "\u2014"}</td>
                     </tr>
                   ) : null;
                   return (
@@ -3692,9 +3723,10 @@ function App() {
                             <th style={{ textAlign: "right" }}>Avg. CAGR</th>
                             <th style={{ textAlign: "right" }}>Max DD</th>
                             <th style={{ textAlign: "right" }}>Gain</th>
+                            <th style={{ textAlign: "right" }}>R×G/D×U</th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("combined", "\u2b24 Recommended (Sortino\u00d7UPI\u00d7avgCAGR\u00d7gain)", efResults.winners.combined, true)}
+                            {renderRow("combined", "\u2b24 Recommended (R\u00d7G / D\u00d7U)", efResults.winners.combined, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
                             {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure)}

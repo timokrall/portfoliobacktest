@@ -2240,6 +2240,8 @@ function App() {
   const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
   const [efComputeHStar, setEfComputeHStar] = useState(true);
+  const [efShowSortino, setEfShowSortino] = useState(true);
+  const [efShowUPI, setEfShowUPI] = useState(true);
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
@@ -2460,16 +2462,118 @@ function App() {
     };
 
     const computeWinners = (rs) => {
-      if (rs.length === 0) return { sortino: null, finalReturn: null, hStar: null, user: null };
-      let bs = rs[0], br = rs[0], bh = null;
+      if (rs.length === 0) return { sortino: null, upi: null, finalReturn: null, hStar: null, user: null };
+      let bs = rs[0], bu = rs[0], br = rs[0], bh = null;
       for (const r of rs) {
         if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
+        if ((r.upi ?? -Infinity) > (bu.upi ?? -Infinity)) bu = r;
         if (r.finalRatio > br.finalRatio) br = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
       }
-      return { sortino: bs, finalReturn: br, hStar: bh, user: rs[0] };
+      return { sortino: bs, upi: bu, finalReturn: br, hStar: bh, user: rs[0] };
     };
 
+    setTimeout(() => processChunk(0), 30);
+  };
+
+  // Incremental h* computation on existing frontier results.
+  // Re-simulates each stored weight vector, computes only h*, merges back.
+  const addHStarToExisting = () => {
+    if (!efResults || !efResults.samples || efResults.samples.length === 0) return;
+    if (!commonWindow?.ok || !series.cpi) return;
+    setEfRunning(true);
+    setEfProgress({ done: 0, total: efResults.samples.length + (efResults.benchmarks?.length || 0) });
+
+    const basket = efResults.basket;
+    const months = commonWindow.months;
+    const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
+    let cutCPI = months.length;
+    for (let i = 0; i < months.length; i++) { if (!cpiMap.has(months[i])) { cutCPI = i; break; } }
+    const cpiAligned = months.slice(0, cutCPI).map(m => cpiMap.get(m));
+    if (cutCPI < 13 || cpiAligned.some(v => v == null)) { setEfRunning(false); return; }
+
+    const liveMap = pfAssetSeries.user || {};
+    const seriesMap = {};
+    for (const a of basket) seriesMap[a] = efResults.includesUserSMA && liveMap[a] ? liveMap[a] : series[a];
+    const dataBase = {};
+    const monthSet = new Set(months);
+    for (const a of basket) {
+      const arr = seriesMap[a];
+      if (!arr) { setEfRunning(false); return; }
+      dataBase[a] = arr.filter(r => monthSet.has(r.month));
+    }
+    const effSeriesType = { ...seriesType };
+    if (efResults.includesUserSMA) { for (const a of basket) if (userSMA[a]) effSeriesType[a] = "net"; }
+    const H_MAX_EF = 30, MC_PATHS_EF = Math.min(200, mc.paths);
+    const updated = [...efResults.samples];
+    const CHUNK = 50;
+
+    const processChunk = (start) => {
+      if (!efRunning) return;   // cancelled
+      const end = Math.min(start + CHUNK, updated.length);
+      for (let idx = start; idx < end; idx++) {
+        const s = updated[idx];
+        if (s.hStar != null) continue;   // already computed
+        const wv = s.weights;
+        const wmap = {}; basket.forEach((a, i) => { wmap[a] = wv[i]; });
+        const dynPf = {
+          id: "ef_hstar", name: "h*", assets: basket, weights: wmap,
+          equityId: basket.find(a => a !== "gold") || basket[0], fixedWeights: true, dynamic: true,
+        };
+        const r = runSim({
+          portfolio: dynPf, targetGoldPct: wmap.gold || 0, data: dataBase,
+          seriesType: effSeriesType, ongoingCost, spreads, orderFee,
+          tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
+          starting, monthly, rebalance, ecbChanges: series.ecb || null,
+        });
+        if (!r || !r.metrics) continue;
+        const upTrunc = r.unitPriceSeries.slice(0, cutCPI);
+        const cpiTrunc = cpiAligned.slice(0, cutCPI);
+        const paired = buildPairedReturns(upTrunc, cpiTrunc);
+        const curve = [];
+        for (let h = 1; h <= H_MAX_EF; h++) {
+          const mcPt = rollingRealReturnsMC(paired, h, MC_PATHS_EF, mc.block, 12345 + idx * 7 + h);
+          curve.push(mcPt ? mcPt.worstRealCAGR : null);
+        }
+        for (let i = 0; i < curve.length; i++) {
+          let allOk = true;
+          for (let j = i; j < curve.length; j++) { if (curve[j] == null || curve[j] < 0) { allOk = false; break; } }
+          if (allOk) { updated[idx] = { ...s, hStar: i + 1 }; break; }
+        }
+      }
+      setEfProgress({ done: end, total: updated.length });
+      if (end < updated.length) {
+        setTimeout(() => processChunk(end), 0);
+      } else {
+        // Also compute h* for benchmarks
+        const benchUpdated = (efResults.benchmarks || []).map(bm => {
+          if (bm.hStar != null) return bm;
+          const benchPf = { id: "ef_bench_h", name: bm.label, assets: [bm.assetId], weights: { [bm.assetId]: 1 }, equityId: bm.assetId, isMarket: true, fixedWeights: true, dynamic: true };
+          const bmData = {};
+          const arr = seriesMap[bm.assetId] || series[bm.assetId];
+          if (!arr) return bm;
+          bmData[bm.assetId] = arr.filter(r => monthSet.has(r.month));
+          const r = runSim({ portfolio: benchPf, targetGoldPct: 0, data: bmData, seriesType: { ...seriesType, [bm.assetId]: "net" }, ongoingCost, spreads, orderFee, tax: { rate: taxRate, teilfreistellung, allowance, basiszins }, starting, monthly, rebalance, ecbChanges: series.ecb || null });
+          if (!r) return bm;
+          const upTrunc = r.unitPriceSeries.slice(0, cutCPI);
+          const cpiTrunc = cpiAligned.slice(0, cutCPI);
+          const paired = buildPairedReturns(upTrunc, cpiTrunc);
+          const curve = [];
+          for (let h = 1; h <= H_MAX_EF; h++) { const mcPt = rollingRealReturnsMC(paired, h, MC_PATHS_EF, mc.block, 999 + bm.assetId.length + h); curve.push(mcPt ? mcPt.worstRealCAGR : null); }
+          let hStar = null;
+          for (let i = 0; i < curve.length; i++) { let allOk = true; for (let j = i; j < curve.length; j++) { if (curve[j] == null || curve[j] < 0) { allOk = false; break; } } if (allOk) { hStar = i + 1; break; } }
+          return { ...bm, hStar };
+        });
+        const recomputeWinners = (rs) => {
+          if (rs.length === 0) return efResults.winners;
+          let bs = rs[0], bu = rs[0], br = rs[0], bh = null;
+          for (const r of rs) { if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r; if ((r.upi ?? -Infinity) > (bu.upi ?? -Infinity)) bu = r; if (r.finalRatio > br.finalRatio) br = r; if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r; }
+          return { sortino: bs, upi: bu, finalReturn: br, hStar: bh, user: rs[0] };
+        };
+        setEfResults(prev => ({ ...prev, samples: updated, benchmarks: benchUpdated, winners: recomputeWinners(updated) }));
+        setEfRunning(false);
+      }
+    };
     setTimeout(() => processChunk(0), 30);
   };
 
@@ -3481,9 +3585,19 @@ function App() {
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
                   </label>
-                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ borderLeft: "1px solid var(--border)", height: 16 }}></span>
+                  <span style={{ fontSize: 10, color: "var(--ink-mute)", textTransform: "uppercase", letterSpacing: 0.5 }}>winners:</span>
+                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input type="checkbox" checked={efShowSortino} onChange={e => setEfShowSortino(e.target.checked)} />
+                    Sortino
+                  </label>
+                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input type="checkbox" checked={efShowUPI} onChange={e => setEfShowUPI(e.target.checked)} />
+                    UPI
+                  </label>
+                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }}>
                     <input type="checkbox" checked={efComputeHStar} onChange={e => setEfComputeHStar(e.target.checked)} />
-                    compute h* (slow)
+                    h* (slow)
                   </label>
                   {efRunning && (
                     <span className="mono" style={{ fontSize: 11 }}>
@@ -3492,14 +3606,21 @@ function App() {
                   )}
                   {efRunning
                     ? <button className="btn btn-xs" onClick={cancelEfficientFrontier}>Cancel</button>
-                    : <button className="btn btn-accent" disabled={userPortfolio.assets.length < 2 || userWeightTotal === 0} onClick={runEfficientFrontier}>
-                        Run frontier
-                      </button>}
+                    : <>
+                        <button className="btn btn-accent" disabled={userPortfolio.assets.length < 2 || userWeightTotal === 0} onClick={runEfficientFrontier}>
+                          Run frontier
+                        </button>
+                        {efResults && efComputeHStar && efResults.samples.some(s => s.hStar == null) && (
+                          <button className="btn btn-xs" onClick={addHStarToExisting} title="Compute h* on existing grid results without re-running the full frontier">
+                            + Add h*
+                          </button>
+                        )}
+                      </>}
                 </div>
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> where each share is a multiple of <strong>5%</strong> and they sum to 100% (falls back to 10% steps on baskets larger than ~6 assets to keep runtime sane). The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. After the grid finishes, two <strong>benchmark portfolios</strong> are evaluated: <strong>100% Prime ACWI</strong> and <strong>100% coIQ</strong>. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest absolute return</strong>. Real-preservation requires the CPI series.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> where each share is a multiple of <strong>5%</strong> and they sum to 100% (falls back to 10% steps on baskets larger than ~6 assets to keep runtime sane). The user's current weights are always sample 0. Each weight vector runs the full engine — costs, CGT-gated rebalance, Vorabpauschale, optional CGT-on-SMA-flip. After the grid finishes, two <strong>benchmark portfolios</strong> are evaluated: <strong>100% Prime ACWI</strong> and <strong>100% coIQ</strong>. Three winners are surfaced: <strong>shortest real-preservation horizon h*</strong>, <strong>largest Sortino</strong>, <strong>largest UPI</strong>, <strong>largest absolute return</strong>. Toggle which winners to display with the checkboxes above. h* requires CPI data and is expensive to compute; Sortino and UPI can be toggled instantly. Real-preservation requires the CPI series.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>. Grid size grows with the basket — ~250 samples on a 3-asset basket, ~2000 on a 4-asset basket, ~12000 on a 5-asset basket (capped: 5% grid skipped if it would exceed 12k).</div>}
                 {efResults && (() => {
@@ -3578,7 +3699,7 @@ function App() {
                             </tr>
                           );
                         };
-                        const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "market");
+                        const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "world");
                         const bmCoIQ = (efResults.benchmarks || []).find(b => b.assetId === "coIQ");
                         return (
                           <>
@@ -3595,8 +3716,9 @@ function App() {
                                   <th style={{ textAlign: "right" }}>Gain</th>
                                 </tr></thead>
                                 <tbody>
-                                  {renderRow("hStar", "Shortest real-preservation horizon", efResults.winners.hStar)}
-                                  {renderRow("sortino", "Largest Sortino ratio", efResults.winners.sortino)}
+                                  {efComputeHStar && renderRow("hStar", "Shortest real-preservation horizon", efResults.winners.hStar)}
+                                  {efShowSortino && renderRow("sortino", "Largest Sortino ratio", efResults.winners.sortino)}
+                                  {efShowUPI && renderRow("upi", "Largest UPI", efResults.winners.upi)}
                                   {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}
                                 </tbody>
                               </table>

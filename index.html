@@ -1740,12 +1740,8 @@ function App() {
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
 
-  // --- v2: planning horizon + cash rate (200-SMA toggle's risk-off leg) ---
+  // --- v2: planning horizon ---
   const [hPlan, setHPlan] = useState(10);       // years
-  const [cashRate, setCashRate] = useState(0);  // %/yr — earns this when 200-SMA is risk-off
-  // ECB rate (Hauptrefinanzierungssatz / MRO). Used ONLY by the triple_coIQ
-  // portfolio's SMA-timed coIQ leg, where cash earns ECB − 0.25 %.
-  const [ecbRate, setEcbRate] = useState(2.65);
 
   // --- v2: per-portfolio 200-SMA timing toggle (daily engine).
   //         The 2x leveraged options default to ON — the 200-SMA "stay out of
@@ -1796,8 +1792,8 @@ function App() {
     csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee,
     taxRate, allowance, teilfreistellung, basiszins,
     starting, monthly, rebalance, selectedPortfolios, goldWeights,
-    hPlan, cashRate, ecbRate, portfolioTiming, ownNativeHistory, mc,
-  }), [csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, hPlan, cashRate, ecbRate, portfolioTiming, ownNativeHistory, mc]);
+    hPlan, portfolioTiming, ownNativeHistory, mc,
+  }), [csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, hPlan, portfolioTiming, ownNativeHistory, mc]);
 
   const applyState = (s) => {
     if (!s) return;
@@ -1862,8 +1858,6 @@ function App() {
       setPortfolioTiming(merged);
     }
     if (s.hPlan != null) setHPlan(s.hPlan);
-    if (s.cashRate != null) setCashRate(s.cashRate);
-    if (s.ecbRate != null) setEcbRate(s.ecbRate);
     if (s.ownNativeHistory != null) setOwnNativeHistory(s.ownNativeHistory);
     if (s.mc) setMc(s.mc);
   };
@@ -2051,11 +2045,11 @@ function App() {
             taxLikeDebt: DEBT_TAX_IDS.has(src),
           };
           if (eqDaily && sigDaily) {
-            const cash = Math.max(0, (ecbRate || 0) - 0.25);
+            const cash = 0;  // fallback; overridden by time-varying ECB DFR when loaded
             const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cash, sp.buy, sp.sell, orderFee, taxOpts, series.ecb || null);
             if (res && res.series.length >= 12) {
               map[a] = res.series;
-              map.__synthetic = { id: a, src, cashRate: cash, res };
+              map.__synthetic = { id: a, src, cashRate: 0, res };
               continue;
             }
           }
@@ -2082,7 +2076,7 @@ function App() {
             taxLikeDebt: DEBT_TAX_IDS.has(a),
           };
           if (eqDaily && sigDaily) {
-            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, cashRate, sp.buy, sp.sell, orderFee, taxOpts, series.ecb || null);
+            const res = buildTimedRiskLegMonthly(eqDaily, sigDaily, 0, sp.buy, sp.sell, orderFee, taxOpts, series.ecb || null);
             if (res && res.series.length >= 12) { map[a] = res.series; map.__timed = res; continue; }
           }
           // fall back to raw monthly with a flag so UI can flag it
@@ -2095,7 +2089,7 @@ function App() {
       out[pid] = map;
     }
     return out;
-  }, [selectedPortfolios, portfolioTiming, userSMA, seriesDaily, series, cashRate, ecbRate, spreads, orderFee, taxRate, teilfreistellung, getPF, series.ecb]);
+  }, [selectedPortfolios, portfolioTiming, userSMA, seriesDaily, series, spreads, orderFee, taxRate, teilfreistellung, getPF, series.ecb]);
 
   // ---- per-portfolio windows (each portfolio's own intersection) ----------
   // If ECB rate data is loaded, constrain the backtest window to start no
@@ -2723,23 +2717,67 @@ function App() {
     return out;
   }, [simResults, series.cpi, mc]);
 
-  // ---- coIQ ↔ momentum regression ----
-  const regression = useMemo(() => {
-    const c = series.coIQ, m = series.momentum;
-    if (!c || !m) return null;
-    const mapM = new Map(m.map(r => [r.month, r.value]));
-    const overlap = c.filter(r => mapM.has(r.month));
-    if (overlap.length < 6) return null;
-    const cr = []; const mr = [];
-    for (let i = 1; i < overlap.length; i++) {
-      const key = overlap[i].month;
-      const prevKey = overlap[i - 1].month;
-      if (monthsBetween(prevKey, key) !== 1) continue;
-      cr.push(overlap[i].value / overlap[i - 1].value - 1);
-      mr.push(mapM.get(key) / mapM.get(prevKey) - 1);
+  // ---- drawdown-period correlation matrix (selected assets) ----
+  // Computes pairwise Pearson correlations of monthly returns, filtered to
+  // months where the equal-weight basket is below its running peak (the months
+  // that drive UPI). Shows how much diversification you actually get in pain.
+  const ddCorrelation = useMemo(() => {
+    const basket = userPortfolio?.assets?.filter(a => !ASSETS.find(x => x.id === a)?.synthetic);
+    if (!basket || basket.length < 2) return null;
+    // Build monthly return arrays per asset, aligned to common months
+    const maps = {};
+    for (const a of basket) {
+      const src = ASSETS.find(x => x.id === a)?.sourceAsset || a;
+      const s = series[src];
+      if (!s || s.length < 6) return null;
+      const m = new Map();
+      for (let i = 1; i < s.length; i++) {
+        if (monthsBetween(s[i - 1].month, s[i].month) === 1) {
+          m.set(s[i].month, s[i].value / s[i - 1].value - 1);
+        }
+      }
+      maps[a] = m;
     }
-    return regress(cr, mr);
-  }, [series.coIQ, series.momentum]);
+    // Find common months
+    const allMonths = [...maps[basket[0]].keys()].filter(m => basket.every(a => maps[a].has(m))).sort();
+    if (allMonths.length < 12) return null;
+    // Build equal-weight index to identify drawdown months
+    let eqPeak = 1, eqLevel = 1;
+    const isDDMonth = [];
+    let ddCount = 0;
+    for (const m of allMonths) {
+      const avgRet = basket.reduce((s, a) => s + maps[a].get(m), 0) / basket.length;
+      eqLevel *= (1 + avgRet);
+      eqPeak = Math.max(eqPeak, eqLevel);
+      const inDD = eqLevel < eqPeak * 0.999; // 0.1% threshold to avoid noise
+      isDDMonth.push(inDD);
+      if (inDD) ddCount++;
+    }
+    if (ddCount < 6) return null;
+    // Extract returns for drawdown months only
+    const ddReturns = {};
+    for (const a of basket) {
+      ddReturns[a] = allMonths.filter((_, i) => isDDMonth[i]).map(m => maps[a].get(m));
+    }
+    // Pairwise Pearson correlation
+    const pearson = (x, y) => {
+      const n = x.length;
+      let sx = 0, sy = 0, sxy = 0, sxx = 0, syy = 0;
+      for (let i = 0; i < n; i++) { sx += x[i]; sy += y[i]; sxy += x[i] * y[i]; sxx += x[i] * x[i]; syy += y[i] * y[i]; }
+      const num = n * sxy - sx * sy;
+      const den = Math.sqrt((n * sxx - sx * sx) * (n * syy - sy * sy));
+      return den > 0 ? num / den : 0;
+    };
+    const matrix = {};
+    for (const a of basket) {
+      matrix[a] = {};
+      for (const b of basket) {
+        matrix[a][b] = a === b ? 1.0 : pearson(ddReturns[a], ddReturns[b]);
+      }
+    }
+    const shortName = (id) => ASSETS.find(x => x.id === id)?.shortName || id;
+    return { basket, matrix, shortName, ddMonths: ddCount, totalMonths: allMonths.length };
+  }, [series, userPortfolio]);
 
   // ---- aggregated chart data (overlay unit prices) ----
   const chartData = useMemo(() => {
@@ -3019,11 +3057,6 @@ function App() {
             </div>
             <div className="grid grid-2" style={{ gap: 14, marginTop: 12 }}>
               <NumField label="Planning horizon H_plan (years)" value={hPlan} step={1} onChange={v => setHPlan(Math.max(1, Math.min(30, v)))} />
-              <NumField label="Cash rate (%/yr — 200-SMA risk-off leg)" value={cashRate} step={0.1} onChange={setCashRate} />
-            </div>
-            <div className="grid grid-2" style={{ gap: 14, marginTop: 12 }}>
-              <NumField label="ECB rate (%/yr — triple coIQ portfolio cash leg = ECB−0.25%)" value={ecbRate} step={0.05} onChange={setEcbRate} />
-              <div></div>
             </div>
             <div style={{ marginTop: 14 }}>
               <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
@@ -3033,16 +3066,6 @@ function App() {
                     {r === "biennial" ? "every 2 years" : r}
                   </button>)}
               </div>
-            </div>
-            <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
-              <span
-                className={"chip" + (ownNativeHistory ? " on" : "")}
-                onClick={() => setOwnNativeHistory(v => !v)}
-                title="Run each portfolio on its OWN full series instead of the common-intersection window."
-              >
-                <span className="dot"></span>own native history
-              </span>
-              {ownNativeHistory && <span className="tag warn">curves NOT comparable — different bear-market exposure</span>}
             </div>
 
             <hr style={{ margin: "18px 0" }} />
@@ -3758,17 +3781,30 @@ function App() {
               </div>
             </div>
 
-            {/* regression card */}
-            {regression && series.coIQ && series.momentum && (
+            {/* drawdown correlation matrix */}
+            {ddCorrelation && (
               <div className="panel" style={{ marginBottom: 18 }}>
-                <div className="panel-h"><h2>coIQ ↔ Momentum regression</h2><span className="h-meta">overlapping months: {regression.n}</span></div>
+                <div className="panel-h"><h2>Drawdown correlation matrix</h2><span className="h-meta">{ddCorrelation.ddMonths} drawdown months of {ddCorrelation.totalMonths} total</span></div>
                 <div className="panel-body">
-                  <div className="grid grid-3">
-                    <div className="kv"><div className="k">β (slope vs Momentum)</div><div className="v">{fmtNum(regression.beta, 3)}</div></div>
-                    <div className="kv"><div className="k">α (annualized)</div><div className="v">{fmtPct(regression.alphaAnnualized, 2)}</div></div>
-                    <div className="kv"><div className="k">R²</div><div className="v">{fmtNum(regression.r2, 3)}</div></div>
-                  </div>
-                  <div className="footnote" style={{ marginTop: 10 }}>R² tells you <em>how momentum-like coIQ is</em>. Low R² = genuinely differentiated. Diagnostic only — does not feed the portfolio engine.</div>
+                  <table className="bt" style={{ fontSize: 12 }}>
+                    <thead><tr>
+                      <th></th>
+                      {ddCorrelation.basket.map(a => <th key={a} style={{ textAlign: "right", fontWeight: 600 }}>{ddCorrelation.shortName(a)}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {ddCorrelation.basket.map(a => (
+                        <tr key={a}>
+                          <td style={{ fontWeight: 600 }}>{ddCorrelation.shortName(a)}</td>
+                          {ddCorrelation.basket.map(b => {
+                            const v = ddCorrelation.matrix[a][b];
+                            const bg = a === b ? "transparent" : v > 0.7 ? "oklch(0.92 0.06 25)" : v > 0.4 ? "oklch(0.95 0.03 60)" : v < 0 ? "oklch(0.92 0.06 150)" : "oklch(0.95 0.02 150)";
+                            return <td key={b} className="num" style={{ textAlign: "right", background: bg }}>{a === b ? "—" : fmtNum(v, 2)}</td>;
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="footnote" style={{ marginTop: 10 }}>Pearson correlation of monthly returns during months when the equal-weight basket is below its running peak — the periods that drive UPI. Low or negative values = genuine diversification when it matters. High values (&gt;0.7) = assets fall together, reducing the portfolio's crisis resilience.</div>
                 </div>
               </div>
             )}
@@ -3780,25 +3816,23 @@ function App() {
       <div className="panel" style={{ marginTop: 26 }}>
         <div className="panel-h"><h2>Definitions · Assumptions · Caveats</h2></div>
         <div className="panel-body footnote">
-          <p><strong>Sortino ratio</strong> — annualized: mean monthly unit-price return ÷ monthly downside deviation × √12. MAR (minimum acceptable return) is 0. Downside deviation = √(Σ min(r,0)² / k), k = count of months in the series (using k matches Sortino's original definition; some toolkits use only downside-month count — we follow the original).</p>
-          <p><strong>Ulcer Performance Index (UPI)</strong> — (Martin &amp; McCann, 1989): UPI = (annualized return − risk-free rate) ÷ Ulcer Index. Ulcer Index = √(mean(dd²)) where dd is each month's fractional drawdown from peak. Unlike Sortino, UPI penalizes both drawdown <em>depth</em> and <em>duration</em> — a prolonged underwater period produces many non-zero dd values, each squaring into the index. Risk-free rate is the average ECB Deposit Facility Rate (floored at 0%) across the backtest window. Higher UPI = better risk-adjusted return per unit of drawdown pain.</p>
-          <p><strong>Maximum drawdown</strong> — max peak-to-trough decline of the <em>unit-price</em> series. Months &lt;−30% count months whose drawdown from the running peak is worse than −30%. <strong>Unit price</strong> is contribution-neutral: contributions and matured-gold rebalances issue/redeem units at NAV and do not move price; ongoing-cost drag and Vorabpauschale tax do move price.</p>
-          <p><strong>Money-weighted return</strong> — final EUR value ÷ total EUR invested (starting + contributions). This is what your account number actually shows; the unit-price series is the cleanly-comparable risk surface.</p>
-          <p><strong>Gold lots, Spekulationsfrist (§23 EStG)</strong> — every gold buy creates a lot. Lots become CGT-free 12 months after purchase. The month-0 starting gold lot is backdated as already-matured. At a rebalance, gold sells only matured lots, FIFO. Equity (coIQ / momentum / market) is never sold. A rebalance is therefore <em>partial</em> whenever matured gold &lt; the amount needed — the portfolio is allowed to remain overweight gold. This mirrors the real one-way constraint.</p>
-          <p><strong>Vorabpauschale</strong> — for each calendar year Y with a non-zero Basiszins and each equity lot: <code>Basisertrag = startValue × Basiszins(Y) × 0.70</code>; <code>Vorabpauschale = max(0, min(Basisertrag, endValue − startValue))</code>; intra-year lots are prorated by (12 − monthsBeforeAcq)/12; <code>taxable = VP × (1 − Teilfreistellung)</code>. Summed across equity lots, allowance is subtracted, the remainder is taxed at the CGT rate, and the cash is pulled from the generating equity holding in <em>January</em> of year Y+1. This flows through the unit price like a cost. Basiszins for 2018+ is BMF-published; for earlier years it is derived from the ECB rate at Jan 1 (proxy).</p>
-          <p><strong>Gold tax treatment</strong> — EUWAX Gold II is an Inhaberschuldverschreibung, not a fund: no Vorabpauschale, no Teilfreistellung. Modelled here only via the §23 12-month rule on actual sales. Pre-2018 Vorabpauschale uses the ECB rate at Jan 1 as a Basiszins proxy (the actual InvStG 2004 regime used a different formula). When no ECB data is loaded, pre-2018 years have Basiszins = 0.</p>
-          <p><strong>Costs</strong> — Ongoing fund cost applies as a monthly drag <code>(1 − cost)^(1/12)</code> <em>only</em> for assets toggled to <code>gross</code> (index series). For <code>net</code> series the cost is already inside the data. Buy/sell spreads and per-order fees are applied to every transaction including month-0 purchases.</p>
-          <p><strong>Window</strong> — the common window is the intersection of available monthly data across <em>all assets used by all selected portfolios</em>. Selecting any portfolio with coIQ caps the window at ~Feb 2022–present. Short-window comparisons (&lt; 10 years) get a single-regime warning.</p>
-          <p><strong>Beyond modelled</strong> — frictionless beyond explicit costs/taxes; no slippage beyond modelled spreads; no withholding-tax leakage at the fund layer beyond Teilfreistellung; no broker order minima; FX risk is assumed zero (series are EUR-denominated).</p>
+          <p><strong>Unit price</strong> — the contribution-neutral NAV per unit. Contributions and matured-gold rebalances issue/redeem units at NAV without moving price. Ongoing-cost drag, Vorabpauschale tax, and SMA flip costs do move price. All risk metrics (Sortino, UPI, max DD) are computed on this series.</p>
+          <p><strong>Sortino ratio</strong> — <code>(mean monthly return ÷ downside deviation) × √12</code>. MAR = 0. Downside deviation uses all months as denominator (Sortino's original definition), not just negative-month count.</p>
+          <p><strong>Ulcer Performance Index (UPI)</strong> — <code>(annualized return − risk-free) ÷ Ulcer Index</code> (Martin &amp; McCann, 1989). Ulcer Index = <code>√(mean(dd²))</code> where dd is each month's fractional drawdown from peak. Penalizes both drawdown depth and duration — a shallow but prolonged underwater period scores worse than a sharp drop with fast recovery. Risk-free rate = average ECB DFR (floored at 0%) over the backtest window.</p>
+          <p><strong>Maximum drawdown</strong> — largest peak-to-trough decline of the unit-price series. <strong>Months &lt;−30%</strong> counts months where the running drawdown from peak exceeds −30%.</p>
+          <p><strong>Money-weighted return</strong> — final EUR value ÷ total EUR invested. This is what a brokerage account shows; the unit-price series is the comparable risk surface.</p>
           <hr style={{ margin: "12px 0" }} />
-          <p><strong>v2 · Real-preservation verdict</strong> — a portfolio is "real-admissible at horizon h" if its worst-window real CAGR ≥ 0 at h. Real returns are computed by dividing nominal portfolio growth by CPI growth over each h-year window. The CPI series used is <em>{(manifest?.assets?.cpi?.source) || "manual upload"}</em>{series.cpi ? <> · last point <code>{series.cpi[series.cpi.length - 1].month}</code></> : null}. Recommended series: German CPI (Destatis Verbraucherpreisindex / FRED DEUCPIALLMINMEI).</p>
-          <p><strong>v2 · Gold-share optimizer</strong> — <code>w_safe(h)</code> = gold weight maximizing worst real CAGR at h (buffer-maximizing, unstable on this short bear-market-free sample — read as a range, not a point). <code>w_return(h)</code> = smallest gold weight whose worst real CAGR stays ≥ 0 (least gold to remain real-admissible). w_return is the decision-relevant line; w_safe is overfit to a single worst path.</p>
-          <p><strong>v2 · ⅓ coIQ + ⅓ coIQ-SMA + ⅓ Gold</strong> — a three-leg test of the "half-Permanent half-tactical" hybrid: gold and an untimed coIQ sleeve hold for the long run; a parallel coIQ sleeve runs the 200-SMA daily rule and parks in cash earning <strong>ECB − 0.25 %</strong> (<code>{(ecbRate - 0.25).toFixed(2)} % / yr</code> at the current ECB setting of {ecbRate.toFixed(2)} %) until the signal flips back. Weights are fixed at exactly ⅓ each — the in-app Gold % slider is hidden for this portfolio. Gold rebalancing follows the same CGT-gated §23-respecting rule as every other gold-bearing portfolio (matured lots only, FIFO; remains overweight gold when matured lots run out); CGT on every SMA risk→cash flip uses the same approximation as elsewhere (configured rate × (1 − Teilfreistellung), no FIFO lots, no Sparer-Pauschbetrag, no VP credit). Vorabpauschale is applied to both coIQ sleeves by the outer engine — for the SMA-timed sleeve it's computed on the post-flip synthetic unit price, which slightly double-counts during cash periods.</p>
-          <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if its OWN daily close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. On every <strong>risk → cash</strong> flip we also charge an approximate German CGT of <code>{taxRate.toFixed(2)}% × (1 − Teilfreistellung)</code> on the running per-unit gain since the last entry (no tax on losses; for gold and silver the Teilfreistellung is 0 so the full rate applies). This is a <em>quick approximation</em>: no FIFO lot accounting, no Sparer-Pauschbetrag allowance, no Anrechnung of prior-year Vorabpauschale against the realized gain — overstates tax by a few %. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
-          <p><strong>v2 · Equal Weight + Silver</strong> — <strong>Invesco MSCI World Equal Weight UCITS ETF Acc</strong> (IE000OEF25S1, WKN A40G12, Xetra <code>MWEQ</code>) is a UCITS fund taxed normally (VP + 30 % TF). <strong>iShares Physical Silver ETC</strong> (IE00B4NCWG09, WKN A1KWPR, Xetra <code>SSLN</code>) is physically-backed silver in ETC form — treated like gold for tax (Inhaberschuldverschreibung, §23 EStG, no VP / TF; tax-free if held &gt;12 months). The engine treats silver identically to gold in the rebalance gate: matured lots only, FIFO, partial rebalance when matured holdings run out.</p>
-          <p><strong>v2 · 100% Bitcoin (§23 EStG)</strong> — under German tax law, Bitcoin is a "private sale" asset (Privates Veräußerungsgeschäft, §23 EStG), not a financial instrument: <strong>held &gt;12 months it is fully tax-free</strong>; held &lt;12 months gains are taxed at your <strong>personal income tax rate</strong> (NOT the 25 % Abgeltungsteuer — anything up to 45 % + Soli). When 200-SMA timing is ON, every risk→cash flip realizes the running gain inside the 12-month window, so the engine charges CGT at the configured tax rate × (1 − Teilfreistellung), with Teilfreistellung = 0 (no fund-level exemption applies to crypto). <strong>For accuracy, set the CGT rate to your marginal income-tax rate</strong> (e.g. 30–42 % + 5.5 % Soli) — the default 26.375 % is Abgeltungsteuer and understates it. When 200-SMA is OFF the simulation never sells, so no tax event fires — consistent with §23's 12-month exemption on actual buy-and-hold. <strong>ILLUSTRATIVE ONLY:</strong> Bitcoin has had −80 % drawdowns; a 200-SMA fitted to a bullish sample dodges them in-sample but cannot defend against the next one.</p>
-          <p><strong>v2 · "Own native history" toggle</strong> — when ON, each portfolio runs over its own full series instead of the common-intersection window. The CPI real-preservation test is absolute, so this is a legitimate exercise — but the resulting curves are <em>not comparable</em>: factor ETFs and Prime ACWI include 2018 / 2020 / 2022 drawdowns that coIQ never saw.</p>
-          <p><strong>v2 · Single-regime caveat</strong> — the default common window (~2022 onward) contains no equity bear market. Every historical worst-case figure is optimistic, coIQ most of all. Beyond h ≈ 3 years all curves are Monte Carlo, paired-bootstrapped on the same short sample, so they inherit the same blind spot.</p>
+          <p><strong>ECB Deposit Facility Rate</strong> — loaded as a changes-only CSV. The rate in effect at each date drives two things: (1) SMA cash-period returns (floored at 0%), (2) Vorabpauschale Basiszins for pre-2018 years (ECB rate at Jan 1 as proxy). If the CSV header contains "lending" (marginal lending facility), rates are auto-converted to estimated DFR by subtracting 0.75 pp. The backtest window cannot begin before the first ECB data point.</p>
+          <p><strong>Vorabpauschale</strong> — for each calendar year with non-zero Basiszins: <code>Basisertrag = startValue × Basiszins × 0.70</code>; <code>VP = max(0, min(Basisertrag, gain))</code>; intra-year lots prorated by months held; <code>taxable = VP × (1 − Teilfreistellung)</code>. Tax is deducted in January of the following year. Basiszins 2018+ = BMF-published values; earlier years = ECB DFR at Jan 1 (proxy).</p>
+          <p><strong>Gold &amp; silver tax (§23 EStG)</strong> — EUWAX Gold II and iShares Physical Silver are Inhaberschuldverschreibungen: no Vorabpauschale, no Teilfreistellung. Tax-free after 12-month Spekulationsfrist. Each buy creates a FIFO lot; rebalancing sells only matured lots. If matured gold &lt; rebalance target, the portfolio stays overweight gold (one-way constraint). The month-0 starting lot is backdated as already matured.</p>
+          <p><strong>Equity rebalancing</strong> — equity positions are never sold (CGT liability). Rebalancing toward equity is done by selling matured gold or directing new contributions. Rebalancing toward gold is via contributions only. This one-way constraint mirrors real German CGT friction.</p>
+          <p><strong>200-SMA daily timing</strong> — when toggled ON: if close(d−1) &gt; SMA200(d−1), hold equity on day d; else park in cash earning the time-varying ECB DFR (floored at 0%). Each flip incurs spread + order fees. Each risk→cash flip charges approximate CGT: <code>{taxRate.toFixed(2)}% × (1 − TF)</code> on the running gain. This is approximate — no FIFO lots, no Pauschbetrag, no VP credit — and overstates tax by a few %. Gold is never timed. Daily series is resampled to month-end for all metrics.</p>
+          <p><strong>Costs</strong> — ongoing fund cost applies as monthly drag <code>(1 − cost)^(1/12)</code> only for <code>gross</code> assets (index series); <code>net</code> series already embed costs. Buy/sell spreads and per-order fees apply to every transaction including month-0 purchases.</p>
+          <hr style={{ margin: "12px 0" }} />
+          <p><strong>Backtest window</strong> — intersection of available monthly data across all assets in all selected portfolios, floored at the first ECB data point. Price data before the window start is used for 200-day SMA warmup but not for NAV simulation.</p>
+          <p><strong>Real-preservation (h*)</strong> — a portfolio is "real-admissible at horizon h" if its worst rolling h-year real CAGR ≥ 0. Real returns = nominal portfolio growth ÷ CPI growth per window. CPI series: <em>{(manifest?.assets?.cpi?.source) || "manual upload"}</em>{series.cpi ? <> · last point <code>{series.cpi[series.cpi.length - 1].month}</code></> : null}. h* = smallest h where all windows from h onward stay real-positive. Beyond available history, curves are extended via Monte Carlo paired bootstrap (portfolio return + CPI jointly resampled).</p>
+          <p><strong>Efficient frontier</strong> — exhaustive 5%-step grid (10% for &gt;6 assets) over the weight simplex. Each vector runs the full engine. Winners: largest Sortino, largest UPI, shortest h*, largest absolute return. "Add h*" computes h* incrementally on stored weights without rerunning the grid.</p>
+          <p><strong>Not modelled</strong> — slippage beyond configured spreads; withholding-tax leakage beyond Teilfreistellung; broker order minima; FX risk (all series EUR-denominated); fund-level taxation under pre-2018 InvStG regime.</p>
         </div>
       </div>
 

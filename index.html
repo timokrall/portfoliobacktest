@@ -1743,8 +1743,7 @@ function App() {
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
 
-  // --- v2: planning horizon ---
-  const [hPlan, setHPlan] = useState(10);       // years
+  // --- v2: planning horizon derived from MC horizon ---
 
   // --- v2: per-portfolio 200-SMA timing toggle (daily engine).
   //         The 2x leveraged options default to ON — the 200-SMA "stay out of
@@ -1795,8 +1794,8 @@ function App() {
     csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee,
     taxRate, allowance, teilfreistellung, basiszins,
     starting, monthly, rebalance, selectedPortfolios, goldWeights,
-    hPlan, portfolioTiming, ownNativeHistory, mc,
-  }), [csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, hPlan, portfolioTiming, ownNativeHistory, mc]);
+    portfolioTiming, ownNativeHistory, mc,
+  }), [csvText, series, seriesDaily, seriesType, ongoingCost, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, portfolioTiming, ownNativeHistory, mc]);
 
   const applyState = (s) => {
     if (!s) return;
@@ -1860,7 +1859,6 @@ function App() {
       const merged = { ...s.portfolioTiming };
       setPortfolioTiming(merged);
     }
-    if (s.hPlan != null) setHPlan(s.hPlan);
     if (s.ownNativeHistory != null) setOwnNativeHistory(s.ownNativeHistory);
     if (s.mc) setMc(s.mc);
   };
@@ -3058,9 +3056,6 @@ function App() {
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
               <NumField label="Monthly contribution (EUR)" value={monthly} onChange={setMonthly} step={50} />
             </div>
-            <div className="grid grid-2" style={{ gap: 14, marginTop: 12 }}>
-              <NumField label="Planning horizon H_plan (years)" value={hPlan} step={1} onChange={v => setHPlan(Math.max(1, Math.min(30, v)))} />
-            </div>
             <div style={{ marginTop: 14 }}>
               <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
               <div className="seg">
@@ -3265,7 +3260,7 @@ function App() {
 
             {/* V2 admissibility banner (replaces v1 Sortino winner) */}
             {(() => {
-              const hp = hPlan;
+              const hp = Math.round(mc.horizon / 12);
               const rows = selectedPortfolios.map(pid => {
                 const sim = simResults?.[pid]; const real = realResults?.[pid];
                 if (!sim || !real || real.error) return null;

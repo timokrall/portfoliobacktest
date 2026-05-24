@@ -1736,8 +1736,7 @@ function App() {
   // assets (coIQ, momentum, value, quality, minvol, prime/PRAW, gold, BTC).
   // 12% × 4 + 13% × 4 = 100. Leveraged ETFs (lev3x, lev2x*) excluded by
   // default — too volatile for a strategic-core baseline.
-  const FALLBACK_USER_WEIGHTS = { coIQ: 50, minvol: 25, gold: 25 };
-  const [userWeights, setUserWeights] = useState(FALLBACK_USER_WEIGHTS);
+  const [userWeights, setUserWeights] = useState({ coIQ: 50, minvol: 25, gold: 25 });
   // Per-asset 200-SMA toggle for the user portfolio's legs.
   const [userSMA, setUserSMA] = useState({});
   // Per-asset annual-rebalance-when-overperforming toggle. When ON for an
@@ -2704,115 +2703,59 @@ function App() {
     return { basket, matrix, shortName, ddMonths: ddCount, totalMonths: allMonths.length };
   }, [series, userPortfolio]);
 
-  // Compute optimal allocation that maximizes negative drawdown correlations
-  // across ALL holdable assets with data (not just the current basket).
-  const ddOptimalWeights = useMemo(() => {
+  // Fill unallocated weight with assets that minimize total portfolio drawdown correlation.
+  // Called on button click — takes current weights as fixed, distributes the remainder.
+  const fillMinCorrelation = () => {
     const holdable = ASSETS.filter(a => a.holdable && series[a.id] && series[a.id].length >= 12);
-    if (holdable.length < 2) return null;
+    if (holdable.length < 2) return;
     const ids = holdable.map(a => a.id);
-    // Build monthly returns per asset
+    const currentTotal = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
+    const remaining = 100 - currentTotal;
+    if (remaining < 5) return; // nothing to fill
+    // Build monthly returns + drawdown correlation matrix
     const maps = {};
     for (const a of ids) {
-      const s = series[a];
-      const m = new Map();
-      for (let i = 1; i < s.length; i++) {
-        if (monthsBetween(s[i - 1].month, s[i].month) === 1) {
-          m.set(s[i].month, s[i].value / s[i - 1].value - 1);
-        }
-      }
+      const s = series[a]; const m = new Map();
+      for (let i = 1; i < s.length; i++) { if (monthsBetween(s[i - 1].month, s[i].month) === 1) m.set(s[i].month, s[i].value / s[i - 1].value - 1); }
       maps[a] = m;
     }
     const allMonths = [...maps[ids[0]].keys()].filter(m => ids.every(a => maps[a].has(m))).sort();
-    if (allMonths.length < 12) return null;
-    // Equal-weight index for drawdown detection
-    let eqPeak = 1, eqLevel = 1;
-    const isDDMonth = [];
-    let ddCount = 0;
-    for (const m of allMonths) {
-      const avgRet = ids.reduce((s, a) => s + maps[a].get(m), 0) / ids.length;
-      eqLevel *= (1 + avgRet);
-      eqPeak = Math.max(eqPeak, eqLevel);
-      isDDMonth.push(eqLevel < eqPeak * 0.999);
-      if (eqLevel < eqPeak * 0.999) ddCount++;
-    }
-    if (ddCount < 6) return null;
-    const ddReturns = {};
-    for (const a of ids) ddReturns[a] = allMonths.filter((_, i) => isDDMonth[i]).map(m => maps[a].get(m));
-    const pearson = (x, y) => {
-      const n = x.length; let sx=0,sy=0,sxy=0,sxx=0,syy=0;
-      for (let i=0;i<n;i++){sx+=x[i];sy+=y[i];sxy+=x[i]*y[i];sxx+=x[i]*x[i];syy+=y[i]*y[i];}
-      const num=n*sxy-sx*sy, den=Math.sqrt((n*sxx-sx*sx)*(n*syy-sy*sy));
-      return den>0?num/den:0;
-    };
-    // Build pairwise correlation matrix
-    const corr = {};
-    for (const a of ids) { corr[a] = {}; for (const b of ids) corr[a][b] = a === b ? 1 : pearson(ddReturns[a], ddReturns[b]); }
-    // Find the asset with the highest absolute return over the common period
-    const totalReturn = {};
-    for (const a of ids) {
-      let cumRet = 1;
-      for (const m of allMonths) cumRet *= (1 + maps[a].get(m));
-      totalReturn[a] = cumRet;
-    }
-    const topReturnIdx = ids.reduce((best, a, i) => totalReturn[a] > totalReturn[ids[best]] ? i : best, 0);
-    // Grid search: 5% steps (10% for >6 assets), find weights minimizing
-    // portfolio weighted correlation = sum_{i≠j} w_i * w_j * corr(i,j)
-    // Constraint: highest-return asset must have at least 1 step (5% or 10%)
+    if (allMonths.length < 12) return;
+    let eqPeak = 1, eqLevel = 1; const isDDMonth = []; let ddCount = 0;
+    for (const m of allMonths) { const avgRet = ids.reduce((s, a) => s + maps[a].get(m), 0) / ids.length; eqLevel *= (1 + avgRet); eqPeak = Math.max(eqPeak, eqLevel); isDDMonth.push(eqLevel < eqPeak * 0.999); if (eqLevel < eqPeak * 0.999) ddCount++; }
+    if (ddCount < 6) return;
+    const ddReturns = {}; for (const a of ids) ddReturns[a] = allMonths.filter((_, i) => isDDMonth[i]).map(m => maps[a].get(m));
+    const pearson = (x, y) => { const n = x.length; let sx=0,sy=0,sxy=0,sxx=0,syy=0; for (let i=0;i<n;i++){sx+=x[i];sy+=y[i];sxy+=x[i]*y[i];sxx+=x[i]*x[i];syy+=y[i]*y[i];} const num=n*sxy-sx*sy,den=Math.sqrt((n*sxx-sx*sx)*(n*syy-sy*sy)); return den>0?num/den:0; };
+    const corr = {}; for (const a of ids) { corr[a] = {}; for (const b of ids) corr[a][b] = a === b ? 1 : pearson(ddReturns[a], ddReturns[b]); }
+    // Grid search: fix current weights, distribute remaining in 5% steps
     const n = ids.length;
-    const STEP = n > 6 ? 10 : 5;
-    const STEPS = 100 / STEP;
-    let bestScore = Infinity, bestWeights = null;
-    const search = (idx, remaining, acc) => {
+    const STEP = 5;
+    const baseSteps = ids.map(a => Math.round((userWeights[a] || 0) / STEP));
+    const remSteps = Math.round(remaining / STEP);
+    let bestScore = Infinity, bestAdd = null;
+    const search = (idx, rem, acc) => {
       if (idx === n - 1) {
-        acc[idx] = remaining;
-        // Require at least 2 non-zero assets
-        let nonZero = 0;
-        for (let i = 0; i < n; i++) if (acc[i] > 0) nonZero++;
-        if (nonZero < 2) { acc[idx] = 0; return; }
-        // Require highest-return asset has at least 1 step
-        if (acc[topReturnIdx] < 1) { acc[idx] = 0; return; }
-        // Compute portfolio weighted correlation
+        acc[idx] = rem;
+        const total = baseSteps.map((b, i) => b + acc[i]);
+        const totalPct = total.reduce((s, v) => s + v, 0);
+        if (totalPct === 0) { acc[idx] = 0; return; }
         let score = 0;
-        for (let i = 0; i < n; i++) {
-          if (acc[i] === 0) continue;
-          for (let j = i + 1; j < n; j++) {
-            if (acc[j] === 0) continue;
-            score += (acc[i] / STEPS) * (acc[j] / STEPS) * corr[ids[i]][ids[j]];
-          }
-        }
-        if (score < bestScore) {
-          bestScore = score;
-          bestWeights = acc.slice();
-        }
-        acc[idx] = 0;
-        return;
+        for (let i = 0; i < n; i++) { if (total[i] === 0) continue; for (let j = i + 1; j < n; j++) { if (total[j] === 0) continue; score += (total[i] / totalPct) * (total[j] / totalPct) * corr[ids[i]][ids[j]]; } }
+        if (score < bestScore) { bestScore = score; bestAdd = acc.slice(); }
+        acc[idx] = 0; return;
       }
-      for (let v = 0; v <= remaining; v++) {
-        acc[idx] = v;
-        search(idx + 1, remaining - v, acc);
-      }
+      for (let v = 0; v <= rem; v++) { acc[idx] = v; search(idx + 1, rem - v, acc); }
       acc[idx] = 0;
     };
-    search(0, STEPS, new Array(n).fill(0));
-    if (!bestWeights) return null;
-    const weights = {};
+    search(0, remSteps, new Array(n).fill(0));
+    if (!bestAdd) return;
+    const newWeights = { ...userWeights };
     for (let i = 0; i < n; i++) {
-      const w = bestWeights[i] * STEP;
-      if (w > 0) weights[ids[i]] = w;
+      const add = bestAdd[i] * STEP;
+      if (add > 0) newWeights[ids[i]] = (newWeights[ids[i]] || 0) + add;
     }
-    return weights;
-  }, [series]);
-
-  const DEFAULT_USER_WEIGHTS = ddOptimalWeights || FALLBACK_USER_WEIGHTS;
-
-  // Auto-set weights from drawdown correlations on first data load
-  const ddWeightsApplied = useRef(false);
-  useEffect(() => {
-    if (ddOptimalWeights && !ddWeightsApplied.current) {
-      ddWeightsApplied.current = true;
-      setUserWeights(ddOptimalWeights);
-    }
-  }, [ddOptimalWeights]);
+    setUserWeights(newWeights);
+  };
 
   // ---- aggregated chart data (overlay unit prices) ----
   const chartData = useMemo(() => {
@@ -3159,7 +3102,11 @@ function App() {
                 setUserWeights(eq);
               }}>Equal weight all</button>
               <button className="btn btn-xs btn-ghost" onClick={() => { setUserWeights({}); setUserSMA({}); }}>Clear</button>
-              <button className="btn btn-xs btn-ghost" onClick={() => setUserWeights(DEFAULT_USER_WEIGHTS)}>Reset to default (assets with minimum correlation)</button>
+              <button className="btn btn-xs btn-ghost"
+                disabled={userWeightTotal >= 100}
+                style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
+                onClick={fillMinCorrelation}
+                title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
               <button className="btn btn-xs btn-ghost" disabled={!efResults?.winners?.combined}
                 style={{ opacity: efResults?.winners?.combined ? 1 : 0.4 }}
                 onClick={() => {

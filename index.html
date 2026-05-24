@@ -2482,8 +2482,9 @@ function App() {
         // Pairwise: UPI × gain
         const ug = Math.max(0, r.upi ?? 0) * Math.max(0, r.finalRatio - 1);
         if (ug > bugScore) { bug = r; bugScore = ug; }
-        // Combined: Sortino × UPI × gain
-        const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * Math.max(0, r.finalRatio - 1);
+        // Combined: (UPI×gain) × (Sortino×gain) = Sortino × UPI × gain²
+        const gain = Math.max(0, r.finalRatio - 1);
+        const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * gain * gain;
         if (cs > bcScore) { bc = r; bcScore = cs; }
         if (r.finalRatio > br.finalRatio) br = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
@@ -3122,7 +3123,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Risk-return ratio</strong> = Sortino × UPI × absolute gain. Maximizes the product of monthly downside-deviation-adjusted return (Sortino), drawdown-depth-and-duration-adjusted return (UPI), and total wealth growth — the allocation that scores high on all three simultaneously. Requires the Efficient Frontier section below to be calculated first.
+              * <strong>Risk-return ratio</strong> = (UPI × gain) × (Sortino × gain) = Sortino × UPI × gain². Squares the return component so the optimizer favors portfolios with strong absolute wealth growth while still requiring good risk-adjusted quality on both Sortino and UPI dimensions. Requires the Efficient Frontier section below to be calculated first.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3264,7 +3265,7 @@ function App() {
               const admissible = rows.filter(r => r.atHp && r.atHp.worstRealCAGR != null && r.atHp.worstRealCAGR >= 0);
               const winner = admissible.length
                 ? [...admissible].sort((a, b) => {
-                    const scoreOf = (r) => Math.max(0, r.sim.metrics.sortino ?? 0) * Math.max(0, r.sim.metrics.upi ?? 0) * Math.max(0, r.sim.finalValue / r.sim.totalInvested - 1);
+                    const scoreOf = (r) => { const g = Math.max(0, r.sim.finalValue / r.sim.totalInvested - 1); return Math.max(0, r.sim.metrics.sortino ?? 0) * Math.max(0, r.sim.metrics.upi ?? 0) * g * g; };
                     return scoreOf(b) - scoreOf(a);
                   })[0]
                 : null;
@@ -3585,7 +3586,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes Sortino × UPI × gain — simultaneously optimizing risk-adjusted quality (two complementary lenses) and absolute wealth.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes (UPI×gain) × (Sortino×gain) — simultaneously optimizing risk-adjusted quality and giving extra weight to absolute wealth growth.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3664,7 +3665,7 @@ function App() {
                             <th style={{ textAlign: "right" }}>Gain</th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("combined", "\u2b24 Recommended (Sortino\u00d7UPI\u00d7gain)", efResults.winners.combined, true)}
+                            {renderRow("combined", "\u2b24 Recommended ((UPI\u00d7gain)\u00d7(Sortino\u00d7gain))", efResults.winners.combined, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
                             {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}

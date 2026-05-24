@@ -1429,21 +1429,15 @@ function avgYearlyCAGR(unitPriceSeries) {
   return count > 0 ? sum / count : null;
 }
 
-// Integrated risk-return score: R × G / (D × U)
-// R = annualized unit-price return, G = total gain (money-weighted),
-// D = downside deviation (all months), U = ulcer index.
-// Two return factors (rate × magnitude) over two risk factors (volatility × drawdown pain).
-// G is unbounded — a 10× portfolio scores much higher than a 2× — giving absolute
-// return pull without artificial endpoint sensitivity from squaring.
+// Integrated risk-return score: R / (72 × D × U)
+// R / (72 × D × U): annualized return divided by scaling constant × risk.
+// Linear in return, quadratic in risk. 72 is cosmetic (Rule of 72).
 function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio) {
   if (!unitPriceSeries || unitPriceSeries.length < 13) return null;
   const n = unitPriceSeries.length - 1;
-  // R: annualized return
-  const R = Math.pow(unitPriceSeries[n] / unitPriceSeries[0], 12 / n) - 1;
+  // R: annualized return as percentage
+  const R = (Math.pow(unitPriceSeries[n] / unitPriceSeries[0], 12 / n) - 1) * 100;
   if (R <= 0) return null;
-  // G: total gain
-  const G = finalRatio - 1;
-  if (G <= 0) return null;
   // D: downside deviation (all months as denominator)
   const rets = [];
   for (let i = 1; i < unitPriceSeries.length; i++) rets.push(unitPriceSeries[i] / unitPriceSeries[i - 1] - 1);
@@ -1452,7 +1446,7 @@ function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio) {
   // U: ulcer index
   const U = Math.sqrt(ddSeries.reduce((s, dd) => s + dd * dd, 0) / ddSeries.length);
   if (U <= 0) return null;
-  return R * G / (D * U);
+  return 1 / ((72 / R) * D * U);
 }
 
 // ---------- Monte Carlo block bootstrap ----------
@@ -2538,7 +2532,7 @@ function App() {
         // Pairwise: avgCAGR × absolute return
         const ag = avg * gain;
         if (ag > bagScore) { bag = r; bagScore = ag; }
-        // Combined: R×G / (D×U) — integrated risk-return score
+        // Combined: R / (72×D×U) — integrated risk-return score
         const cs = r.irrScore ?? -Infinity;
         if (cs > bcScore) { bc = r; bcScore = cs; }
         if (r.finalRatio > br.finalRatio) br = r;
@@ -3178,7 +3172,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Risk-return ratio</strong> = R×G / (D×U). R = annualized unit-price return, G = total gain (money-weighted), D = downside deviation (all months), U = ulcer index (√mean(dd²)). Two return factors (rate × magnitude) divided by two risk factors (downside volatility × drawdown pain). G is unbounded — a 10× portfolio scores far higher than a 2× — giving strong absolute return weighting without multiplying by external return metrics. Unlike Sortino×UPI (which is R²/(D×U)), this replaces one R with G, breaking the symmetry between rate-of-return and total-wealth dimensions. Requires the Efficient Frontier section below to be calculated first.
+              * <strong>Risk-return ratio</strong> = R / (72 × D × U). R = annualized return (%), D = downside deviation, U = ulcer index. Linear in return, quadratic in risk. The 72 is a scaling constant (Rule of 72) that does not affect rankings. Requires the Efficient Frontier section below to be calculated first.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3331,7 +3325,7 @@ function App() {
                       <div className="lbl">Real-admissible @ {hp}y · best risk-return ratio</div>
                       <div className="val">{winner ? getPF(winner.pid).name : "— none admissible —"}</div>
                       <div className="sub mono">{winner
-                        ? `R\u00d7G/D\u00d7U ${fmtNum(integratedRiskReturn(winner.sim.unitPriceSeries, winner.sim.ddSeries, winner.sim.finalValue / winner.sim.totalInvested) ?? 0, 1)} \u00b7 Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 gain ${fmtPct(winner.sim.finalValue / winner.sim.totalInvested - 1)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
+                        ? `R/72\u00d7D\u00d7U ${fmtNum(integratedRiskReturn(winner.sim.unitPriceSeries, winner.sim.ddSeries, winner.sim.finalValue / winner.sim.totalInvested) ?? 0, 1)} \u00b7 Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 gain ${fmtPct(winner.sim.finalValue / winner.sim.totalInvested - 1)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
                         : "no portfolio keeps real value at this horizon under worst-window or MC paths"
                       }</div>
                     </div>
@@ -3641,7 +3635,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes R×G / (D×U) — annualized return × total gain, divided by downside deviation × ulcer index. Two return factors over two risk factors, with G unbounded for absolute return pull.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes R / (72×D×U) — annualized return divided by downside deviation × ulcer index. Linear in return, quadratic in risk.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3723,10 +3717,10 @@ function App() {
                             <th style={{ textAlign: "right" }}>Avg. CAGR</th>
                             <th style={{ textAlign: "right" }}>Max DD</th>
                             <th style={{ textAlign: "right" }}>Gain</th>
-                            <th style={{ textAlign: "right" }}>R×G/D×U</th>
+                            <th style={{ textAlign: "right" }}>R/72·D·U</th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("combined", "\u2b24 Recommended (R\u00d7G / D\u00d7U)", efResults.winners.combined, true)}
+                            {renderRow("combined", "\u2b24 Recommended (R / 72\u00d7D\u00d7U)", efResults.winners.combined, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
                             {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure)}

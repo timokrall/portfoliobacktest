@@ -983,11 +983,12 @@ function simulatePortfolio(state) {
 
   const finalValue = valueSeries[valueSeries.length - 1];
   const finalGoldWeight = goldWeightSeries[goldWeightSeries.length - 1];
+  const upi = computeUPI(ddSeries, unitPriceSeries, months, ecbChanges);
 
   return {
     months, unitPriceSeries, valueSeries, ddSeries, goldWeightSeries,
     totalInvested, finalValue, finalGoldWeight,
-    metrics: { sortino, maxDD, monthsBelow30, monthlyRets, n: monthlyRets.length },
+    metrics: { sortino, upi, maxDD, monthsBelow30, monthlyRets, n: monthlyRets.length },
     taxLog,
   };
 }
@@ -996,7 +997,7 @@ function simulatePortfolio(state) {
 // We need to instead precompute per-asset price history BEFORE the loop and reference it.
 // Let me rewrite simulatePortfolio to PRECOMPUTE prices.
 function simulatePortfolioV2(state) {
-  const { portfolio, targetGoldPct, data, seriesType, ongoingCost, spreads, orderFee, tax, starting, monthly, rebalance, rebalanceFlags } = state;
+  const { portfolio, targetGoldPct, data, seriesType, ongoingCost, spreads, orderFee, tax, starting, monthly, rebalance, rebalanceFlags, ecbChanges } = state;
   const assets = portfolio.assets;
   const months = data[assets[0]].map(r => r.month);
   const N = months.length;
@@ -1357,17 +1358,47 @@ function simulatePortfolioV2(state) {
     if (dd < -0.30) monthsBelow30++;
   }
 
+  const upi = computeUPI(ddSeries, unitPriceSeries, months, ecbChanges);
+
   return {
     months, unitPriceSeries, valueSeries, ddSeries, goldWeightSeries,
     totalInvested, finalValue: valueSeries[valueSeries.length - 1],
     finalGoldWeight: goldWeightSeries[goldWeightSeries.length - 1],
-    metrics: { sortino, maxDD, monthsBelow30, monthlyRets, n: monthlyRets.length },
+    metrics: { sortino, upi, maxDD, monthsBelow30, monthlyRets, n: monthlyRets.length },
     taxLog,
   };
 }
 
 // Use V2 in production
 const runSim = simulatePortfolioV2;
+
+// Ulcer Performance Index — measures risk-adjusted return penalizing both
+// drawdown depth and duration. UI = sqrt(mean(dd²)), UPI = (ann.return - rf) / UI.
+// ddSeries: fractional drawdowns from peak (e.g. -0.20 = 20% below peak).
+// months: month keys array. ecbChanges: ECB rate step-function for risk-free rate.
+function computeUPI(ddSeries, unitPriceSeries, months, ecbChanges) {
+  if (!ddSeries || ddSeries.length < 2 || !unitPriceSeries || unitPriceSeries.length < 2) return null;
+  // Ulcer Index (fractional)
+  const sumSqDD = ddSeries.reduce((s, d) => s + d * d, 0);
+  const ulcerIndex = Math.sqrt(sumSqDD / ddSeries.length);
+  if (ulcerIndex <= 0) return null;
+  // Annualized return (fractional)
+  const n = unitPriceSeries.length - 1; // number of monthly periods
+  const totalReturn = unitPriceSeries[n] / unitPriceSeries[0];
+  const annReturn = Math.pow(totalReturn, 12 / n) - 1;
+  // Average risk-free rate over the period (fractional)
+  let rf = 0;
+  if (ecbChanges && ecbChanges.length > 0 && months && months.length > 0) {
+    let sum = 0;
+    for (const mk of months) {
+      const t = Date.parse(mk + "-15"); // mid-month
+      const rate = ecbRateAt(ecbChanges, t);
+      sum += Math.max(0, rate != null ? rate / 100 : 0); // floor at 0, convert to fraction
+    }
+    rf = sum / months.length;
+  }
+  return (annReturn - rf) / ulcerIndex;
+}
 
 // ---------- Monte Carlo block bootstrap ----------
 function monteCarloMaxDD(monthlyRets, horizonMonths, blockLen, nPaths, seed = 1) {
@@ -2171,6 +2202,7 @@ function App() {
         seriesType: effectiveType, ongoingCost, spreads, orderFee,
         tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
         starting, monthly, rebalance,
+        ecbChanges: series.ecb || null,
         // For the user portfolio, pass per-asset rebalance flags. The engine
         // then ignores the legacy `rebalance` string and runs annually only
         // for assets whose flag is true. For predefined portfolios this stays
@@ -2183,7 +2215,7 @@ function App() {
       }
     }
     return out;
-  }, [commonWindow, perPortfolioWindow, pfAssetSeries, selectedPortfolios, goldWeights, seriesType, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData, ownNativeHistory, portfolioTiming, userRebalance]);
+  }, [commonWindow, perPortfolioWindow, pfAssetSeries, selectedPortfolios, goldWeights, seriesType, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, buildPortfolioData, ownNativeHistory, portfolioTiming, userRebalance, series.ecb]);
 
   // ---- optimal gold sweep per two-asset portfolio (in-sample) ----
   const [sweepResults, setSweepResults] = useState({});
@@ -2345,6 +2377,7 @@ function App() {
           seriesType: effSeriesType, ongoingCost, spreads, orderFee,
           tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
           starting, monthly, rebalance,
+          ecbChanges: series.ecb || null,
         });
         if (!r || !r.metrics) continue;
         let hStar = null;
@@ -2366,6 +2399,7 @@ function App() {
         results.push({
           weights: wv,
           sortino: r.metrics.sortino,
+          upi: r.metrics.upi,
           maxDD: r.metrics.maxDD,
           finalRatio: r.finalValue / r.totalInvested,
           finalValue: r.finalValue,
@@ -2390,6 +2424,7 @@ function App() {
             ongoingCost, spreads, orderFee,
             tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
             starting, monthly, rebalance,
+            ecbChanges: series.ecb || null,
           });
           if (!r || !r.metrics) continue;
           let hStar = null;
@@ -2410,7 +2445,7 @@ function App() {
           }
           benchResults.push({
             label: bm.label, assetId: bm.assetId,
-            sortino: r.metrics.sortino, maxDD: r.metrics.maxDD,
+            sortino: r.metrics.sortino, upi: r.metrics.upi, maxDD: r.metrics.maxDD,
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
             hStar,
@@ -2463,6 +2498,7 @@ function App() {
             portfolio: pf, targetGoldPct: pct / 100, data, seriesType: effectiveType, ongoingCost, spreads, orderFee,
             tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
             starting, monthly, rebalance,
+            ecbChanges: series.ecb || null,
           };
           const r = runSim(state);
           if (!r || !r.metrics) continue;
@@ -2488,7 +2524,7 @@ function App() {
               }
             }
           }
-          samples.push({ w: pct, sortino: s, finalValue: r.finalValue, maxDD: r.metrics.maxDD, realCurve });
+          samples.push({ w: pct, sortino: s, upi: r.metrics.upi, finalValue: r.finalValue, maxDD: r.metrics.maxDD, realCurve });
         }
 
         // w_safe(h), w_return(h)
@@ -2957,6 +2993,16 @@ function App() {
                 });
                 setUserWeights(scaled);
               }}>Normalize to 100</button>
+              <button className="btn btn-xs" onClick={() => {
+                const holdable = ASSETS.filter(a => a.holdable);
+                const n = holdable.length;
+                if (n === 0) return;
+                const base = Math.floor(100 / n);
+                let remainder = 100 - base * n;
+                const eq = {};
+                for (const a of holdable) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
+                setUserWeights(eq);
+              }}>Equal weight all</button>
               <button className="btn btn-xs btn-ghost" onClick={() => { setUserWeights({}); setUserSMA({}); }}>Clear</button>
               <button className="btn btn-xs btn-ghost" onClick={() => setUserWeights(DEFAULT_USER_WEIGHTS)}>Reset to default</button>
               <span style={{ flex: 1 }}></span>
@@ -3165,6 +3211,7 @@ function App() {
                   <th style={{ textAlign: "right" }}>Target gold</th>
                   <th style={{ textAlign: "right" }}>Final gold</th>
                   <th style={{ textAlign: "right" }}>Sortino</th>
+                  <th style={{ textAlign: "right" }}>UPI</th>
                   <th style={{ textAlign: "right" }}>Max DD</th>
                   <th style={{ textAlign: "right" }}>Months &lt;−30%</th>
                   <th style={{ textAlign: "right" }}>Total invested</th>
@@ -3186,6 +3233,7 @@ function App() {
                         <td className="num" style={{ textAlign: "right" }}>{tg == null ? "—" : tg + "%"}</td>
                         <td className="num" style={{ textAlign: "right" }}>{fg == null ? "—" : fmtNum(fg, 1) + "%"}</td>
                         <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.metrics.sortino, 3)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.metrics.upi, 3)}</td>
                         <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.metrics.maxDD)}</td>
                         <td className="num" style={{ textAlign: "right" }}>{r.metrics.monthsBelow30}</td>
                         <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.totalInvested)}</td>
@@ -3502,6 +3550,7 @@ function App() {
                             <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
                             <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
                             <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.upi, 3)}</td>
                             <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
                             <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
                           </tr>
@@ -3510,7 +3559,7 @@ function App() {
                           if (!bm) return null;
                           // Synthesize a weights-display: 100% of bm.assetId.
                           const fakeRow = {
-                            weights: [1], hStar: bm.hStar, sortino: bm.sortino,
+                            weights: [1], hStar: bm.hStar, sortino: bm.sortino, upi: bm.upi,
                             maxDD: bm.maxDD, finalRatio: bm.finalRatio,
                           };
                           const meta = ASSETS.find(x => x.id === bm.assetId);
@@ -3521,6 +3570,7 @@ function App() {
                               <td className="mono" style={{ fontSize: 11 }}>{shortLabel} 100%</td>
                               <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "—"}</td>
                               <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.sortino, 3)}</td>
+                              <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.upi, 3)}</td>
                               <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
                               <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
                             </tr>
@@ -3538,6 +3588,7 @@ function App() {
                                   <th>Composition</th>
                                   <th style={{ textAlign: "right" }}>h*</th>
                                   <th style={{ textAlign: "right" }}>Sortino</th>
+                                  <th style={{ textAlign: "right" }}>UPI</th>
                                   <th style={{ textAlign: "right" }}>Max DD</th>
                                   <th style={{ textAlign: "right" }}>Gain</th>
                                 </tr></thead>
@@ -3557,6 +3608,7 @@ function App() {
                                   <th>Composition</th>
                                   <th style={{ textAlign: "right" }}>h*</th>
                                   <th style={{ textAlign: "right" }}>Sortino</th>
+                                  <th style={{ textAlign: "right" }}>UPI</th>
                                   <th style={{ textAlign: "right" }}>Max DD</th>
                                   <th style={{ textAlign: "right" }}>Gain</th>
                                 </tr></thead>
@@ -3605,6 +3657,7 @@ function App() {
         <div className="panel-h"><h2>Definitions · Assumptions · Caveats</h2></div>
         <div className="panel-body footnote">
           <p><strong>Sortino ratio</strong> — annualized: mean monthly unit-price return ÷ monthly downside deviation × √12. MAR (minimum acceptable return) is 0. Downside deviation = √(Σ min(r,0)² / k), k = count of months in the series (using k matches Sortino's original definition; some toolkits use only downside-month count — we follow the original).</p>
+          <p><strong>Ulcer Performance Index (UPI)</strong> — (Martin &amp; McCann, 1989): UPI = (annualized return − risk-free rate) ÷ Ulcer Index. Ulcer Index = √(mean(dd²)) where dd is each month's fractional drawdown from peak. Unlike Sortino, UPI penalizes both drawdown <em>depth</em> and <em>duration</em> — a prolonged underwater period produces many non-zero dd values, each squaring into the index. Risk-free rate is the average ECB Deposit Facility Rate (floored at 0%) across the backtest window. Higher UPI = better risk-adjusted return per unit of drawdown pain.</p>
           <p><strong>Maximum drawdown</strong> — max peak-to-trough decline of the <em>unit-price</em> series. Months &lt;−30% count months whose drawdown from the running peak is worse than −30%. <strong>Unit price</strong> is contribution-neutral: contributions and matured-gold rebalances issue/redeem units at NAV and do not move price; ongoing-cost drag and Vorabpauschale tax do move price.</p>
           <p><strong>Money-weighted return</strong> — final EUR value ÷ total EUR invested (starting + contributions). This is what your account number actually shows; the unit-price series is the cleanly-comparable risk surface.</p>
           <p><strong>Gold lots, Spekulationsfrist (§23 EStG)</strong> — every gold buy creates a lot. Lots become CGT-free 12 months after purchase. The month-0 starting gold lot is backdated as already-matured. At a rebalance, gold sells only matured lots, FIFO. Equity (coIQ / momentum / market) is never sold. A rebalance is therefore <em>partial</em> whenever matured gold &lt; the amount needed — the portfolio is allowed to remain overweight gold. This mirrors the real one-way constraint.</p>

@@ -1429,23 +1429,31 @@ function avgYearlyCAGR(unitPriceSeries) {
   return count > 0 ? sum / count : null;
 }
 
-// Integrated risk-return score: R⁵ / (D × U)
-// Quintic return over quadratic risk — very strong return pressure.
-function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio) {
-  if (!unitPriceSeries || unitPriceSeries.length < 13) return null;
-  const n = unitPriceSeries.length - 1;
-  // R: annualized return (fractional)
-  const R = Math.pow(unitPriceSeries[n] / unitPriceSeries[0], 12 / n) - 1;
-  if (R <= 0) return null;
-  // D: downside deviation (all months as denominator)
-  const rets = [];
-  for (let i = 1; i < unitPriceSeries.length; i++) rets.push(unitPriceSeries[i] / unitPriceSeries[i - 1] - 1);
-  const D = Math.sqrt(rets.reduce((s, r) => s + Math.pow(Math.min(0, r), 2), 0) / rets.length);
-  if (D <= 0) return null;
-  // U: ulcer index
-  const U = Math.sqrt(ddSeries.reduce((s, dd) => s + dd * dd, 0) / ddSeries.length);
-  if (U <= 0) return null;
-  return Math.pow(R, 5) / (D * U);
+// Integrated risk-return score: excess area over ECB rate.
+// For each month, compare portfolio unit price vs what €1 earns at the ECB DFR.
+// Score = (∫ area_above − ∫ area_below) / years.
+// Rewards portfolios that stay above the risk-free alternative consistently —
+// drawdowns that dip below the ECB line hurt for every month they persist.
+function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, ecbChanges) {
+  if (!unitPriceSeries || unitPriceSeries.length < 13 || !months) return null;
+  const n = unitPriceSeries.length;
+  const p0 = unitPriceSeries[0];
+  if (p0 <= 0) return null;
+  // Build ECB accumulation curve (€1 compounding at DFR monthly)
+  const ecbCurve = [1];
+  for (let i = 1; i < n; i++) {
+    const t = Date.parse(months[i] + "-15");
+    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+    const monthlyRate = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+    ecbCurve.push(ecbCurve[i - 1] * (1 + monthlyRate));
+  }
+  // Normalized portfolio curve (start at 1)
+  let excessSum = 0;
+  for (let i = 0; i < n; i++) {
+    excessSum += (unitPriceSeries[i] / p0) - ecbCurve[i];
+  }
+  const years = (n - 1) / 12;
+  return years > 0 ? excessSum / years : null;
 }
 
 // ---------- Monte Carlo block bootstrap ----------
@@ -2415,7 +2423,7 @@ function App() {
         });
         if (!r || !r.metrics) continue;
         const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
-        const irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested);
+        const irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.ecb);
         results.push({
           weights: wv,
           sortino: r.metrics.sortino,
@@ -2455,7 +2463,7 @@ function App() {
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
             avgCAGR: avgYearlyCAGR(r.unitPriceSeries),
-            irrScore: integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested),
+            irrScore: integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.ecb),
             hStar: null, _unitPrice: r.unitPriceSeries,
           });
         }
@@ -2531,7 +2539,7 @@ function App() {
         // Pairwise: avgCAGR × absolute return
         const ag = avg * gain;
         if (ag > bagScore) { bag = r; bagScore = ag; }
-        // Combined: R⁵ / (D×U) — integrated risk-return score
+        // Combined: excess area over ECB — integrated risk-return score
         const cs = r.irrScore ?? -Infinity;
         if (cs > bcScore) { bc = r; bcScore = cs; }
         if (r.finalRatio > br.finalRatio) br = r;
@@ -3171,7 +3179,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Risk-return ratio</strong> = R⁵ / (D × U). R = annualized return (fractional), D = downside deviation, U = ulcer index. Quintic in return, quadratic in risk — very strong return pressure while both risk dimensions retain full weight. Requires the Efficient Frontier section below to be calculated first.
+              * <strong>Risk-return ratio</strong> = (∫ area above ECB − ∫ area below ECB) / years. Compares the portfolio unit-price curve against a €1 deposit compounding at the ECB DFR. Every month the portfolio is above the deposit earns credit; every month below costs. Rewards consistent outperformance — drawdowns that dip below the risk-free line hurt for every month they persist. Requires the Efficient Frontier section below to be calculated first.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3313,7 +3321,7 @@ function App() {
               const admissible = rows.filter(r => r.atHp && r.atHp.worstRealCAGR != null && r.atHp.worstRealCAGR >= 0);
               const winner = admissible.length
                 ? [...admissible].sort((a, b) => {
-                    const scoreOf = (r) => integratedRiskReturn(r.sim.unitPriceSeries, r.sim.ddSeries, r.sim.finalValue / r.sim.totalInvested) ?? -Infinity;
+                    const scoreOf = (r) => integratedRiskReturn(r.sim.unitPriceSeries, r.sim.ddSeries, r.sim.finalValue / r.sim.totalInvested, r.sim.months, series.ecb) ?? -Infinity;
                     return scoreOf(b) - scoreOf(a);
                   })[0]
                 : null;
@@ -3324,7 +3332,7 @@ function App() {
                       <div className="lbl">Real-admissible @ {hp}y · best risk-return ratio</div>
                       <div className="val">{winner ? getPF(winner.pid).name : "— none admissible —"}</div>
                       <div className="sub mono">{winner
-                        ? `R\u00b3/D\u00d7U ${fmtNum(integratedRiskReturn(winner.sim.unitPriceSeries, winner.sim.ddSeries, winner.sim.finalValue / winner.sim.totalInvested) ?? 0, 1)} \u00b7 Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 gain ${fmtPct(winner.sim.finalValue / winner.sim.totalInvested - 1)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
+                        ? `R\u00b3/D\u00d7U ${fmtNum(integratedRiskReturn(winner.sim.unitPriceSeries, winner.sim.ddSeries, winner.sim.finalValue / winner.sim.totalInvested, winner.sim.months, series.ecb) ?? 0, 1)} \u00b7 Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 gain ${fmtPct(winner.sim.finalValue / winner.sim.totalInvested - 1)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
                         : "no portfolio keeps real value at this horizon under worst-window or MC paths"
                       }</div>
                     </div>
@@ -3634,7 +3642,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes R⁵ / (D×U) — annualized return to the 5th power, divided by downside deviation × ulcer index. 5:2 return-to-risk ratio.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes excess area over ECB — the integral of portfolio value above the risk-free deposit, minus the integral below, per year.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3716,7 +3724,7 @@ function App() {
                             <th style={{ textAlign: "right" }}>Avg. CAGR</th>
                             <th style={{ textAlign: "right" }}>Max DD</th>
                             <th style={{ textAlign: "right" }}>Gain</th>
-                            <th style={{ textAlign: "right" }}>R⁵/D·U</th>
+                            <th style={{ textAlign: "right" }}>Excess area</th>
                           </tr></thead>
                           <tbody>
                             {renderRow("combined", "\u2b24 Recommended (R\u00b3 / D\u00d7U)", efResults.winners.combined, true)}

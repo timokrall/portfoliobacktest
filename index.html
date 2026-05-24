@@ -171,7 +171,7 @@
   .pf-row .pf-include .pf-name { flex: none; }
 
   /* basiszins editor */
-  .bz-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .bz-grid { display:grid; grid-template-columns: repeat(6, 1fr); gap: 8px; max-height: 260px; overflow-y: auto; }
   .bz-grid label { display:flex; flex-direction:column; gap: 3px; font-size: 10.5px; color: var(--ink-mute);}
   .bz-grid input { padding: 5px 7px; }
 
@@ -224,7 +224,20 @@ const monthsBetween = (a, b) => { const A = monthKeyToYM(a), B = monthKeyToYM(b)
 // ---------- ECB rate parser ----------
 // ECB SDW "changes-only" CSV: DATE, "TIME PERIOD", level%. Some users export
 // just date,value. We accept both shapes. Output: sorted [{t: epoch_ms, rate: pct}].
+// If the value column header contains "lending" (marginal lending facility), rates
+// are converted to estimated deposit-facility rates by subtracting the corridor
+// gap (0.75 pp — the dominant MLF−DFR spread for 2019–Sep 2024).
+const MLF_DFR_GAP = 0.75;
+
 function parseEcbRateChanges(text) {
+  // Pre-process: ECB SDW sometimes exports rows wrapped in outer quotes with
+  // doubled inner quotes (e.g. "DATE,""TIME PERIOD"",""value"""). Detect this
+  // pattern and unwrap before parsing.
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length > 1 && lines[0].startsWith('"') && lines[0].endsWith('"') &&
+      lines[0].includes('""')) {
+    text = lines.map(l => l.replace(/^"|"$/g, '').replace(/""/g, '"')).join('\n');
+  }
   const out = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, dynamicTyping: false });
   // If headers are weird (no "DATE" col), fall back to header-less parse.
   let rows = out.data;
@@ -241,18 +254,22 @@ function parseEcbRateChanges(text) {
     valCol = cols[cols.length - 1];
   }
   if (!dateCol || !valCol) throw new Error("ECB CSV: need date + rate columns");
+  // Detect marginal lending facility data → convert to deposit facility rate
+  const isMLF = /lending/i.test(valCol);
   const pts = [];
   for (const r of rows) {
     const ds = (r[dateCol] || "").toString().trim();
     const vs = (r[valCol] || "").toString().replace(/[,"]/g, ".").trim();
     if (!ds || !vs) continue;
     const t = Date.parse(ds);
-    const v = parseFloat(vs.replace(/\.\./g, "."));
+    let v = parseFloat(vs.replace(/\.\./g, "."));
     if (!isFinite(t) || !isFinite(v)) continue;
+    if (isMLF) v = v - MLF_DFR_GAP;  // MLF → estimated DFR
     pts.push({ t, rate: v });
   }
   if (pts.length === 0) throw new Error("ECB CSV: no rows parsed");
   pts.sort((a, b) => a.t - b.t);
+  if (isMLF) console.log(`ECB CSV: detected marginal lending facility data — subtracted ${MLF_DFR_GAP}pp to estimate deposit facility rate (${pts.length} points)`);
   return pts;
 }
 
@@ -268,6 +285,26 @@ function ecbRateAt(changes, t) {
     else hi = mid - 1;
   }
   return ans >= 0 ? changes[ans].rate : null;
+}
+
+// Derive a yearly Basiszins table from ECB rate changes.
+// For each year, takes the ECB rate in effect on Jan 1. For years 2018+,
+// the hardcoded BMF-published values are kept as authoritative overrides;
+// for earlier years the ECB rate is used directly as a proxy.
+function deriveBasiszinsFromEcb(ecbChanges) {
+  if (!ecbChanges || ecbChanges.length === 0) return {};
+  const firstYear = new Date(ecbChanges[0].t).getFullYear();
+  const lastYear = new Date(ecbChanges[ecbChanges.length - 1].t).getFullYear() + 1;
+  const startYear = Math.min(firstYear, 1990);
+  const endYear = Math.max(lastYear, new Date().getFullYear() + 1);
+  const out = {};
+  for (let y = startYear; y <= endYear; y++) {
+    const jan1 = Date.parse(`${y}-01-01`);
+    const rate = ecbRateAt(ecbChanges, jan1);
+    // Use rate directly; 0 for years before first ECB change
+    out[y] = rate != null ? Math.round(rate * 100) / 100 : 0;
+  }
+  return out;
 }
 
 // ---------- CSV parse + monthly resample ----------
@@ -404,7 +441,7 @@ const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "Germ
 // ECB SDW also includes a "TIME PERIOD" middle column we just ignore.
 // At any date, the active rate is the LAST change with date ≤ that date.
 // During SMA cash periods we earn max(rate, 0) on the synthetic risk leg.
-const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Deposit Facility Rate (changes-only)", isin: "ECB:DFR", note: "step function: each row is a rate change. Used as time-varying cash rate during SMA cash periods. Min earned = 0%." };
+const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Rate (changes-only; MLF auto-converted to DFR −0.75pp)", isin: "ECB:DFR", note: "step function: each row is a rate change. If header contains 'lending', rates are auto-converted from marginal lending facility to estimated deposit facility (−0.75pp). Used as time-varying cash rate during SMA cash periods. Min earned = 0%." };
 
 const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
@@ -751,10 +788,10 @@ function simulatePortfolio(state) {
       unitPrice = unitPrice * ratio;
     }
 
-    // 5a. January: apply prior year's Vorabpauschale tax (for years >= 2018)
-    if (curMonth === 0 && curYear >= 2019) {
+    // 5a. January: apply prior year's Vorabpauschale tax
+    if (curMonth === 0 && curYear >= 2) {
       const Yprev = curYear - 1;
-      if (Yprev >= 2018 && tax.basiszins[Yprev] != null) {
+      if (tax.basiszins[Yprev] != null && tax.basiszins[Yprev] > 0) {
         const basisRaw = (tax.basiszins[Yprev] / 100);
         let totalTaxable = 0;
         const perAssetVPTaxable = {};
@@ -1133,10 +1170,10 @@ function simulatePortfolioV2(state) {
     const prevValue = valueSeries[i - 1];
     if (prevValue > 0) unitPrice = unitPrice * (valuePost / prevValue);
 
-    // 5a. January: apply prior year's Vorabpauschale (years >= 2019 settle 2018+)
-    if (curMonth === 0 && curYear >= 2019) {
+    // 5a. January: apply prior year's Vorabpauschale
+    if (curMonth === 0 && curYear >= 2) {
       const Yprev = curYear - 1;
-      if (Yprev >= 2018 && tax.basiszins[Yprev] != null) {
+      if (tax.basiszins[Yprev] != null && tax.basiszins[Yprev] > 0) {
         const basisRaw = (tax.basiszins[Yprev] / 100);
         const yStartIdx = yearStartMonthIdx[Yprev];
         let yEndIdx = -1;
@@ -1810,6 +1847,23 @@ function App() {
     // eslint-disable-next-line
   }, [storage.signedIn]);
 
+  // Derive Basiszins from ECB rate data whenever ECB series changes.
+  // BMF-published values for 2018+ are authoritative overrides.
+  useEffect(() => {
+    if (!series.ecb || series.ecb.length === 0) return;
+    const derived = deriveBasiszinsFromEcb(series.ecb);
+    setBasiszins(prev => {
+      const merged = { ...derived };
+      // Keep BMF-published values for 2018+ as overrides
+      for (const [y, v] of Object.entries(DEFAULT_BASISZINS)) merged[y] = v;
+      // Keep any manual user overrides already in state
+      for (const [y, v] of Object.entries(prev)) {
+        if (Number(y) >= 2018) merged[y] = v;
+      }
+      return merged;
+    });
+  }, [series.ecb]);
+
   const handleSave = async () => { await storage.save(collectState()); };
 
   // ---- CSV handling ----
@@ -2014,6 +2068,15 @@ function App() {
   }, [selectedPortfolios, portfolioTiming, userSMA, seriesDaily, series, cashRate, ecbRate, spreads, orderFee, taxRate, teilfreistellung, getPF, series.ecb]);
 
   // ---- per-portfolio windows (each portfolio's own intersection) ----------
+  // If ECB rate data is loaded, constrain the backtest window to start no
+  // earlier than the first ECB data point (price data before that is still
+  // used for 200-day SMA warmup, but the simulated NAV begins at ECB start).
+  const ecbFloorMonth = useMemo(() => {
+    if (!series.ecb || series.ecb.length === 0) return null;
+    const d = new Date(series.ecb[0].t);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, [series.ecb]);
+
   const perPortfolioWindow = useMemo(() => {
     const out = {};
     for (const pid of selectedPortfolios) {
@@ -2027,12 +2090,14 @@ function App() {
         continue;
       }
       const sets = arrs.map(a => new Set(a.map(r => r.month)));
-      const all = [...sets[0]].filter(m => sets.every(s => s.has(m))).sort();
+      let all = [...sets[0]].filter(m => sets.every(s => s.has(m))).sort();
+      // Apply ECB floor: no backtest month before ECB data begins
+      if (ecbFloorMonth) all = all.filter(m => m >= ecbFloorMonth);
       if (all.length < 12) { out[pid] = { ok: false, tooShort: true, n: all.length }; continue; }
       out[pid] = { ok: true, months: all, start: all[0], end: all[all.length - 1] };
     }
     return out;
-  }, [selectedPortfolios, pfAssetSeries]);
+  }, [selectedPortfolios, pfAssetSeries, ecbFloorMonth]);
 
   // ---- common window (intersection across portfolios OR per-portfolio when
   //      ownNativeHistory is ON) -----------------------------------------------
@@ -2937,7 +3002,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>4 · Taxes</h2><span className="h-meta">German CGT · Vorabpauschale (2018+)</span></div>
+          <div className="panel-h"><h2>4 · Taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span></div>
           <div className="panel-body">
             <div className="grid grid-3" style={{ gap: 12 }}>
               <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />
@@ -2953,14 +3018,14 @@ function App() {
               })}
             </div>
             <details className="fold" style={{ marginTop: 14 }} open>
-              <summary>Basiszins table (BMF, %/yr) — used for Basisertrag</summary>
+              <summary>Basiszins table (%/yr) — used for Basisertrag</summary>
               <div className="bz-grid" style={{ marginTop: 8 }}>
                 {Object.keys(basiszins).sort().map(y =>
                   <label key={y}><span>{y}</span>
                     <input type="number" step="0.01" value={basiszins[y]} onChange={e => setBasiszins(b => ({ ...b, [y]: +e.target.value }))} />
                   </label>)}
               </div>
-              <div className="small-note">Basiszins values come from the BMF annual letter (Jan publication). 0 means no Vorabpauschale for that year. Gold (EUWAX Gold II) is an <em>Inhaberschuldverschreibung</em>, not a fund, and is exempt from Vorabpauschale and Teilfreistellung — taxed only on sale via §23 EStG (Spekulationsfrist 12 months). Pre-2018 fund-level taxation is not modelled.</div>
+              <div className="small-note">2018+ values are BMF-published (Jan letter). Pre-2018 values are derived from the ECB rate at Jan 1 of each year (proxy — actual Basiszins was not defined under the old InvStG). 0 means no Vorabpauschale for that year. Gold (EUWAX Gold II) is an <em>Inhaberschuldverschreibung</em>, not a fund, and is exempt from Vorabpauschale and Teilfreistellung — taxed only on sale via §23 EStG (Spekulationsfrist 12 months).</div>
             </details>
           </div>
         </div>
@@ -3520,8 +3585,8 @@ function App() {
           <p><strong>Maximum drawdown</strong> — max peak-to-trough decline of the <em>unit-price</em> series. Months &lt;−30% count months whose drawdown from the running peak is worse than −30%. <strong>Unit price</strong> is contribution-neutral: contributions and matured-gold rebalances issue/redeem units at NAV and do not move price; ongoing-cost drag and Vorabpauschale tax do move price.</p>
           <p><strong>Money-weighted return</strong> — final EUR value ÷ total EUR invested (starting + contributions). This is what your account number actually shows; the unit-price series is the cleanly-comparable risk surface.</p>
           <p><strong>Gold lots, Spekulationsfrist (§23 EStG)</strong> — every gold buy creates a lot. Lots become CGT-free 12 months after purchase. The month-0 starting gold lot is backdated as already-matured. At a rebalance, gold sells only matured lots, FIFO. Equity (coIQ / momentum / market) is never sold. A rebalance is therefore <em>partial</em> whenever matured gold &lt; the amount needed — the portfolio is allowed to remain overweight gold. This mirrors the real one-way constraint.</p>
-          <p><strong>Vorabpauschale</strong> — for each calendar year Y ≥ 2018 and each equity lot: <code>Basisertrag = startValue × Basiszins(Y) × 0.70</code>; <code>Vorabpauschale = max(0, min(Basisertrag, endValue − startValue))</code>; intra-year lots are prorated by (12 − monthsBeforeAcq)/12; <code>taxable = VP × (1 − Teilfreistellung)</code>. Summed across equity lots, allowance is subtracted, the remainder is taxed at the CGT rate, and the cash is pulled from the generating equity holding in <em>January</em> of year Y+1. This flows through the unit price like a cost.</p>
-          <p><strong>Gold tax treatment</strong> — EUWAX Gold II is an Inhaberschuldverschreibung, not a fund: no Vorabpauschale, no Teilfreistellung. Modelled here only via the §23 12-month rule on actual sales. Pre-2018 fund taxation regime is <em>not modelled</em> (legacy InvStG / equity ratios). If the window starts before 2018, the years before 2018 have no fund-level tax applied.</p>
+          <p><strong>Vorabpauschale</strong> — for each calendar year Y with a non-zero Basiszins and each equity lot: <code>Basisertrag = startValue × Basiszins(Y) × 0.70</code>; <code>Vorabpauschale = max(0, min(Basisertrag, endValue − startValue))</code>; intra-year lots are prorated by (12 − monthsBeforeAcq)/12; <code>taxable = VP × (1 − Teilfreistellung)</code>. Summed across equity lots, allowance is subtracted, the remainder is taxed at the CGT rate, and the cash is pulled from the generating equity holding in <em>January</em> of year Y+1. This flows through the unit price like a cost. Basiszins for 2018+ is BMF-published; for earlier years it is derived from the ECB rate at Jan 1 (proxy).</p>
+          <p><strong>Gold tax treatment</strong> — EUWAX Gold II is an Inhaberschuldverschreibung, not a fund: no Vorabpauschale, no Teilfreistellung. Modelled here only via the §23 12-month rule on actual sales. Pre-2018 Vorabpauschale uses the ECB rate at Jan 1 as a Basiszins proxy (the actual InvStG 2004 regime used a different formula). When no ECB data is loaded, pre-2018 years have Basiszins = 0.</p>
           <p><strong>Costs</strong> — Ongoing fund cost applies as a monthly drag <code>(1 − cost)^(1/12)</code> <em>only</em> for assets toggled to <code>gross</code> (index series). For <code>net</code> series the cost is already inside the data. Buy/sell spreads and per-order fees are applied to every transaction including month-0 purchases.</p>
           <p><strong>Window</strong> — the common window is the intersection of available monthly data across <em>all assets used by all selected portfolios</em>. Selecting any portfolio with coIQ caps the window at ~Feb 2022–present. Short-window comparisons (&lt; 10 years) get a single-regime warning.</p>
           <p><strong>Beyond modelled</strong> — frictionless beyond explicit costs/taxes; no slippage beyond modelled spreads; no withholding-tax leakage at the fund layer beyond Teilfreistellung; no broker order minima; FX risk is assumed zero (series are EUR-denominated).</p>

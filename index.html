@@ -317,16 +317,13 @@ const ASSETS = [
   // risk→cash flip is charged inside buildTimedRiskLegMonthly.
   { shortName: "coIQ-SMA", id: "coIQ_t",   file: "",             manifestKey: "coiq",     taxLike: "fund", holdable: false, synthetic: true, sourceAsset: "coIQ",
     label: "coIQ — 200-SMA timed (ECB−0.25% cash)", isin: "DE000A3C91C5", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30,
-    note: "synthetic: coIQ NAV driven through SMA timing on VT signal; cash earns ECB−0.25%." },
+    note: "synthetic: coIQ NAV driven through SMA timing on its own price; cash earns ECB−0.25%." },
   // Synthetic: Momentum with 200-SMA timing. Same construction as coIQ_t,
   // sources from momentum daily, tax-piggybacks on momentum (UCITS fund TF=30%).
   // Spreads come from the underlying momentum asset (0.10%/0.10% on Xetra).
   { shortName: "momentum-SMA", id: "momentum_t", file: "",           manifestKey: "momentum", taxLike: "fund", holdable: false, synthetic: true, sourceAsset: "momentum",
     label: "Momentum — 200-SMA timed (ECB−0.25% cash)", isin: "IE00BP3QZ825", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30,
-    note: "synthetic: Momentum (IS3R) ETF price driven through SMA timing on VT signal; cash earns ECB−0.25%." },
-  { shortName: "signal", id: "signal",   file: "signal.csv",   manifestKey: "signal",   taxLike: null,   holdable: false,
-    label: "FTSE All-World (VT) — 200-SMA signal only",  isin: "US9220427424", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 0,
-    note: "NEVER held. Signal for 200-day SMA timing toggle. ACWI IMI may proxy if VT unavailable." },
+    note: "synthetic: Momentum (IS3R) ETF price driven through SMA timing on its own price; cash earns ECB−0.25%." },
 ];
 
 // IDs that are taxed like a debt security: no Vorabpauschale, no
@@ -1797,7 +1794,8 @@ function App() {
         if (meta?.synthetic && meta.sourceAsset) {
           const src = meta.sourceAsset;
           const eqDaily = seriesDaily[src];
-          const sigDaily = seriesDaily.signal;
+          // v3.6: each asset is its own SMA signal — no external VT series.
+          const sigDaily = eqDaily;
           const sp = spreads[src] || { buy: 0, sell: 0 };
           const taxOpts = {
             rate: taxRate,
@@ -1827,7 +1825,8 @@ function App() {
           : (a === pf.equityId && timed);
         if (shouldTime) {
           const eqDaily = seriesDaily[a];
-          const sigDaily = seriesDaily.signal;
+          // v3.6: each asset is its own SMA signal.
+          const sigDaily = eqDaily;
           const sp = spreads[a] || { buy: 0, sell: 0 };
           const taxOpts = {
             rate: taxRate,
@@ -1884,12 +1883,10 @@ function App() {
         const map = pfAssetSeries[pid] || {};
         for (const a of pf.assets) if (!map[a]) {
           const meta = ASSETS.find(x => x.id === a);
-          missing.push(meta?.synthetic ? `${a} (needs ${meta.sourceAsset} daily + signal daily)` : a);
+          missing.push(meta?.synthetic ? `${a} (needs ${meta.sourceAsset} daily)` : a);
         }
-        if (portfolioTiming[pid] && !seriesDaily.signal) missing.push("signal");
-        if (portfolioTiming[pid] && !seriesDaily[pf.equityId]) missing.push(pf.equityId + " (daily)");
+        if (portfolioTiming[pid] && !seriesDaily[pf.equityId]) missing.push(pf.equityId + " (daily for SMA)");
         if (pf.builtInTiming) {
-          if (!seriesDaily.signal) missing.push("signal (built-in SMA)");
           for (const a of pf.assets) {
             const meta = ASSETS.find(x => x.id === a);
             if (meta?.synthetic && !seriesDaily[meta.sourceAsset]) missing.push(meta.sourceAsset + " (daily for built-in SMA)");
@@ -3609,7 +3606,7 @@ function App() {
           <p><strong>v2 · Real-preservation verdict</strong> — a portfolio is "real-admissible at horizon h" if its worst-window real CAGR ≥ 0 at h. Real returns are computed by dividing nominal portfolio growth by CPI growth over each h-year window. The CPI series used is <em>{(manifest?.assets?.cpi?.source) || "manual upload"}</em>{series.cpi ? <> · last point <code>{series.cpi[series.cpi.length - 1].month}</code></> : null}. Recommended series: German CPI (Destatis Verbraucherpreisindex / FRED DEUCPIALLMINMEI).</p>
           <p><strong>v2 · Gold-share optimizer</strong> — <code>w_safe(h)</code> = gold weight maximizing worst real CAGR at h (buffer-maximizing, unstable on this short bear-market-free sample — read as a range, not a point). <code>w_return(h)</code> = smallest gold weight whose worst real CAGR stays ≥ 0 (least gold to remain real-admissible). w_return is the decision-relevant line; w_safe is overfit to a single worst path.</p>
           <p><strong>v2 · ⅓ coIQ + ⅓ coIQ-SMA + ⅓ Gold</strong> — a three-leg test of the "half-Permanent half-tactical" hybrid: gold and an untimed coIQ sleeve hold for the long run; a parallel coIQ sleeve runs the 200-SMA daily rule and parks in cash earning <strong>ECB − 0.25 %</strong> (<code>{(ecbRate - 0.25).toFixed(2)} % / yr</code> at the current ECB setting of {ecbRate.toFixed(2)} %) until the signal flips back. Weights are fixed at exactly ⅓ each — the in-app Gold % slider is hidden for this portfolio. Gold rebalancing follows the same CGT-gated §23-respecting rule as every other gold-bearing portfolio (matured lots only, FIFO; remains overweight gold when matured lots run out); CGT on every SMA risk→cash flip uses the same approximation as elsewhere (configured rate × (1 − Teilfreistellung), no FIFO lots, no Sparer-Pauschbetrag, no VP credit). Vorabpauschale is applied to both coIQ sleeves by the outer engine — for the SMA-timed sleeve it's computed on the post-flip synthetic unit price, which slightly double-counts during cash periods.</p>
-          <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if VT signal close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. On every <strong>risk → cash</strong> flip we also charge an approximate German CGT of <code>{taxRate.toFixed(2)}% × (1 − Teilfreistellung)</code> on the running per-unit gain since the last entry (no tax on losses; for gold and silver the Teilfreistellung is 0 so the full rate applies). This is a <em>quick approximation</em>: no FIFO lot accounting, no Sparer-Pauschbetrag allowance, no Anrechnung of prior-year Vorabpauschale against the realized gain — overstates tax by a few %. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
+          <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if its OWN daily close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. On every <strong>risk → cash</strong> flip we also charge an approximate German CGT of <code>{taxRate.toFixed(2)}% × (1 − Teilfreistellung)</code> on the running per-unit gain since the last entry (no tax on losses; for gold and silver the Teilfreistellung is 0 so the full rate applies). This is a <em>quick approximation</em>: no FIFO lot accounting, no Sparer-Pauschbetrag allowance, no Anrechnung of prior-year Vorabpauschale against the realized gain — overstates tax by a few %. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
           <p><strong>v2 · Equal Weight + Silver</strong> — <strong>Invesco MSCI World Equal Weight UCITS ETF Acc</strong> (IE000OEF25S1, WKN A40G12, Xetra <code>MWEQ</code>) is a UCITS fund taxed normally (VP + 30 % TF). <strong>iShares Physical Silver ETC</strong> (IE00B4NCWG09, WKN A1KWPR, Xetra <code>SSLN</code>) is physically-backed silver in ETC form — treated like gold for tax (Inhaberschuldverschreibung, §23 EStG, no VP / TF; tax-free if held &gt;12 months). The engine treats silver identically to gold in the rebalance gate: matured lots only, FIFO, partial rebalance when matured holdings run out.</p>
           <p><strong>v2 · 100% Bitcoin (§23 EStG)</strong> — under German tax law, Bitcoin is a "private sale" asset (Privates Veräußerungsgeschäft, §23 EStG), not a financial instrument: <strong>held &gt;12 months it is fully tax-free</strong>; held &lt;12 months gains are taxed at your <strong>personal income tax rate</strong> (NOT the 25 % Abgeltungsteuer — anything up to 45 % + Soli). When 200-SMA timing is ON, every risk→cash flip realizes the running gain inside the 12-month window, so the engine charges CGT at the configured tax rate × (1 − Teilfreistellung), with Teilfreistellung = 0 (no fund-level exemption applies to crypto). <strong>For accuracy, set the CGT rate to your marginal income-tax rate</strong> (e.g. 30–42 % + 5.5 % Soli) — the default 26.375 % is Abgeltungsteuer and understates it. When 200-SMA is OFF the simulation never sells, so no tax event fires — consistent with §23's 12-month exemption on actual buy-and-hold. <strong>ILLUSTRATIVE ONLY:</strong> Bitcoin has had −80 % drawdowns; a 200-SMA fitted to a bullish sample dodges them in-sample but cannot defend against the next one.</p>
           <p><strong>v2 · "Own native history" toggle</strong> — when ON, each portfolio runs over its own full series instead of the common-intersection window. The CPI real-preservation test is absolute, so this is a legitimate exercise — but the resulting curves are <em>not comparable</em>: factor ETFs and Prime ACWI include 2018 / 2020 / 2022 drawdowns that coIQ never saw.</p>

@@ -75,7 +75,6 @@ STOOQ_SOURCES = [
     ("world",    "webn.de"),   # Amundi Prime All Country World UCITS ETF Acc (IE000716YHJ7)
     ("eqwt",     "mweq.de"),   # Invesco MSCI World Equal Weight UCITS ETF Acc (IE000OEF25S1, WKN A40G12)
     ("silver",   "ssln.de"),   # iShares Physical Silver ETC (IE00B4NCWG09, WKN A1KWPR)
-    ("signal",   "vt.us"),     # Vanguard Total World VT — used ONLY as the 200-SMA signal
 ]
 STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json
 
@@ -92,7 +91,6 @@ YFINANCE_SYMBOLS = {
     "eqwt":      ["MWEQ.DE"],                # Invesco MSCI World Equal Weight (A40G12)
     "silver":    ["SSLN.DE", "SSLN.L"],      # iShares Physical Silver ETC (A1KWPR)
     "gold":      ["4GLD.DE", "4GLD.SG"],
-    "signal":    ["VT", "ACWI"],
     "bitcoin":   ["BTC-EUR"],                # Bitcoin spot in EUR (Yahoo's own quote)
 }
 # Removed: market (SPDR ACWI), lev3x, lev2x_ndx, lev2x_wld — no longer supported.

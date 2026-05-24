@@ -3303,79 +3303,6 @@ function App() {
               </div>
             </div>
 
-            {/* V2 admissibility banner (replaces v1 Sortino winner) */}
-            {(() => {
-              const hp = Math.round(mc.horizon / 12);
-              const rows = selectedPortfolios.map(pid => {
-                const sim = simResults?.[pid]; const real = realResults?.[pid];
-                if (!sim || !real || real.error) return null;
-                const atHp = real.curve.find(x => x.h === hp);
-                return { pid, sim, real, atHp };
-              }).filter(Boolean);
-              if (rows.length === 0) {
-                return <div className="winner" style={{ marginBottom: 18 }}>
-                  <div className="lbl">Real-preservation verdict</div>
-                  <div className="sub" style={{ marginTop: 8 }}>Load a CPI series to enable the v2 banner.</div>
-                </div>;
-              }
-              const admissible = rows.filter(r => r.atHp && r.atHp.worstRealCAGR != null && r.atHp.worstRealCAGR >= 0);
-              const winner = admissible.length
-                ? [...admissible].sort((a, b) => {
-                    const scoreOf = (r) => integratedRiskReturn(r.sim.unitPriceSeries, r.sim.ddSeries, r.sim.finalValue / r.sim.totalInvested, r.sim.months, series.ecb) ?? -Infinity;
-                    return scoreOf(b) - scoreOf(a);
-                  })[0]
-                : null;
-              return (
-                <div className="winner" style={{ marginBottom: 18 }}>
-                  <div className="row">
-                    <div>
-                      <div className="lbl">Real-admissible @ {hp}y · best risk-return ratio</div>
-                      <div className="val">{winner ? getPF(winner.pid).name : "— none admissible —"}</div>
-                      <div className="sub mono">{winner
-                        ? `R\u00b3/D\u00d7U ${fmtNum(integratedRiskReturn(winner.sim.unitPriceSeries, winner.sim.ddSeries, winner.sim.finalValue / winner.sim.totalInvested, winner.sim.months, series.ecb) ?? 0, 1)} \u00b7 Sortino ${fmtNum(winner.sim.metrics.sortino, 3)} \u00b7 UPI ${fmtNum(winner.sim.metrics.upi, 3)} \u00b7 gain ${fmtPct(winner.sim.finalValue / winner.sim.totalInvested - 1)} \u00b7 worst real CAGR ${fmtPct(winner.atHp.worstRealCAGR)}`
-                        : "no portfolio keeps real value at this horizon under worst-window or MC paths"
-                      }</div>
-                    </div>
-                    <div>
-                      <div className="lbl">Real-preservation horizon h*</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px", marginTop: 6 }}>
-                        {rows.map(r => (
-                          <React.Fragment key={r.pid}>
-                            <div className="mono" style={{ opacity: 0.85, fontSize: 12 }}>{getPF(r.pid).name}</div>
-                            <div className="mono" style={{ fontSize: 12 }}>{r.real.hStar != null ? `${r.real.hStar}y` : "—"}</div>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  {sweepResults && Object.keys(sweepResults).length > 0 && (
-                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid oklch(1 0 0 / 0.12)", display: "grid", gap: 6, fontSize: 12 }}>
-                      {selectedPortfolios.filter(pid => getPF(pid) && !getPF(pid).isMarket).map(pid => {
-                        const sw = sweepResults[pid]; if (!sw || !sw.perH) return null;
-                        const at = sw.perH[hp]; if (!at) return null;
-                        const target = goldWeights[pid];
-                        return (
-                          <div key={pid} className="mono">
-                            <strong>{getPF(pid).name}</strong> at {hp}y:
-                            {at.w_return != null ? <> real-admissible for gold &ge; <strong>{at.w_return.w}%</strong>;</> : <> no admissible gold weight at this horizon;</>}
-                            {at.w_safe != null ? <> buffer-maximizing at <strong>{at.w_safe.w}%</strong>;</> : null}
-                            <> your target <strong>{target}%</strong>.</>
-                            <span style={{ opacity: 0.6 }}> ({at.kind})</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="caveat">
-                    {ownNativeHistory
-                      ? <>Per-portfolio native history (each row uses its own series — curves NOT comparable). Union window {commonWindow.start} &rarr; {commonWindow.end}.</>
-                      : <>Window {commonWindow.start} &rarr; {commonWindow.end} ({(commonWindow.months.length / 12).toFixed(1)} years).</>}
-                    {shortRegime && " Single-regime sample \u2014 no equity bear market in window. Beyond ~3 years all numbers are Monte Carlo."}
-                    {" · CPI: "}<span className="mono">{manifest?.assets?.cpi?.source || "manual upload"}</span>{series.cpi ? <> through <span className="mono">{series.cpi[series.cpi.length - 1].month}</span></> : null}.
-                  </div>
-                </div>
-              );
-            })()}
 
             {/* comparison table */}
             <div className="panel" style={{ marginBottom: 18 }}>
@@ -3727,7 +3654,7 @@ function App() {
                             <th style={{ textAlign: "right" }}>Excess area</th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("combined", "\u2b24 Recommended (R\u00b3 / D\u00d7U)", efResults.winners.combined, true)}
+                            {renderRow("combined", "\u2b24 Largest net excess return over ECB rate", efResults.winners.combined, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
                             {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure)}

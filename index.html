@@ -2458,10 +2458,10 @@ function App() {
         // De-duplicate: only compute once per unique weight vector
         const seen = new Set();
         const keyOf = (row) => row.weights.map(w => w.toFixed(4)).join(",");
-        for (const row of [winners.combined, winners.sortino, winners.upiPure, winners.sortinoUpi, winners.sortinoGain, winners.upiGain, winners.finalReturn, winners.user].filter(Boolean)) {
+        for (const row of [winners.combined, winners.sortino, winners.upiPure, winners.avgPure, winners.sortinoUpi, winners.sortinoAvg, winners.upiAvg, winners.avgGain, winners.finalReturn, winners.user].filter(Boolean)) {
           const k = keyOf(row);
           if (seen.has(k)) { /* copy hStar from already-computed duplicate */
-            const donor = [winners.combined, winners.sortino, winners.upiPure, winners.sortinoUpi, winners.sortinoGain, winners.upiGain, winners.finalReturn, winners.user].find(r => r && keyOf(r) === k && r.hStar != null);
+            const donor = [winners.combined, winners.sortino, winners.upiPure, winners.avgPure, winners.sortinoUpi, winners.sortinoAvg, winners.upiAvg, winners.avgGain, winners.finalReturn, winners.user].find(r => r && keyOf(r) === k && r.hStar != null);
             if (donor) row.hStar = donor.hStar;
             continue;
           }
@@ -2486,14 +2486,17 @@ function App() {
     };
 
     const computeWinners = (rs) => {
-      if (rs.length === 0) return { sortino: null, upi: null, upiPure: null, sortinoUpi: null, sortinoAvg: null, upiAvg: null, combined: null, finalReturn: null, hStar: null, user: null };
-      let bs = rs[0], bup = rs[0], bc = rs[0], br = rs[0], bh = null;
-      let bsu = rs[0], bsm = rs[0], bum = rs[0];
-      let bcScore = -Infinity, bsuScore = -Infinity, bsmScore = -Infinity, bumScore = -Infinity;
+      if (rs.length === 0) return { sortino: null, upiPure: null, avgPure: null, sortinoUpi: null, sortinoAvg: null, upiAvg: null, avgGain: null, combined: null, finalReturn: null, hStar: null, user: null };
+      let bs = rs[0], bup = rs[0], bap = rs[0], bc = rs[0], br = rs[0], bh = null;
+      let bsu = rs[0], bsm = rs[0], bum = rs[0], bag = rs[0];
+      let bcScore = -Infinity, bsuScore = -Infinity, bsmScore = -Infinity, bumScore = -Infinity, bagScore = -Infinity;
       for (const r of rs) {
         const avg = Math.max(0, r.avgCAGR ?? 0);
+        const gain = Math.max(0, r.finalRatio - 1);
         if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
         if ((r.upi ?? -Infinity) > (bup.upi ?? -Infinity)) bup = r;
+        // Largest avgCAGR
+        if (avg > (bap.avgCAGR ?? -Infinity)) bap = r;
         // Pairwise: Sortino × UPI
         const su = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0);
         if (su > bsuScore) { bsu = r; bsuScore = su; }
@@ -2503,13 +2506,16 @@ function App() {
         // Pairwise: UPI × avgCAGR
         const um = Math.max(0, r.upi ?? 0) * avg;
         if (um > bumScore) { bum = r; bumScore = um; }
-        // Combined: (UPI×avgCAGR) × (Sortino×avgCAGR) = Sortino × UPI × avgCAGR²
-        const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * avg * avg;
+        // Pairwise: avgCAGR × absolute return
+        const ag = avg * gain;
+        if (ag > bagScore) { bag = r; bagScore = ag; }
+        // Combined: Sortino × UPI × avgCAGR × gain
+        const cs = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0) * avg * gain;
         if (cs > bcScore) { bc = r; bcScore = cs; }
         if (r.finalRatio > br.finalRatio) br = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
       }
-      return { sortino: bs, upiPure: bup, sortinoUpi: bsu, sortinoAvg: bsm, upiAvg: bum, combined: bc, finalReturn: br, hStar: bh, user: rs[0] };
+      return { sortino: bs, upiPure: bup, avgPure: bap, sortinoUpi: bsu, sortinoAvg: bsm, upiAvg: bum, avgGain: bag, combined: bc, finalReturn: br, hStar: bh, user: rs[0] };
     };
 
     setTimeout(() => processChunk(0), 30);
@@ -3143,7 +3149,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Risk-return ratio</strong> = (UPI × avgCAGR) × (Sortino × avgCAGR), where avgCAGR is the average of CAGRs computed at each year-end from inception. A portfolio growing 1→2→4→8 has avgCAGR=100% at every checkpoint; one growing 1→1→1→8 averages just 33%. This rewards consistent compounding across regimes, not endpoint-dependent returns. Requires the Efficient Frontier section below to be calculated first.
+              * <strong>Risk-return ratio</strong> = Sortino × UPI × avgCAGR × gain. Four factors, each appearing once: downside-volatility-adjusted return (Sortino), drawdown-pain-adjusted return (UPI), consistency of compounding across yearly checkpoints (avgCAGR), and total wealth growth (gain). A portfolio must score well on all four to win. Requires the Efficient Frontier section below to be calculated first.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3285,7 +3291,7 @@ function App() {
               const admissible = rows.filter(r => r.atHp && r.atHp.worstRealCAGR != null && r.atHp.worstRealCAGR >= 0);
               const winner = admissible.length
                 ? [...admissible].sort((a, b) => {
-                    const scoreOf = (r) => { const avg = Math.max(0, avgYearlyCAGR(r.sim.unitPriceSeries) ?? 0); return Math.max(0, r.sim.metrics.sortino ?? 0) * Math.max(0, r.sim.metrics.upi ?? 0) * avg * avg; };
+                    const scoreOf = (r) => { const avg = Math.max(0, avgYearlyCAGR(r.sim.unitPriceSeries) ?? 0); const gain = Math.max(0, r.sim.finalValue / r.sim.totalInvested - 1); return Math.max(0, r.sim.metrics.sortino ?? 0) * Math.max(0, r.sim.metrics.upi ?? 0) * avg * gain; };
                     return scoreOf(b) - scoreOf(a);
                   })[0]
                 : null;
@@ -3606,7 +3612,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes (UPI×avgCAGR) × (Sortino×avgCAGR) — rewarding consistent compounding at every yearly checkpoint, not endpoint returns.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes Sortino × UPI × avgCAGR × gain — four factors ensuring strong risk-adjusted quality, consistent compounding, and total wealth growth.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3688,13 +3694,15 @@ function App() {
                             <th style={{ textAlign: "right" }}>Gain</th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("combined", "\u2b24 Recommended [ (UPI\u00d7avgCAGR)\u00d7(Sortino\u00d7avgCAGR) ]", efResults.winners.combined, true)}
+                            {renderRow("combined", "\u2b24 Recommended (Sortino\u00d7UPI\u00d7avgCAGR\u00d7gain)", efResults.winners.combined, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
+                            {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure)}
                             {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}
                             {renderRow("sortinoUpi", "Best Sortino\u00d7UPI", efResults.winners.sortinoUpi)}
                             {renderRow("sortinoAvg", "Best Sortino\u00d7avgCAGR", efResults.winners.sortinoAvg)}
                             {renderRow("upiAvg", "Best UPI\u00d7avgCAGR", efResults.winners.upiAvg)}
+                            {renderRow("avgGain", "Best avgCAGR\u00d7gain", efResults.winners.avgGain)}
                             {renderRow("user", "Your current weights", efResults.winners.user)}
                           </tbody>
                           <tbody style={{ borderTop: "2px solid var(--border)" }}>

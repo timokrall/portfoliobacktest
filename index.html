@@ -1429,10 +1429,8 @@ function avgYearlyCAGR(unitPriceSeries) {
   return count > 0 ? sum / count : null;
 }
 
-// Integrated risk-return score: R³ / (D × U)
-// R = annualized unit-price return, D = downside deviation, U = ulcer index.
-// Cubic return over quadratic risk — strong return pressure while both
-// risk dimensions retain full weight.
+// Integrated risk-return score: R⁵ / (D × U)
+// Quintic return over quadratic risk — very strong return pressure.
 function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio) {
   if (!unitPriceSeries || unitPriceSeries.length < 13) return null;
   const n = unitPriceSeries.length - 1;
@@ -1447,7 +1445,7 @@ function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio) {
   // U: ulcer index
   const U = Math.sqrt(ddSeries.reduce((s, dd) => s + dd * dd, 0) / ddSeries.length);
   if (U <= 0) return null;
-  return R * R * R / (D * U);
+  return Math.pow(R, 5) / (D * U);
 }
 
 // ---------- Monte Carlo block bootstrap ----------
@@ -2533,7 +2531,7 @@ function App() {
         // Pairwise: avgCAGR × absolute return
         const ag = avg * gain;
         if (ag > bagScore) { bag = r; bagScore = ag; }
-        // Combined: R³ / (D×U) — integrated risk-return score
+        // Combined: R⁵ / (D×U) — integrated risk-return score
         const cs = r.irrScore ?? -Infinity;
         if (cs > bcScore) { bc = r; bcScore = cs; }
         if (r.finalRatio > br.finalRatio) br = r;
@@ -3173,7 +3171,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Risk-return ratio</strong> = R³ / (D × U). R = annualized return (fractional), D = downside deviation, U = ulcer index. Cubic in return, quadratic in risk — strong return pressure while both risk dimensions retain full weight. Requires the Efficient Frontier section below to be calculated first.
+              * <strong>Risk-return ratio</strong> = R⁵ / (D × U). R = annualized return (fractional), D = downside deviation, U = ulcer index. Quintic in return, quadratic in risk — very strong return pressure while both risk dimensions retain full weight. Requires the Efficient Frontier section below to be calculated first.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3636,7 +3634,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes R³ / (D×U) — cubed annualized return divided by downside deviation × ulcer index. Cubic in return, quadratic in risk.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes R⁵ / (D×U) — annualized return to the 5th power, divided by downside deviation × ulcer index. 5:2 return-to-risk ratio.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3718,7 +3716,7 @@ function App() {
                             <th style={{ textAlign: "right" }}>Avg. CAGR</th>
                             <th style={{ textAlign: "right" }}>Max DD</th>
                             <th style={{ textAlign: "right" }}>Gain</th>
-                            <th style={{ textAlign: "right" }}>R³/D·U</th>
+                            <th style={{ textAlign: "right" }}>R⁵/D·U</th>
                           </tr></thead>
                           <tbody>
                             {renderRow("combined", "\u2b24 Recommended (R\u00b3 / D\u00d7U)", efResults.winners.combined, true)}

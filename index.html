@@ -2747,8 +2747,17 @@ function App() {
     // Build pairwise correlation matrix
     const corr = {};
     for (const a of ids) { corr[a] = {}; for (const b of ids) corr[a][b] = a === b ? 1 : pearson(ddReturns[a], ddReturns[b]); }
+    // Find the asset with the highest absolute return over the common period
+    const totalReturn = {};
+    for (const a of ids) {
+      let cumRet = 1;
+      for (const m of allMonths) cumRet *= (1 + maps[a].get(m));
+      totalReturn[a] = cumRet;
+    }
+    const topReturnIdx = ids.reduce((best, a, i) => totalReturn[a] > totalReturn[ids[best]] ? i : best, 0);
     // Grid search: 5% steps (10% for >6 assets), find weights minimizing
     // portfolio weighted correlation = sum_{i≠j} w_i * w_j * corr(i,j)
+    // Constraint: highest-return asset must have at least 1 step (5% or 10%)
     const n = ids.length;
     const STEP = n > 6 ? 10 : 5;
     const STEPS = 100 / STEP;
@@ -2760,6 +2769,8 @@ function App() {
         let nonZero = 0;
         for (let i = 0; i < n; i++) if (acc[i] > 0) nonZero++;
         if (nonZero < 2) { acc[idx] = 0; return; }
+        // Require highest-return asset has at least 1 step
+        if (acc[topReturnIdx] < 1) { acc[idx] = 0; return; }
         // Compute portfolio weighted correlation
         let score = 0;
         for (let i = 0; i < n; i++) {

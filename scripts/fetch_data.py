@@ -73,13 +73,9 @@ STOOQ_SOURCES = [
     ("quality",  "is3q.de"),   # iShares Edge MSCI World Quality Factor (IE00BP3QZ601)
     ("minvol",   "iqq0.de"),   # iShares Edge MSCI World Min Volatility (IE00B8FHGS14)
     ("world",    "webn.de"),   # Amundi Prime All Country World UCITS ETF Acc (IE000716YHJ7)
-    ("market",   "spyi.de"),   # SPDR MSCI ACWI IMI UCITS ETF (IE00B3YLTY66)
+    ("eqwt",     "mweq.de"),   # Invesco MSCI World Equal Weight UCITS ETF Acc (IE000OEF25S1, WKN A40G12)
+    ("silver",   "ssln.de"),   # iShares Physical Silver ETC (IE00B4NCWG09, WKN A1KWPR)
     ("signal",   "vt.us"),     # Vanguard Total World VT — used ONLY as the 200-SMA signal
-    # Best-effort: Amundi 2x leveraged UCITS ETFs. Confirmed on Stooq as
-    # the Paris listings (LQQ.FR, LWLD.FR). Manual CSV paste remains the
-    # bulletproof fallback if Stooq ever drops them.
-    ("lev2x_ndx", "l8i7.de"),  # Amundi Nasdaq-100 Daily 2x Leveraged (FR0010342592, WKN A0LC12) — Xetra listing
-    ("lev2x_wld", "lwld.fr"),  # Amundi MSCI World 2x Leveraged (FR0014010HV4, WKN ETF888)
 ]
 STOOQ_GOLD_SYMBOL = "4gld.de"  # Xetra-Gold DE000A0S9GB0 — used as fallback if no ariva-gold.json
 
@@ -93,18 +89,13 @@ YFINANCE_SYMBOLS = {
     "quality":   ["IS3Q.DE", "IWQU.L"],
     "minvol":    ["IQQ0.DE", "MVOL.L"],
     "world":     ["WEBN.DE", "WEBN.L"],
-    "market":    ["SPYI.DE", "IMIE.DE", "SPYI.L"],
+    "eqwt":      ["MWEQ.DE"],                # Invesco MSCI World Equal Weight (A40G12)
+    "silver":    ["SSLN.DE", "SSLN.L"],      # iShares Physical Silver ETC (A1KWPR)
     "gold":      ["4GLD.DE", "4GLD.SG"],
     "signal":    ["VT", "ACWI"],
-    "lev3x":     ["3TWL.L"],                  # Leverage Shares 3x Total World — best-effort
-    "lev2x_ndx": ["LQQ.PA", "LVNAS.DE"],     # Amundi Nasdaq-100 Daily 2x (A0LC12)
-    "lev2x_wld": ["WLDL.PA", "WLDL.DE"],     # Amundi MSCI World 2x (ETF888) — guesswork; ticker unstable
-    "bitcoin":   ["BTC-EUR"],                # Bitcoin in EUR (yfinance native)
+    "bitcoin":   ["BTC-EUR"],                # Bitcoin spot in EUR (Yahoo's own quote)
 }
-# Leverage Shares 3x Long Total World ETP (XS2399364822, WKN A3GWC0). Not on
-# Stooq under a stable symbol — manual CSV upload via the app is the supported
-# path. We still register the asset in the manifest so the UI shows status.
-LEV3X_ASSET_NAME = "lev3x"
+# Removed: market (SPDR ACWI), lev3x, lev2x_ndx, lev2x_wld — no longer supported.
 
 # German CPI via FRED (OECD source). No auth needed.
 # DEUCPIALLMINMEI = Consumer Price Index: All Items for Germany, monthly, 2015=100.
@@ -541,27 +532,6 @@ def main():
             log(f"FAIL {name}: {e}")
             traceback.print_exc(file=sys.stderr)
             # Do NOT overwrite existing data/{name}.csv on failure.
-
-    # --- lev3x: no Stooq symbol; try yfinance only ---
-    try:
-        log("fetching lev3x (yfinance only)")
-        rows, source = fetch_with_fallback("lev3x", None)
-        rows, bad, days_old = validate(rows, "lev3x")
-        write_csv(DATA_DIR / "lev3x.csv", rows)
-        manifest["assets"]["lev3x"] = {
-            "source": source,
-            "lastDate": rows[-1][0],
-            "rows": len(rows),
-            "fetchedAt": manifest["fetchedAt"],
-            "warnings": (
-                ([f"{len(bad)} single-day moves > 60%"] if bad else [])
-                + ([f"{days_old} days stale"] if days_old > 10 else [])
-            ),
-        }
-        log(f"OK lev3x: {len(rows)} rows through {rows[-1][0]} (via {source})")
-    except Exception as e:
-        errors["lev3x"] = str(e)
-        log(f"FAIL lev3x (manual CSV upload via the app is the supported path): {e}")
 
     # --- bitcoin: yfinance BTC-EUR; Stooq has BTCUSD but not stable EUR ---
     try:

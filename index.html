@@ -303,17 +303,10 @@ const ASSETS = [
     label: "Amundi Prime All Country World UCITS ETF Acc", isin: "IE000716YHJ7", equity: true, defaultOngoing: 0.07, defaultBuySpread: 0.05, defaultSellSpread: 0.05, defaultTF: 30, note: "EUR price (Xetra WEBN) — Solactive GBS Global Markets Large & Mid Cap." },
   { shortName: "gold", id: "gold",     file: "gold.csv",     manifestKey: "gold",     taxLike: "debt", holdable: true,
     label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT" },
-  { shortName: "ACWI", id: "market",   file: "market.csv",   manifestKey: "market",   taxLike: "fund", holdable: true,
-    label: "SPDR MSCI ACWI IMI UCITS ETF",        isin: "IE00B3YLTY66", equity: true,  defaultOngoing: 0.18, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra SPYI / IMIE)" },
-  { shortName: "world3x", id: "lev3x",    file: "lev3x.csv",    manifestKey: "lev3x",    taxLike: "debt", holdable: true,
-    label: "Leverage Shares 3x Long Total World ETP", isin: "XS2399364822", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,
-    note: "ETP / debt security — 3x daily, decay & financing already in price. WKN A3GWC0." },
-  { shortName: "nasdaq2x", id: "lev2xNdx", file: "lev2x-ndx.csv", manifestKey: "lev2x_ndx", taxLike: "fund", holdable: true,
-    label: "Amundi Nasdaq-100 Daily (2x) Leveraged ETF", isin: "FR0010342592", equity: true, defaultOngoing: 0.60, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30,
-    note: "WKN A0LC12 · UCITS fund (VP + TF) · synthetic 2x daily — decay risk." },
-  { shortName: "world2x", id: "lev2xWld", file: "lev2x-wld.csv", manifestKey: "lev2x_wld", taxLike: "fund", holdable: true,
-    label: "Amundi MSCI World (2x) Leveraged ETF",     isin: "FR0014010HV4", equity: true, defaultOngoing: 0.60, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30,
-    note: "WKN ETF888 · UCITS fund (VP + TF) · launched 30.09.2025 — short history." },
+  { shortName: "eqwt", id: "eqwt",     file: "eqwt.csv",     manifestKey: "eqwt",     taxLike: "fund", holdable: true,
+    label: "Invesco MSCI World Equal Weight UCITS ETF Acc", isin: "IE000OEF25S1", equity: true, defaultOngoing: 0.20, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra MWEQ) — WKN A40G12. Equal-weighted developed-world index." },
+  { shortName: "silver", id: "silver",   file: "silver.csv",   manifestKey: "silver",   taxLike: "debt", holdable: true,
+    label: "iShares Physical Silver ETC",          isin: "IE00B4NCWG09", equity: false, defaultOngoing: 0.20, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,  note: "EUR price (Xetra SSLN) — WKN A1KWPR. Physically-backed silver ETC (debt-like, §23 EStG)." },
   { shortName: "BTC", id: "bitcoin",  file: "bitcoin.csv",  manifestKey: "bitcoin",  taxLike: "crypto", holdable: true,
     label: "Bitcoin (EUR)", isin: "BTC-EUR", equity: true, defaultOngoing: 0.00, defaultBuySpread: 0.50, defaultSellSpread: 0.50, defaultTF: 0,
     note: "§23 EStG: held >1y tax-free, held <1y taxed at PERSONAL income-tax rate (NOT Abgeltungsteuer 25%). Model uses the configured CGT rate — adjust for your marginal rate if needed." },
@@ -339,11 +332,11 @@ const ASSETS = [
 // IDs that are taxed like a debt security: no Vorabpauschale, no
 // Teilfreistellung. (gold = Inhaberschuldverschreibung; lev3x = ETP; bitcoin
 // = private sale §23 EStG when held <1y; SMA flips realize gain in <1y.)
-const DEBT_TAX_IDS = new Set(["gold", "lev3x", "bitcoin"]);
+const DEBT_TAX_IDS = new Set(["gold", "silver", "bitcoin"]);
 
 // IDs that the engine NEVER sells (no maturity gate, no rebalance sale).
 // Risk legs are always one-way; gold IS sold by the rebalancing gate.
-const NEVER_SOLD = new Set(["lev3x"]);
+const NEVER_SOLD = new Set();
 
 // Same-origin load of pre-fetched CSVs committed by the weekly GitHub Action.
 // No CORS, no proxies, no rate-limits. If a file is missing the user can still
@@ -370,12 +363,6 @@ const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "Germ
 const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
   { id: "gold_momentum", name: "Gold + Momentum",        assets: ["gold", "momentum"], defaultGold: 30, equityId: "momentum" },
-  { id: "gold_lev3x",    name: "Gold + 3x Total World",  assets: ["gold", "lev3x"],    defaultGold: 30, equityId: "lev3x",
-    illustrativeOnly: true },
-  { id: "gold_lev2xNdx", name: "Gold + 2x Nasdaq-100",   assets: ["gold", "lev2xNdx"], defaultGold: 40, equityId: "lev2xNdx",
-    illustrativeOnly: true },
-  { id: "gold_lev2xWld", name: "Gold + 2x MSCI World",   assets: ["gold", "lev2xWld"], defaultGold: 40, equityId: "lev2xWld",
-    illustrativeOnly: true },
   { id: "bitcoin",       name: "100% Bitcoin",            assets: ["bitcoin"], defaultGold: 0, equityId: "bitcoin", isMarket: true,
     illustrativeOnly: true,
     cryptoShortTax: true },
@@ -413,7 +400,6 @@ const PORTFOLIOS = [
     equityId: "coIQ", weights: { gold: 1 / 3, coIQ: 1 / 3, minvol: 1 / 3 }, fixedWeights: true },
   { id: "triple_coIQ_world",   name: "⅓ coIQ + ⅓ Gold + ⅓ Prime ACWI (WEBN)", assets: ["gold", "coIQ", "world"],
     equityId: "coIQ", weights: { gold: 1 / 3, coIQ: 1 / 3, world: 1 / 3 }, fixedWeights: true },
-  { id: "market",        name: "Market (100% ACWI IMI)", assets: ["market"], defaultGold: 0, equityId: "market", isMarket: true },
   // v3: free-form user portfolio (assets + weights driven by state.userWeights /
   // state.userSMA). The static entry here is a stub — pfAssetSeries / simResults
   // / etc. resolve "user" via the memoized userPortfolio object instead.
@@ -1451,7 +1437,7 @@ function App() {
   // is available on the very first render. Without this, the autosave effect
   // would fire with the empty defaults and overwrite the persisted data
   // before the bootstrap restore could read it.
-  const _ASSET_DEFAULTS_TEXT = { coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", gold: "", market: "", lev3x: "", lev2xNdx: "", lev2xWld: "", bitcoin: "", signal: "", cpi: "" };
+  const _ASSET_DEFAULTS_TEXT = { coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", eqwt: "", gold: "", silver: "", bitcoin: "", signal: "", cpi: "" };
   const _readUploadedCsvs = () => {
     try {
       const raw = localStorage.getItem("backtester-uploaded-csvs.json");
@@ -1470,7 +1456,7 @@ function App() {
     return defaults;
   });
   const [series, setSeries] = useState(() => {
-    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null, cpi: null };
+    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, eqwt: null, gold: null, silver: null, bitcoin: null, signal: null, cpi: null };
     const uploaded = _readUploadedCsvs();
     for (const id of Object.keys(uploaded)) {
       const txt = uploaded[id];
@@ -1483,7 +1469,7 @@ function App() {
   // Daily series — populated alongside monthly when at least one portfolio
   // has 200-SMA timing ON. Used by buildTimedRiskLegMonthly.
   const [seriesDaily, setSeriesDaily] = useState(() => {
-    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, gold: null, market: null, lev3x: null, lev2xNdx: null, lev2xWld: null, bitcoin: null, signal: null };
+    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, eqwt: null, gold: null, silver: null, bitcoin: null, signal: null };
     const uploaded = _readUploadedCsvs();
     for (const id of Object.keys(uploaded)) {
       const txt = uploaded[id];
@@ -1494,7 +1480,7 @@ function App() {
     return defaults;
   });
   const [seriesError, setSeriesError] = useState({});
-  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", value: "net", quality: "net", minvol: "net", world: "net", gold: "net", market: "net", lev3x: "net", lev2xNdx: "net", lev2xWld: "net", bitcoin: "net" });
+  const [seriesType, setSeriesType] = useState({ coIQ: "net", momentum: "net", value: "net", quality: "net", minvol: "net", world: "net", eqwt: "net", gold: "net", silver: "net", bitcoin: "net" });
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
   const [manifest, setManifest] = useState(null);
 
@@ -1515,7 +1501,7 @@ function App() {
   // --- taxes ---
   const [taxRate, setTaxRate] = useState(26.375);
   const [allowance, setAllowance] = useState(1000);
-  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, market: 30, lev2xNdx: 30, lev2xWld: 30, value: 30, quality: 30, minvol: 30, world: 30 });
+  const [teilfreistellung, setTeilfreistellung] = useState({ coIQ: 30, momentum: 30, value: 30, quality: 30, minvol: 30, world: 30, eqwt: 30 });
   const [basiszins, setBasiszins] = useState({ ...DEFAULT_BASISZINS });
 
   // --- inputs ---
@@ -1531,8 +1517,8 @@ function App() {
   // Per-asset 200-SMA toggle for the user portfolio's legs (gold is never timed).
   const [userSMA, setUserSMA] = useState({});
 
-  const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "market"]);
-  const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30, gold_lev3x: 30 });
+  const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ"]);
+  const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
 
   // --- v2: planning horizon + cash rate (200-SMA toggle's risk-off leg) ---
   const [hPlan, setHPlan] = useState(10);       // years
@@ -1547,10 +1533,8 @@ function App() {
   //         decay through any prolonged bear and the request explicitly asks
   //         to compute them WITH the SMA.
   const [portfolioTiming, setPortfolioTiming] = useState({
-    gold_coIQ: false, gold_momentum: false, gold_lev3x: false,
-    gold_lev2xNdx: true, gold_lev2xWld: true,
+    gold_coIQ: false, gold_momentum: false,
     bitcoin: true,
-    market: false,
   });
 
   // --- v2: optional "own native history" toggle (per-portfolio full window
@@ -1656,10 +1640,7 @@ function App() {
       // Merge so timing defaults from the current app version apply to any
       // portfolio ID the saved state didn't know about.
       const merged = { ...s.portfolioTiming };
-      // Default ON for the 2x daily options if absent.
-      if (!("gold_lev2xNdx" in merged)) merged.gold_lev2xNdx = true;
-      if (!("gold_lev2xWld" in merged)) merged.gold_lev2xWld = true;
-      if (!("bitcoin" in merged))       merged.bitcoin = true;
+      if (!("bitcoin" in merged)) merged.bitcoin = true;
       setPortfolioTiming(merged);
     }
     if (s.hPlan != null) setHPlan(s.hPlan);
@@ -2107,8 +2088,8 @@ function App() {
       return { assetId, label, data };
     };
     const benchmarks = [
-      benchmarkDef("market", "100% ACWI"),
       benchmarkDef("coIQ",   "100% coIQ"),
+      benchmarkDef("world",  "100% Prime ACWI"),
     ].filter(Boolean);
 
     const H_MAX_EF = 30;
@@ -3025,8 +3006,8 @@ function App() {
               <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />
               <NumField label="Sparer-Pauschbetrag (EUR/yr)" value={allowance} step={100} onChange={setAllowance} />
               <div></div>
-              {["coIQ", "momentum", "market", "lev2xNdx", "lev2xWld", "value", "quality", "minvol", "world"].map(id => {
-                const lbls = { coIQ: "coIQ", momentum: "Momentum", market: "ACWI IMI", lev2xNdx: "2x Nasdaq (A0LC12)", lev2xWld: "2x World (ETF888)", value: "Value (IS3S)", quality: "Quality (IS3Q)", minvol: "MinVol (IQQ0)", world: "Prime ACWI (WEBN)" };
+              {["coIQ", "momentum", "value", "quality", "minvol", "world", "eqwt"].map(id => {
+                const lbls = { coIQ: "coIQ", momentum: "Momentum (IS3R)", value: "Value (IS3S)", quality: "Quality (IS3Q)", minvol: "MinVol (IQQ0)", world: "Prime ACWI (WEBN)", eqwt: "Equal Weight (MWEQ)" };
                 return (
                   <NumField key={id} label={`Teilfreistellung — ${lbls[id]} (%)`}
                             value={teilfreistellung[id] ?? 30} step={1}
@@ -3161,7 +3142,6 @@ function App() {
                       ? <>Per-portfolio native history (each row uses its own series — curves NOT comparable). Union window {commonWindow.start} &rarr; {commonWindow.end}.</>
                       : <>Window {commonWindow.start} &rarr; {commonWindow.end} ({(commonWindow.months.length / 12).toFixed(1)} years).</>}
                     {shortRegime && " Single-regime sample \u2014 no equity bear market in window. Beyond ~3 years all numbers are Monte Carlo."}
-                    {selectedPortfolios.includes("gold_lev3x") && <> · <strong>Gold + 3x Total World is illustrative only</strong> — short bull-only sample.</>}
                     {" · CPI: "}<span className="mono">{manifest?.assets?.cpi?.source || "manual upload"}</span>{series.cpi ? <> through <span className="mono">{series.cpi[series.cpi.length - 1].month}</span></> : null}.
                   </div>
                 </div>
@@ -3629,12 +3609,11 @@ function App() {
           <p><strong>v2 · Real-preservation verdict</strong> — a portfolio is "real-admissible at horizon h" if its worst-window real CAGR ≥ 0 at h. Real returns are computed by dividing nominal portfolio growth by CPI growth over each h-year window. The CPI series used is <em>{(manifest?.assets?.cpi?.source) || "manual upload"}</em>{series.cpi ? <> · last point <code>{series.cpi[series.cpi.length - 1].month}</code></> : null}. Recommended series: German CPI (Destatis Verbraucherpreisindex / FRED DEUCPIALLMINMEI).</p>
           <p><strong>v2 · Gold-share optimizer</strong> — <code>w_safe(h)</code> = gold weight maximizing worst real CAGR at h (buffer-maximizing, unstable on this short bear-market-free sample — read as a range, not a point). <code>w_return(h)</code> = smallest gold weight whose worst real CAGR stays ≥ 0 (least gold to remain real-admissible). w_return is the decision-relevant line; w_safe is overfit to a single worst path.</p>
           <p><strong>v2 · ⅓ coIQ + ⅓ coIQ-SMA + ⅓ Gold</strong> — a three-leg test of the "half-Permanent half-tactical" hybrid: gold and an untimed coIQ sleeve hold for the long run; a parallel coIQ sleeve runs the 200-SMA daily rule and parks in cash earning <strong>ECB − 0.25 %</strong> (<code>{(ecbRate - 0.25).toFixed(2)} % / yr</code> at the current ECB setting of {ecbRate.toFixed(2)} %) until the signal flips back. Weights are fixed at exactly ⅓ each — the in-app Gold % slider is hidden for this portfolio. Gold rebalancing follows the same CGT-gated §23-respecting rule as every other gold-bearing portfolio (matured lots only, FIFO; remains overweight gold when matured lots run out); CGT on every SMA risk→cash flip uses the same approximation as elsewhere (configured rate × (1 − Teilfreistellung), no FIFO lots, no Sparer-Pauschbetrag, no VP credit). Vorabpauschale is applied to both coIQ sleeves by the outer engine — for the SMA-timed sleeve it's computed on the post-flip synthetic unit price, which slightly double-counts during cash periods.</p>
-          <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if VT signal close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. On every <strong>risk → cash</strong> flip we also charge an approximate German CGT of <code>{taxRate.toFixed(2)}% × (1 − Teilfreistellung)</code> on the running per-unit gain since the last entry (no tax on losses; for gold and lev3x the Teilfreistellung is 0 so the full rate applies). This is a <em>quick approximation</em>: no FIFO lot accounting, no Sparer-Pauschbetrag allowance, no Anrechnung of prior-year Vorabpauschale against the realized gain — overstates tax by a few %. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
-          <p><strong>v2 · 3x Total World ETP (lev3x)</strong> — Leverage Shares 3x Long Total World ETP, ISIN XS2399364822. We feed the ACTUAL ETP EUR price series; 3x-daily decay and financing cost are already inside the real price (NEVER synthesize). Tax-like-debt (no Vorabpauschale, no Teilfreistellung). Never sold for gold rebalancing. <strong>ILLUSTRATIVE ONLY:</strong> ~4 years of mostly-bull history; the MC bootstrap cannot reproduce a sustained bear it never sampled, and a 3x daily ETP can lose 90 %+ in a 2008-style drawdown.</p>
-          <p><strong>v2 · 2x daily UCITS ETFs (A0LC12, ETF888)</strong> — Amundi Nasdaq-100 Daily (2x) Leveraged UCITS ETF Acc (FR0010342592 / WKN A0LC12, TER 0.60%, synthetic, accumulating) and Amundi MSCI World (2x) Leveraged UCITS ETF Acc (FR0014010HV4 / WKN ETF888, TER 0.60%, synthetic, accumulating). Unlike the 3x ETP these are <em>UCITS funds</em>, so the engine charges Vorabpauschale + Teilfreistellung on them like any other ETF — feed NET price series. 2x daily compounding produces volatility decay in choppy markets; both are inappropriate for a long-horizon strategic core. <strong>A0LC12</strong> has data back to 2006 (Nasdaq-100 concentration risk). <strong>ETF888</strong> only launched 30.09.2025 — its standalone window is months long; use the "own native history" toggle to see it at all, and treat every number as <em>illustrative only</em>.</p>
+          <p><strong>v2 · 200-SMA daily timing</strong> — when toggled ON for a portfolio, the risk leg is simulated day-by-day: if VT signal close(d−1) &gt; SMA200(d−1) the risk leg is HELD on day d, else it is in CASH earning <code>{cashRate}%/yr</code>. Every flip charges the risk leg's buy/sell spread + per-order fee. On every <strong>risk → cash</strong> flip we also charge an approximate German CGT of <code>{taxRate.toFixed(2)}% × (1 − Teilfreistellung)</code> on the running per-unit gain since the last entry (no tax on losses; for gold and silver the Teilfreistellung is 0 so the full rate applies). This is a <em>quick approximation</em>: no FIFO lot accounting, no Sparer-Pauschbetrag allowance, no Anrechnung of prior-year Vorabpauschale against the realized gain — overstates tax by a few %. The GOLD leg is never timed. Daily unit-price is resampled to month-end; all v2 metrics then run on that monthly series. <strong>Caveat:</strong> a favorable 200-SMA = ON result for Gold+coIQ / Gold+Momentum is <em>exploratory only</em> and does NOT endorse adding market timing to the strategic core — that contradicts the Permanent / no-drift design.</p>
+          <p><strong>v2 · Equal Weight + Silver</strong> — <strong>Invesco MSCI World Equal Weight UCITS ETF Acc</strong> (IE000OEF25S1, WKN A40G12, Xetra <code>MWEQ</code>) is a UCITS fund taxed normally (VP + 30 % TF). <strong>iShares Physical Silver ETC</strong> (IE00B4NCWG09, WKN A1KWPR, Xetra <code>SSLN</code>) is physically-backed silver in ETC form — treated like gold for tax (Inhaberschuldverschreibung, §23 EStG, no VP / TF; tax-free if held &gt;12 months). The engine treats silver identically to gold in the rebalance gate: matured lots only, FIFO, partial rebalance when matured holdings run out.</p>
           <p><strong>v2 · 100% Bitcoin (§23 EStG)</strong> — under German tax law, Bitcoin is a "private sale" asset (Privates Veräußerungsgeschäft, §23 EStG), not a financial instrument: <strong>held &gt;12 months it is fully tax-free</strong>; held &lt;12 months gains are taxed at your <strong>personal income tax rate</strong> (NOT the 25 % Abgeltungsteuer — anything up to 45 % + Soli). When 200-SMA timing is ON, every risk→cash flip realizes the running gain inside the 12-month window, so the engine charges CGT at the configured tax rate × (1 − Teilfreistellung), with Teilfreistellung = 0 (no fund-level exemption applies to crypto). <strong>For accuracy, set the CGT rate to your marginal income-tax rate</strong> (e.g. 30–42 % + 5.5 % Soli) — the default 26.375 % is Abgeltungsteuer and understates it. When 200-SMA is OFF the simulation never sells, so no tax event fires — consistent with §23's 12-month exemption on actual buy-and-hold. <strong>ILLUSTRATIVE ONLY:</strong> Bitcoin has had −80 % drawdowns; a 200-SMA fitted to a bullish sample dodges them in-sample but cannot defend against the next one.</p>
-          <p><strong>v2 · "Own native history" toggle</strong> — when ON, each portfolio runs over its own full series instead of the common-intersection window. The CPI real-preservation test is absolute, so this is a legitimate exercise — but the resulting curves are <em>not comparable</em>: Gold+Momentum / Market would include real equity bear markets that coIQ and lev3x never saw.</p>
-          <p><strong>v2 · Single-regime caveat</strong> — the default common window (~2022 onward) contains no equity bear market. Every historical worst-case figure is optimistic — coIQ and lev3x most of all. Beyond h ≈ 3 years all curves are Monte Carlo, paired-bootstrapped on the same short sample, so they inherit the same blind spot.</p>
+          <p><strong>v2 · "Own native history" toggle</strong> — when ON, each portfolio runs over its own full series instead of the common-intersection window. The CPI real-preservation test is absolute, so this is a legitimate exercise — but the resulting curves are <em>not comparable</em>: factor ETFs and Prime ACWI include 2018 / 2020 / 2022 drawdowns that coIQ never saw.</p>
+          <p><strong>v2 · Single-regime caveat</strong> — the default common window (~2022 onward) contains no equity bear market. Every historical worst-case figure is optimistic, coIQ most of all. Beyond h ≈ 3 years all curves are Monte Carlo, paired-bootstrapped on the same short sample, so they inherit the same blind spot.</p>
         </div>
       </div>
 

@@ -3104,7 +3104,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 4:23 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 5:15 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3622,15 +3622,31 @@ function App() {
                             <th></th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn, false, true)}
-                            {renderRow("combined", "\u2b24 Largest net real return", efResults.winners.combined, false, true)}
-                            {renderRow("riskOptimal", "\u2b24 Risk optimal largest net real return", efResults.winners.riskOptimal, true, true)}
-                            {renderRow("gainAvg", "\u2b24 Largest absolute return \u00d7 avg. CAGR", efResults.winners.gainAvg, false, true)}
-                            {renderRow("sortino", "Largest Sortino", efResults.winners.sortino, false, true)}
-                            {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure, false, true)}
-                            {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure, false, true)}
+                            {(() => {
+                              const rows = [
+                                { key: "finalReturn", label: "Largest absolute return", row: efResults.winners.finalReturn },
+                                { key: "combined", label: "Largest net real return", row: efResults.winners.combined },
+                                { key: "riskOptimal", label: "Risk optimal largest net real return", row: efResults.winners.riskOptimal },
+                                { key: "gainAvg", label: "Largest absolute return \u00d7 avg. CAGR", row: efResults.winners.gainAvg },
+                                { key: "sortino", label: "Largest Sortino", row: efResults.winners.sortino },
+                                { key: "avgPure", label: "Largest avg. CAGR", row: efResults.winners.avgPure },
+                                { key: "upiPure", label: "Largest UPI", row: efResults.winners.upiPure },
+                              ].filter(r => r.row != null);
+                              rows.sort((a, b) => (b.row.irrScore ?? -Infinity) - (a.row.irrScore ?? -Infinity));
+                              return rows.map((r, i) => renderRow(
+                                r.key,
+                                i === 0 ? "\u2b24 " + r.label : r.label,
+                                r.row,
+                                i === 0,
+                                true
+                              ));
+                            })()}
                           </tbody>
                         </table>
+
+                        <div className="small-note" style={{ marginTop: 8 }}>
+                          <strong>\u2b24</strong> marks the portfolio with the highest <strong>Score</strong> — the median level-based integral of real portfolio value vs real cash (ECB deposit / CPI) across 100 random permutations of the monthly returns. Path-independent: only the return distribution matters, not when returns occurred. Higher = more cumulative real wealth generated above a cash deposit, adjusted for inflation.
+                        </div>
 
                         <div style={{ marginTop: 18 }}>
                           <div className="dim" style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Benchmarks</div>

@@ -3391,8 +3391,16 @@ function App() {
                   <div style={{ marginTop: 12 }}>
                     <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
                       {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
-                      {!goldOptResult.hasSMA && <> SMA not active ({goldOptResult.smaDebug || "unknown"}).</>}
+                      {goldOptResult.smaDebug && <> SMA: {goldOptResult.smaDebug}.</>}
                       {goldOptResult.best && <strong> Optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma ? " + SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} rebalancing` : ", no rebalancing"}.</strong>}
+                      {goldOptResult.hasSMA && (() => {
+                        const bestSMA = goldOptResult.results.filter(r => r.sma && r.cvScore != null && r.cvScore > 0).sort((a, b) => b.cvScore - a.cvScore)[0];
+                        const bestReb = goldOptResult.results.filter(r => r.reb !== "never" && r.cvScore != null && r.cvScore > 0).sort((a, b) => b.cvScore - a.cvScore)[0];
+                        return <>
+                          {bestSMA && !goldOptResult.best?.sma && <> Best with SMA: {bestSMA.goldPct}% gold, CV {fmtPct(bestSMA.cvScore)}.</>}
+                          {bestReb && goldOptResult.best?.reb === "never" && <> Best with rebalancing: {bestReb.goldPct}% gold ({bestReb.reb}), CV {fmtPct(bestReb.cvScore)}.</>}
+                        </>;
+                      })()}
                     </div>
                     <table className="bt" style={{ fontSize: 11 }}>
                       <thead><tr>
@@ -3406,11 +3414,19 @@ function App() {
                         <th style={{ textAlign: "right" }}>Gain</th>
                       </tr></thead>
                       <tbody>
-                        {goldOptResult.results
-                          .filter(r => r.cvScore != null && r.cvScore > 0)
-                          .sort((a, b) => (b.cvScore ?? 0) - (a.cvScore ?? 0))
-                          .slice(0, 30)
-                          .map((r, i) => (
+                        {(() => {
+                          const sorted = goldOptResult.results
+                            .filter(r => r.cvScore != null && r.cvScore > 0)
+                            .sort((a, b) => (b.cvScore ?? 0) - (a.cvScore ?? 0));
+                          // Always include best SMA and best rebalancing rows
+                          const top30 = sorted.slice(0, 30);
+                          const bestSMA = sorted.find(r => r.sma);
+                          const bestReb = sorted.find(r => r.reb !== "never");
+                          const shown = new Set(top30.map(r => `${r.goldPct}-${r.sma}-${r.reb}`));
+                          const extras = [];
+                          if (bestSMA && !shown.has(`${bestSMA.goldPct}-${bestSMA.sma}-${bestSMA.reb}`)) extras.push(bestSMA);
+                          if (bestReb && !shown.has(`${bestReb.goldPct}-${bestReb.sma}-${bestReb.reb}`)) extras.push(bestReb);
+                          return [...top30, ...extras].map((r, i) => (
                           <tr key={`${r.goldPct}-${r.sma}-${r.reb}`} style={goldOptResult.best && r.goldPct === goldOptResult.best.goldPct && r.sma === goldOptResult.best.sma && r.reb === goldOptResult.best.reb ? { background: "oklch(0.97 0.02 150)" } : {}}>
                             <td className="num" style={{ textAlign: "right", fontWeight: i === 0 ? 700 : 400 }}>{r.goldPct}%</td>
                             <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma ? "\u2713" : ""}</td>
@@ -3421,7 +3437,8 @@ function App() {
                             <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
                             <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
                           </tr>
-                        ))}
+                          ));
+                        })()}
                       </tbody>
                     </table>
                     <div className="small-note" style={{ marginTop: 6 }}>
@@ -3436,7 +3453,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:10 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:18 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

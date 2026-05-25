@@ -1823,7 +1823,7 @@ function App() {
   // §23 12-month rule for gold/silver, and Abgeltungsteuer × (1 − Teilfreistellung)
   // for funds). Default: all OFF — no rebalancing between assets.
   const [userRebalance, setUserRebalance] = useState({ gold: true });
-  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, 50])));
+  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, (a.id === "gold" || a.id === "silver") ? 0 : 50])));
   const [bulkLimit, setBulkLimit] = useState(50);
 
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
@@ -2444,13 +2444,16 @@ function App() {
       const end = Math.min(start + CHUNK, samplesWeights.length);
       for (let idx = start; idx < end; idx++) {
         const wv = samplesWeights[idx];
-        // Skip if any asset exceeds its upper limit
-        let skip = false;
-        for (let ai = 0; ai < basket.length; ai++) {
-          const limit = (upperLimits[basket[ai]] ?? 100) / 100;
-          if (wv[ai] > limit + 1e-9) { skip = true; break; }
+        const isUserSample = idx === 0;
+        // Skip if any asset exceeds its upper limit (but always keep user sample)
+        if (!isUserSample) {
+          let skip = false;
+          for (let ai = 0; ai < basket.length; ai++) {
+            const limit = (upperLimits[basket[ai]] ?? 100) / 100;
+            if (wv[ai] > limit + 1e-9) { skip = true; break; }
+          }
+          if (skip) continue;
         }
-        if (skip) continue;
         const wmap = {};
         basket.forEach((a, i) => { wmap[a] = wv[i]; });
         const dynPf = {
@@ -2495,8 +2498,9 @@ function App() {
           finalValue: r.finalValue,
           avgCAGR,
           irrScore,
-          histHStar: sampleHStar, // historical h* for Pareto knee
-          hStar: null, // MC h* computed post-grid for winners
+          histHStar: sampleHStar,
+          hStar: null,
+          isUser: isUserSample,
         });
       }
       setEfProgress({ done: end, total: samplesWeights.length + benchmarks.length });
@@ -2632,7 +2636,7 @@ function App() {
       } else if (candidates.length === 1) {
         riskOpt = candidates[0];
       }
-      return { sortino: bs, upiPure: bup, avgPure: bap, combined: bc, riskOptimal: riskOpt, gainAvg: bga, finalReturn: br, hStar: bh, user: rs[0] };
+      return { sortino: bs, upiPure: bup, avgPure: bap, combined: bc, riskOptimal: riskOpt, gainAvg: bga, finalReturn: br, hStar: bh, user: rs.find(r => r.isUser) || rs[0] };
     };
 
     setTimeout(() => processChunk(0), 30);
@@ -3104,7 +3108,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 5:20 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 5:33 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

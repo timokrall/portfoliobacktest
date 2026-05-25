@@ -3123,7 +3123,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:59 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 12:04 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3216,16 +3216,19 @@ function App() {
 
       <div className="grid grid-2" style={{ marginTop: 18 }}>
         <div className="panel">
-          <div className="panel-h"><h2>3 · Costs</h2><span className="h-meta">applied at every buy + sell</span></div>
+          <div className="panel-h"><h2>3 · Costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span></div>
           <div className="panel-body">
             <table className="bt">
-              <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th></tr></thead>
+              <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th></tr></thead>
               <tbody>
                 {ASSETS.filter(a => a.holdable).map(a =>
                   <tr key={a.id}>
                     <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin}</div></td>
                     <td><input type="number" step="0.01" value={spreads[a.id]?.buy ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], buy: +e.target.value } }))} style={{ textAlign: "right" }} /></td>
                     <td><input type="number" step="0.01" value={spreads[a.id]?.sell ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], sell: +e.target.value } }))} style={{ textAlign: "right" }} /></td>
+                    <td className="num" style={{ textAlign: "right", fontSize: 11.5, color: (a.defaultOngoing ?? 0) > 0 ? "var(--ink)" : "var(--ink-mute)" }}>
+                      {(a.defaultOngoing ?? 0).toFixed(2)}%{a.costCutoff ? " *" : ""}
+                    </td>
                   </tr>)}
               </tbody>
             </table>
@@ -3233,7 +3236,10 @@ function App() {
               <NumField label="Per-order fixed fee (EUR)" value={orderFee.fixed} step={0.10} onChange={v => setOrderFee(o => ({ ...o, fixed: v }))} />
               <NumField label="Per-order percent fee (%)" value={orderFee.pct} step={0.01} onChange={v => setOrderFee(o => ({ ...o, pct: v }))} />
             </div>
-            <div className="small-note">All price series are assumed net (fund costs already embedded). Spreads and fees apply to every buy and sell including month-0 purchases.</div>
+            <div className="small-note">
+              Ongoing cost is applied as monthly drag on assets using index/spot data (TER not embedded in price). Assets at 0.00% use actual fund NAV where costs are already reflected.
+              {ASSETS.some(a => a.costCutoff) && <><br/>* <strong>coIQ</strong>: drag applied through {ASSETS.find(a => a.costCutoff)?.costCutoff} only (Nasdaq-100 proxy period). From 2022 onward, actual fund NAV is used with fees already embedded — no additional drag.</>}
+            </div>
           </div>
         </div>
 

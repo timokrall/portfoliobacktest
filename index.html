@@ -3353,7 +3353,7 @@ function App() {
                           }
                         }
                         // Find best by CV score
-                        const valid = results.filter(r => r.cvScore != null && r.cvScore > 0);
+                        const valid = results.filter(r => r.cvScore != null);
                         const best = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
                         setGoldOptResult({ results, best, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
                       } catch (e) { setGoldOptResult({ error: e.message }); }
@@ -3422,8 +3422,8 @@ function App() {
                       <tbody>
                         {(() => {
                           const sorted = goldOptResult.results
-                            .filter(r => r.cvScore != null && r.cvScore > 0)
-                            .sort((a, b) => (b.cvScore ?? 0) - (a.cvScore ?? 0));
+                            .filter(r => r.cvScore != null)
+                            .sort((a, b) => (b.cvScore ?? -Infinity) - (a.cvScore ?? -Infinity));
                           // Always include best SMA and best rebalancing rows
                           const top30 = sorted.slice(0, 30);
                           const bestSMA = sorted.find(r => r.sma);
@@ -3459,7 +3459,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:45 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:51 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

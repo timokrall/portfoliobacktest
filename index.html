@@ -3245,8 +3245,8 @@ function App() {
                         const goldArr = allMonths.map(m => goldMap.get(m));
                         const equityArr = allMonths.map(m => equityMap.get(m));
 
-                        // Parse daily gold for 200-SMA signal
-                        const dailyGold = csvText.gold ? parseCsvToDaily(csvText.gold) : null;
+                        // Use daily gold series for 200-SMA signal
+                        const dailyGold = seriesDaily.gold || null;
                         // Build monthly SMA signal: for each month, was gold above 200-SMA at month-end?
                         const smaSignal = {};
                         if (dailyGold && dailyGold.length > 200) {
@@ -3434,7 +3434,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:43 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:51 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

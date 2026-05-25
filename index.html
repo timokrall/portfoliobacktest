@@ -1429,38 +1429,30 @@ function avgYearlyCAGR(unitPriceSeries) {
   return count > 0 ? sum / count : null;
 }
 
-// Integrated risk-return score: net excess return over real cash.
-// Benchmark = ECB deposit compounding / CPI growth (both normalized to 1).
-// This is the real opportunity cost of not investing — the purchasing-power-
-// adjusted return of holding cash. Score = Σ(real_portfolio − real_cash) / years.
-// During ZIRP: real cash falls (easy to beat). During high-rate: real cash
-// rises (harder to beat). Rewards portfolios that justify their risk.
+// Integrated risk-return score: average monthly excess return over real cash.
+// At each month: portfolio monthly return minus real cash monthly return
+// (ECB rate - inflation). Every month contributes equally — no cumulative
+// wealth bias. Score = Σ(r_portfolio[t] − r_realCash[t]) / years.
 function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries, ecbChanges) {
   if (!unitPriceSeries || unitPriceSeries.length < 13 || !months || !cpiSeries) return null;
   const n = unitPriceSeries.length;
-  const p0 = unitPriceSeries[0];
-  if (p0 <= 0) return null;
   const cpiMap = new Map(cpiSeries.map(r => [r.month, r.value]));
-  const cpi0 = cpiMap.get(months[0]);
-  if (!cpi0 || cpi0 <= 0) return null;
-  // Build ECB accumulation curve (1 euro compounding at DFR monthly)
-  const ecbCurve = [1];
-  for (let i = 1; i < n; i++) {
-    const t = Date.parse(months[i] + "-15");
-    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-    const monthlyRate = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-    ecbCurve.push(ecbCurve[i - 1] * (1 + monthlyRate));
-  }
-  // Real cash benchmark = ECB accumulation / CPI growth
   let excessSum = 0;
   let validMonths = 0;
-  for (let i = 0; i < n; i++) {
-    const cpiVal = cpiMap.get(months[i]);
-    if (cpiVal == null) continue;
-    const cpiGrowth = cpiVal / cpi0;
-    const realPortfolio = (unitPriceSeries[i] / p0) / cpiGrowth;
-    const realCash = ecbCurve[i] / cpiGrowth;
-    excessSum += realPortfolio - realCash;
+  for (let i = 1; i < n; i++) {
+    const cpiPrev = cpiMap.get(months[i - 1]);
+    const cpiCur = cpiMap.get(months[i]);
+    if (cpiPrev == null || cpiCur == null || cpiPrev <= 0) continue;
+    // Portfolio monthly return
+    const rPortfolio = unitPriceSeries[i] / unitPriceSeries[i - 1] - 1;
+    // Real cash monthly return: ECB rate compounded monthly, minus inflation
+    const t = Date.parse(months[i] + "-15");
+    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+    const rCashNominal = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+    const inflation = cpiCur / cpiPrev - 1;
+    const rCashReal = (1 + rCashNominal) / (1 + inflation) - 1;
+    const rPortfolioReal = (1 + rPortfolio) / (1 + inflation) - 1;
+    excessSum += rPortfolioReal - rCashReal;
     validMonths++;
   }
   const years = validMonths / 12;
@@ -1468,57 +1460,53 @@ function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, cpi
 }
 
 // Convexity-weighted excess return over real cash (ECB/CPI).
+// Convexity-weighted average monthly excess return over real cash.
 // w(f', f'') = 1 + α × sign(f''), where α = stdev(f'') / mean(|f''|).
-// Overweights months with convex curvature (accelerating up or decelerating down)
-// and underweights concave months (decelerating up or accelerating down).
+// f' and f'' are computed on monthly real excess returns.
 function convexityWeightedExcessReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries, ecbChanges) {
   if (!unitPriceSeries || unitPriceSeries.length < 15 || !months || !cpiSeries) return null;
   const n = unitPriceSeries.length;
-  const p0 = unitPriceSeries[0];
-  if (p0 <= 0) return null;
   const cpiMap = new Map(cpiSeries.map(r => [r.month, r.value]));
-  const cpi0 = cpiMap.get(months[0]);
-  if (!cpi0 || cpi0 <= 0) return null;
-  // ECB accumulation
-  const ecbCurve = [1];
+  // Compute monthly real excess returns
+  const exRets = [];
   for (let i = 1; i < n; i++) {
+    const cpiPrev = cpiMap.get(months[i - 1]);
+    const cpiCur = cpiMap.get(months[i]);
+    if (cpiPrev == null || cpiCur == null || cpiPrev <= 0) { exRets.push(null); continue; }
+    const rPf = unitPriceSeries[i] / unitPriceSeries[i - 1] - 1;
     const t = Date.parse(months[i] + "-15");
     const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-    const monthlyRate = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-    ecbCurve.push(ecbCurve[i - 1] * (1 + monthlyRate));
+    const rCash = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+    const infl = cpiCur / cpiPrev - 1;
+    exRets.push((1 + rPf) / (1 + infl) - 1 - ((1 + rCash) / (1 + infl) - 1));
   }
-  // Compute f' and f'' on the real portfolio curve
-  const realPf = [];
-  for (let i = 0; i < n; i++) {
-    const cpiVal = cpiMap.get(months[i]) ?? cpi0;
-    realPf.push((unitPriceSeries[i] / p0) / (cpiVal / cpi0));
-  }
-  const fp = [];
-  for (let i = 0; i < n - 1; i++) fp.push(realPf[i + 1] - realPf[i]);
+  // f' = exRets, f'' = change in exRets
+  const valid = exRets.filter(v => v != null);
+  if (valid.length < 12) return null;
   const fpp = [];
-  for (let i = 0; i < fp.length - 1; i++) fpp.push(fp[i + 1] - fp[i]);
+  for (let i = 1; i < exRets.length; i++) {
+    if (exRets[i] != null && exRets[i - 1] != null) fpp.push(exRets[i] - exRets[i - 1]);
+  }
+  if (fpp.length < 6) return null;
   const absFpp = fpp.map(v => Math.abs(v));
   const meanAbsFpp = absFpp.reduce((s, v) => s + v, 0) / absFpp.length;
   if (meanAbsFpp <= 0) return null;
   const meanFpp = fpp.reduce((s, v) => s + v, 0) / fpp.length;
   const varFpp = fpp.reduce((s, v) => s + (v - meanFpp) ** 2, 0) / fpp.length;
   const alpha = Math.sqrt(varFpp) / meanAbsFpp;
-  // Weighted excess over real cash
+  // Weighted sum of monthly excess returns
   let weightedSum = 0;
-  let validMonths = 0;
-  for (let i = 0; i < n; i++) {
-    const cpiVal = cpiMap.get(months[i]);
-    if (cpiVal == null) continue;
-    const cpiGrowth = cpiVal / cpi0;
-    const realPortfolio = (unitPriceSeries[i] / p0) / cpiGrowth;
-    const realCash = ecbCurve[i] / cpiGrowth;
-    const excess = realPortfolio - realCash;
-    const fppIdx = i - 1;
-    const w = (fppIdx >= 0 && fppIdx < fpp.length) ? 1 + alpha * Math.sign(fpp[fppIdx]) : 1;
-    weightedSum += w * excess;
-    validMonths++;
+  let validCount = 0;
+  let fppIdx = 0;
+  for (let i = 0; i < exRets.length; i++) {
+    if (exRets[i] == null) continue;
+    // Align f'' index: fpp[j] corresponds to change from exRets[j] to exRets[j+1]
+    const w = (fppIdx > 0 && fppIdx - 1 < fpp.length) ? 1 + alpha * Math.sign(fpp[fppIdx - 1]) : 1;
+    weightedSum += w * exRets[i];
+    validCount++;
+    fppIdx++;
   }
-  const years = validMonths / 12;
+  const years = validCount / 12;
   return years > 0 ? weightedSum / years : null;
 }
 function monteCarloMaxDD(monthlyRets, horizonMonths, blockLen, nPaths, seed = 1) {
@@ -3141,7 +3129,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:12 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:29 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3227,17 +3215,7 @@ function App() {
                 style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
                 onClick={fillMinCorrelation}
                 title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
-              <span style={{ flex: 1 }}></span>
-              <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
-            {userPortfolio.assets.length > 0 && (
-              <div className="small-note" style={{ marginTop: 8 }}>
-                Effective normalized weights: {userPortfolio.assets.map(a => {
-                  const meta = ASSETS.find(x => x.id === a);
-                  return `${meta?.shortName || meta?.label.split(" ")[0] || a} ${(userPortfolio.weights[a] * 100).toFixed(1)}%`;
-                }).join(" · ")}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -3618,7 +3596,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes net real return — the integral of real portfolio value above real cash, minus the integral below, per year.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes net real return — the average monthly real excess return over real cash (ECB/CPI), treating every month equally regardless of accumulated wealth.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3668,54 +3646,46 @@ function App() {
                   ) : null;
                   return (
                     <>
-                      {/* Excess return chart: winning portfolio vs real cash (ECB/CPI) */}
+                      {/* Monthly real excess return chart */}
                       {efResults.winnerSim && series.cpi && (() => {
                         const ws = efResults.winnerSim;
-                        const p0 = ws.unitPriceSeries[0];
                         const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
-                        const cpi0 = cpiMap.get(ws.months[0]);
-                        if (!cpi0 || p0 <= 0) return null;
-                        // Build ECB accumulation
-                        const ecb = [1];
+                        const chartData = [];
                         for (let i = 1; i < ws.months.length; i++) {
+                          const cpiPrev = cpiMap.get(ws.months[i - 1]);
+                          const cpiCur = cpiMap.get(ws.months[i]);
+                          if (!cpiPrev || !cpiCur || cpiPrev <= 0) continue;
+                          const rPf = ws.unitPriceSeries[i] / ws.unitPriceSeries[i - 1] - 1;
                           const t = Date.parse(ws.months[i] + "-15");
-                          const rate = series.ecb ? (ecbRateAt(series.ecb, t) ?? 0) : 0;
-                          const mr = Math.pow(1 + Math.max(0, rate / 100), 1 / 12) - 1;
-                          ecb.push(ecb[i - 1] * (1 + mr));
+                          const annRate = series.ecb ? (ecbRateAt(series.ecb, t) ?? 0) : 0;
+                          const rCash = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                          const infl = cpiCur / cpiPrev - 1;
+                          const excess = ((1 + rPf) / (1 + infl) - 1) - ((1 + rCash) / (1 + infl) - 1);
+                          chartData.push({
+                            month: ws.months[i],
+                            label: ws.months[i].slice(0, 4),
+                            pos: excess >= 0 ? excess * 100 : 0,
+                            neg: excess < 0 ? excess * 100 : 0,
+                          });
                         }
-                        const chartData = ws.months.map((m, i) => {
-                          const cpiG = (cpiMap.get(m) ?? cpi0) / cpi0;
-                          const realPf = (ws.unitPriceSeries[i] / p0) / cpiG;
-                          const realCash = ecb[i] / cpiG;
-                          return {
-                            month: m,
-                            label: m.slice(0, 4),
-                            portfolio: realPf,
-                            benchmark: realCash,
-                            above: realPf >= realCash ? realPf : realCash,
-                            below: realPf < realCash ? realPf : realCash,
-                          };
-                        });
+                        if (chartData.length < 12) return null;
                         return (
-                          <div style={{ height: 320, marginBottom: 18 }}>
+                          <div style={{ height: 280, marginBottom: 18 }}>
                             <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
-                              Winning portfolio (real) vs real cash deposit — <span style={{ color: "oklch(0.50 0.14 150)" }}>■</span> excess
-                              {" "}<span style={{ color: "oklch(0.60 0.16 25)" }}>■</span> deficit
+                              Monthly real excess return over real cash (%) — <span style={{ color: "oklch(0.50 0.14 150)" }}>■</span> outperformance
+                              {" "}<span style={{ color: "oklch(0.60 0.16 25)" }}>■</span> underperformance
                             </div>
                             <ResponsiveContainer width="100%" height="100%">
                               <RC.ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
                                 <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
-                                <XAxis dataKey="label" stroke="oklch(0.7 0.008 240)" interval={Math.max(1, Math.floor(chartData.length / 10))} />
-                                <YAxis tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
+                                <XAxis dataKey="label" stroke="oklch(0.7 0.008 240)" interval={Math.max(1, Math.floor(chartData.length / 12))} />
+                                <YAxis tickFormatter={v => v.toFixed(1) + "%"} stroke="oklch(0.7 0.008 240)" width={52} />
                                 <Tooltip contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                                  formatter={(v, name) => [typeof v === "number" ? v.toFixed(3) : v, name]}
+                                  formatter={(v, name) => [(typeof v === "number" ? v.toFixed(2) + "%" : v), name === "pos" ? "Excess" : "Deficit"]}
                                   labelFormatter={l => chartData.find(d => d.label === l)?.month || l} />
-                                <Area type="monotone" dataKey="above" stroke="none" fill="oklch(0.50 0.14 150)" fillOpacity={0.25} baseValue="dataMin" isAnimationActive={false} />
-                                <Area type="monotone" dataKey="benchmark" stroke="none" fill="var(--panel)" fillOpacity={1} baseValue="dataMin" isAnimationActive={false} />
-                                <Area type="monotone" dataKey="benchmark" stroke="none" fill="oklch(0.60 0.16 25)" fillOpacity={0.25} baseValue="dataMin" isAnimationActive={false} />
-                                <Area type="monotone" dataKey="below" stroke="none" fill="var(--panel)" fillOpacity={1} baseValue="dataMin" isAnimationActive={false} />
-                                <Line type="monotone" dataKey="benchmark" stroke="oklch(0.25 0 0)" strokeWidth={1.8} dot={false} name="Real cash" isAnimationActive={false} />
-                                <Line type="monotone" dataKey="portfolio" stroke="oklch(0.45 0.10 220)" strokeWidth={1.8} dot={false} name="Portfolio (real)" isAnimationActive={false} />
+                                <RC.ReferenceLine y={0} stroke="oklch(0.25 0 0)" strokeWidth={1} />
+                                <RC.Bar dataKey="pos" fill="oklch(0.50 0.14 150)" fillOpacity={0.6} isAnimationActive={false} />
+                                <RC.Bar dataKey="neg" fill="oklch(0.60 0.16 25)" fillOpacity={0.6} isAnimationActive={false} />
                               </RC.ComposedChart>
                             </ResponsiveContainer>
                           </div>

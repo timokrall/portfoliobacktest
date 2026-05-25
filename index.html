@@ -1823,6 +1823,8 @@ function App() {
   // §23 12-month rule for gold/silver, and Abgeltungsteuer × (1 − Teilfreistellung)
   // for funds). Default: all OFF — no rebalancing between assets.
   const [userRebalance, setUserRebalance] = useState({});
+  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, 100])));
+  const [bulkLimit, setBulkLimit] = useState(40);
 
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
@@ -2442,6 +2444,13 @@ function App() {
       const end = Math.min(start + CHUNK, samplesWeights.length);
       for (let idx = start; idx < end; idx++) {
         const wv = samplesWeights[idx];
+        // Skip if any asset exceeds its upper limit
+        let skip = false;
+        for (let ai = 0; ai < basket.length; ai++) {
+          const limit = (upperLimits[basket[ai]] ?? 100) / 100;
+          if (wv[ai] > limit + 1e-9) { skip = true; break; }
+        }
+        if (skip) continue;
         const wmap = {};
         basket.forEach((a, i) => { wmap[a] = wv[i]; });
         const dynPf = {
@@ -3095,7 +3104,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 12:17 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 1:48 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3118,11 +3127,12 @@ function App() {
                 Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
               </span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
+              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }} title="Maximum weight % allowed in the efficient frontier grid search">MAX</div>
               {ASSETS.filter(a => a.holdable).map(a => {
                 const w = userWeights[a.id] ?? 0;
                 const canSMA = true;   // gold + silver SMA now supported
@@ -3149,6 +3159,9 @@ function App() {
                       <input type="checkbox" checked={reb} disabled={w === 0}
                              onChange={e => setUserRebalance(s => ({ ...s, [a.id]: e.target.checked }))} />
                     </div>
+                    <input type="number" min="0" max="100" step="5" value={upperLimits[a.id] ?? 100}
+                           style={{ textAlign: "right", padding: "4px 6px", fontSize: 11, width: "100%" }}
+                           onChange={e => setUpperLimits(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
                   </React.Fragment>
                 );
               })}
@@ -3181,6 +3194,14 @@ function App() {
                 style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
                 onClick={fillMinCorrelation}
                 title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
+              <span style={{ flex: 1 }}></span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
+                Set all MAX to
+                <input type="number" min="0" max="100" step="5" value={bulkLimit}
+                  style={{ width: 44, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
+                  onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
+                <button className="btn btn-xs" onClick={() => setUpperLimits(Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, bulkLimit])))}>Apply</button>
+              </span>
             </div>
           </div>
         </div>

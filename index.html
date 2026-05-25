@@ -3141,7 +3141,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 8:23 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:12 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3227,22 +3227,8 @@ function App() {
                 style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
                 onClick={fillMinCorrelation}
                 title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
-              <button className="btn btn-xs btn-ghost" disabled={!efResults?.winners?.combined}
-                style={{ opacity: efResults?.winners?.combined ? 1 : 0.4 }}
-                onClick={() => {
-                  if (!efResults?.winners?.combined) return;
-                  const w = {};
-                  efResults.basket.forEach((a, i) => {
-                    const pct = Math.round(efResults.winners.combined.weights[i] * 100);
-                    if (pct > 0) w[a] = pct;
-                  });
-                  setUserWeights(w);
-                }}>Reset to optimum net real return*</button>
               <span style={{ flex: 1 }}></span>
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
-            </div>
-            <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Net real return</strong> = Σ(real_portfolio[t] − real_cash[t]) / years. Both series are in real terms: nominal value ÷ CPI growth. The benchmark is a cash deposit compounding at the ECB DFR, inflation-adjusted. During ZIRP the benchmark shrinks (easy to beat); during high-rate periods it grows (harder to beat). Requires CPI + ECB data and the Efficient Frontier section below.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3642,7 +3628,15 @@ function App() {
                     const meta = ASSETS.find(x => x.id === a);
                     return `${meta?.shortName || meta?.label.split(" ")[0] || a} ${w.toFixed(0)}%`;
                   }).filter(Boolean).join(" \u00b7 ");
-                  const renderRow = (key, label, row, highlight) => row ? (
+                  const applyWeights = (row) => {
+                    const w = {};
+                    efResults.basket.forEach((a, i) => {
+                      const pct = Math.round(row.weights[i] * 100);
+                      if (pct > 0) w[a] = pct;
+                    });
+                    setUserWeights(w);
+                  };
+                  const renderRow = (key, label, row, highlight, showUse) => row ? (
                     <tr key={key} style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
                       <td className="name" style={{ fontWeight: highlight ? 700 : 400 }}>{label}</td>
                       <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
@@ -3653,6 +3647,7 @@ function App() {
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
                       <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
                       <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{row.irrScore != null ? fmtNum(row.irrScore, 1) : "\u2014"}</td>
+                      <td>{showUse ? <button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => applyWeights(row)}>Use</button> : null}</td>
                     </tr>
                   ) : null;
                   const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "world");
@@ -3668,6 +3663,7 @@ function App() {
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
                       <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
                       <td className="num" style={{ textAlign: "right" }}>{bm.irrScore != null ? fmtNum(bm.irrScore, 1) : "\u2014"}</td>
+                      <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => setUserWeights({ [bm.assetId]: 100 })}>Use</button></td>
                     </tr>
                   ) : null;
                   return (
@@ -3737,16 +3733,17 @@ function App() {
                             <th style={{ textAlign: "right" }}>Max DD</th>
                             <th style={{ textAlign: "right" }}>Gain</th>
                             <th style={{ textAlign: "right" }}>Excess ret.</th>
+                            <th></th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("combined", "\u2b24 Largest net real return", efResults.winners.combined, true)}
-                            {renderRow("convex", "\u2b24 Convexity-weighted largest net real return", efResults.winners.convex, true)}
-                            {renderRow("gainAvg", "\u2b24 Best gain\u00d7avgCAGR", efResults.winners.gainAvg, true)}
-                            {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
-                            {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
-                            {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure)}
-                            {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}
-                            {renderRow("user", "Your current weights", efResults.winners.user)}
+                            {renderRow("combined", "\u2b24 Largest net real return", efResults.winners.combined, true, true)}
+                            {renderRow("convex", "\u2b24 Convexity-weighted largest net real return", efResults.winners.convex, true, true)}
+                            {renderRow("gainAvg", "\u2b24 Best gain\u00d7avgCAGR", efResults.winners.gainAvg, true, true)}
+                            {renderRow("sortino", "Largest Sortino", efResults.winners.sortino, false, true)}
+                            {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure, false, true)}
+                            {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure, false, true)}
+                            {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn, false, true)}
+                            {renderRow("user", "Your current weights", efResults.winners.user, false, false)}
                           </tbody>
                           <tbody style={{ borderTop: "2px solid var(--border)" }}>
                             {renderBench("acwi", bmACWI)}

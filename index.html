@@ -2508,25 +2508,23 @@ function App() {
         if (!r || !r.metrics) continue;
         const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
         let irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
-        // If toggle is on, zero score for portfolios where h* can't compute
-        // (no horizon exists at which ALL rolling windows have non-negative real return)
-        if (irrScore != null && efRequireHStar && series.cpi) {
-          const ups = r.unitPriceSeries;
-          const mths = r.months;
-          const cpMap = new Map(series.cpi.map(x => [x.month, x.value]));
-          let hStarFound = false;
-          for (let hy = 1; hy * 12 < ups.length; hy++) {
-            const hm = hy * 12;
-            let allPositive = true;
-            for (let j = 0; j + hm < ups.length; j++) {
-              const cpiA = cpMap.get(mths[j]), cpiB = cpMap.get(mths[j + hm]);
-              if (cpiA && cpiB && cpiA > 0) {
-                if ((ups[j + hm] / ups[j]) / (cpiB / cpiA) < 1) { allPositive = false; break; }
-              }
-            }
-            if (allPositive) { hStarFound = true; break; }
+        // If require h* toggle is on, compute h* for this sample and zero score if it fails
+        let sampleHStar = null;
+        if (efRequireHStar && cpiAligned && cutCPI >= 13) {
+          const upTrunc = r.unitPriceSeries.slice(0, cutCPI);
+          const cpiTrunc = cpiAligned.slice(0, cutCPI);
+          const paired = buildPairedReturns(upTrunc, cpiTrunc);
+          const curve = [];
+          for (let h = 1; h <= H_MAX_EF; h++) {
+            const mcPt = rollingRealReturnsMC(paired, h, MC_PATHS_EF, mc.block, 12345 + idx * 7 + h);
+            curve.push(mcPt ? mcPt.worstRealCAGR : null);
           }
-          if (!hStarFound) irrScore = 0;
+          for (let i = 0; i < curve.length; i++) {
+            let allOk = true;
+            for (let j = i; j < curve.length; j++) { if (curve[j] == null || curve[j] < 0) { allOk = false; break; } }
+            if (allOk) { sampleHStar = i + 1; break; }
+          }
+          if (sampleHStar == null) irrScore = 0;
         }
         results.push({
           weights: wv,
@@ -2537,7 +2535,7 @@ function App() {
           finalValue: r.finalValue,
           avgCAGR,
           irrScore,
-          hStar: null,
+          hStar: sampleHStar,
         });
       }
       setEfProgress({ done: end, total: samplesWeights.length + benchmarks.length });
@@ -2579,12 +2577,15 @@ function App() {
         let winnerSim = null;
         const computeHStarForRow = (row, isWinner) => {
           if (!row) return;
+          // If h* already computed during grid (efRequireHStar), just get winnerSim
+          if (row.hStar != null && !isWinner) return;
           const wv = row.weights;
           const wmap = {}; basket.forEach((a, i) => { wmap[a] = wv[i]; });
           const dynPf = { id: "ef_h", name: "h*", assets: basket, weights: wmap, equityId: basket.find(a => a !== "gold") || basket[0], fixedWeights: true, dynamic: true };
           const r = runSim({ portfolio: dynPf, targetGoldPct: wmap.gold || 0, data: dataBase, seriesType: effSeriesType, ongoingCost, spreads, orderFee, tax: { rate: taxRate, teilfreistellung, allowance, basiszins }, starting, monthly, rebalance, ecbChanges: series.ecb || null });
           if (!r) return;
           if (isWinner) winnerSim = { unitPriceSeries: r.unitPriceSeries, months: r.months };
+          if (row.hStar != null) return; // already have h* from grid
           if (!cpiAligned || cutCPI < 13) return;
           const upTrunc = r.unitPriceSeries.slice(0, cutCPI);
           const cpiTrunc = cpiAligned.slice(0, cutCPI);
@@ -3175,7 +3176,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:38 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:49 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

@@ -1429,37 +1429,49 @@ function avgYearlyCAGR(unitPriceSeries) {
   return count > 0 ? sum / count : null;
 }
 
-// Integrated risk-return score: net excess return over CPI (inflation).
-// For each month, compare portfolio unit price (normalized to 1) vs CPI growth
-// (also normalized to 1). Score = Σ(portfolio − CPI) / years.
-// Positive when portfolio outpaces inflation; negative when it doesn't.
-// Drawdowns below the CPI line cost for every month they persist.
-function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries) {
+// Integrated risk-return score: net excess return over real cash.
+// Benchmark = ECB deposit compounding / CPI growth (both normalized to 1).
+// This is the real opportunity cost of not investing — the purchasing-power-
+// adjusted return of holding cash. Score = Σ(real_portfolio − real_cash) / years.
+// During ZIRP: real cash falls (easy to beat). During high-rate: real cash
+// rises (harder to beat). Rewards portfolios that justify their risk.
+function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries, ecbChanges) {
   if (!unitPriceSeries || unitPriceSeries.length < 13 || !months || !cpiSeries) return null;
   const n = unitPriceSeries.length;
   const p0 = unitPriceSeries[0];
   if (p0 <= 0) return null;
-  // Build CPI-aligned curve normalized to 1 at the portfolio start
   const cpiMap = new Map(cpiSeries.map(r => [r.month, r.value]));
   const cpi0 = cpiMap.get(months[0]);
   if (!cpi0 || cpi0 <= 0) return null;
+  // Build ECB accumulation curve (1 euro compounding at DFR monthly)
+  const ecbCurve = [1];
+  for (let i = 1; i < n; i++) {
+    const t = Date.parse(months[i] + "-15");
+    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+    const monthlyRate = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+    ecbCurve.push(ecbCurve[i - 1] * (1 + monthlyRate));
+  }
+  // Real cash benchmark = ECB accumulation / CPI growth
   let excessSum = 0;
   let validMonths = 0;
   for (let i = 0; i < n; i++) {
     const cpiVal = cpiMap.get(months[i]);
     if (cpiVal == null) continue;
-    excessSum += (unitPriceSeries[i] / p0) - (cpiVal / cpi0);
+    const cpiGrowth = cpiVal / cpi0;
+    const realPortfolio = (unitPriceSeries[i] / p0) / cpiGrowth;
+    const realCash = ecbCurve[i] / cpiGrowth;
+    excessSum += realPortfolio - realCash;
     validMonths++;
   }
   const years = validMonths / 12;
   return years > 0 ? excessSum / years : null;
 }
 
-// Convexity-weighted excess return over CPI.
+// Convexity-weighted excess return over real cash (ECB/CPI).
 // w(f', f'') = 1 + α × sign(f''), where α = stdev(f'') / mean(|f''|).
 // Overweights months with convex curvature (accelerating up or decelerating down)
 // and underweights concave months (decelerating up or accelerating down).
-function convexityWeightedExcessReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries) {
+function convexityWeightedExcessReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries, ecbChanges) {
   if (!unitPriceSeries || unitPriceSeries.length < 15 || !months || !cpiSeries) return null;
   const n = unitPriceSeries.length;
   const p0 = unitPriceSeries[0];
@@ -1467,28 +1479,40 @@ function convexityWeightedExcessReturn(unitPriceSeries, ddSeries, finalRatio, mo
   const cpiMap = new Map(cpiSeries.map(r => [r.month, r.value]));
   const cpi0 = cpiMap.get(months[0]);
   if (!cpi0 || cpi0 <= 0) return null;
-  // Compute f' (monthly returns) and f'' (change in returns)
-  const pNorm = unitPriceSeries.map(v => v / p0);
-  const fp = []; // f'[i] = pNorm[i+1] - pNorm[i]
-  for (let i = 0; i < n - 1; i++) fp.push(pNorm[i + 1] - pNorm[i]);
-  const fpp = []; // f''[i] = fp[i+1] - fp[i]
+  // ECB accumulation
+  const ecbCurve = [1];
+  for (let i = 1; i < n; i++) {
+    const t = Date.parse(months[i] + "-15");
+    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+    const monthlyRate = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+    ecbCurve.push(ecbCurve[i - 1] * (1 + monthlyRate));
+  }
+  // Compute f' and f'' on the real portfolio curve
+  const realPf = [];
+  for (let i = 0; i < n; i++) {
+    const cpiVal = cpiMap.get(months[i]) ?? cpi0;
+    realPf.push((unitPriceSeries[i] / p0) / (cpiVal / cpi0));
+  }
+  const fp = [];
+  for (let i = 0; i < n - 1; i++) fp.push(realPf[i + 1] - realPf[i]);
+  const fpp = [];
   for (let i = 0; i < fp.length - 1; i++) fpp.push(fp[i + 1] - fp[i]);
-  // α = stdev(f'') / mean(|f''|)
   const absFpp = fpp.map(v => Math.abs(v));
   const meanAbsFpp = absFpp.reduce((s, v) => s + v, 0) / absFpp.length;
   if (meanAbsFpp <= 0) return null;
   const meanFpp = fpp.reduce((s, v) => s + v, 0) / fpp.length;
   const varFpp = fpp.reduce((s, v) => s + (v - meanFpp) ** 2, 0) / fpp.length;
   const alpha = Math.sqrt(varFpp) / meanAbsFpp;
-  // Weighted excess: w(t) = 1 + α × sign(f''(t))
-  // f'' is defined for indices 0..n-3 (maps to months 1..n-2)
+  // Weighted excess over real cash
   let weightedSum = 0;
   let validMonths = 0;
   for (let i = 0; i < n; i++) {
     const cpiVal = cpiMap.get(months[i]);
     if (cpiVal == null) continue;
-    const excess = pNorm[i] - (cpiVal / cpi0);
-    // f'' index: i maps to fpp[i-1] (since fpp starts at month index 1)
+    const cpiGrowth = cpiVal / cpi0;
+    const realPortfolio = (unitPriceSeries[i] / p0) / cpiGrowth;
+    const realCash = ecbCurve[i] / cpiGrowth;
+    const excess = realPortfolio - realCash;
     const fppIdx = i - 1;
     const w = (fppIdx >= 0 && fppIdx < fpp.length) ? 1 + alpha * Math.sign(fpp[fppIdx]) : 1;
     weightedSum += w * excess;
@@ -2463,8 +2487,8 @@ function App() {
         });
         if (!r || !r.metrics) continue;
         const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
-        const irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi);
-        const cvxScore = convexityWeightedExcessReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi);
+        const irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
+        const cvxScore = convexityWeightedExcessReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
         results.push({
           weights: wv,
           sortino: r.metrics.sortino,
@@ -2505,8 +2529,8 @@ function App() {
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
             avgCAGR: avgYearlyCAGR(r.unitPriceSeries),
-            irrScore: integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi),
-            cvxScore: convexityWeightedExcessReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi),
+            irrScore: integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb),
+            cvxScore: convexityWeightedExcessReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb),
             hStar: null, _unitPrice: r.unitPriceSeries,
           });
         }
@@ -2572,7 +2596,7 @@ function App() {
         if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
         if ((r.upi ?? -Infinity) > (bup.upi ?? -Infinity)) bup = r;
         if ((r.avgCAGR ?? -Infinity) > (bap.avgCAGR ?? -Infinity)) bap = r;
-        // Combined: net excess return over CPI
+        // Combined: net real return over real cash
         const cs = r.irrScore ?? -Infinity;
         if (cs > bcScore) { bc = r; bcScore = cs; }
         // Convexity-weighted excess return over CPI
@@ -3218,7 +3242,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Net excess return over CPI</strong> = Σ(portfolio[t] − CPI[t]) / years, where both curves are normalized to 1 at the start. Every month the portfolio outpaces inflation earns credit; every month below costs. Rewards consistent real outperformance — drawdowns that dip below the CPI line hurt for every month they persist. Requires CPI data and the Efficient Frontier section below to be calculated first.
+              * <strong>Net real return</strong> = Σ(real_portfolio[t] − real_cash[t]) / years. Both series are in real terms: nominal value ÷ CPI growth. The benchmark is a cash deposit compounding at the ECB DFR, inflation-adjusted. During ZIRP the benchmark shrinks (easy to beat); during high-rate periods it grows (harder to beat). Requires CPI + ECB data and the Efficient Frontier section below.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3608,7 +3632,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes net excess return over CPI — the integral of portfolio value above inflation, minus the integral below, per year.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes net real return — the integral of real portfolio value above real cash, minus the integral below, per year.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3648,30 +3672,39 @@ function App() {
                   ) : null;
                   return (
                     <>
-                      {/* Excess return chart: winning portfolio vs CPI */}
+                      {/* Excess return chart: winning portfolio vs real cash (ECB/CPI) */}
                       {efResults.winnerSim && series.cpi && (() => {
                         const ws = efResults.winnerSim;
                         const p0 = ws.unitPriceSeries[0];
                         const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
                         const cpi0 = cpiMap.get(ws.months[0]);
                         if (!cpi0 || p0 <= 0) return null;
+                        // Build ECB accumulation
+                        const ecb = [1];
+                        for (let i = 1; i < ws.months.length; i++) {
+                          const t = Date.parse(ws.months[i] + "-15");
+                          const rate = series.ecb ? (ecbRateAt(series.ecb, t) ?? 0) : 0;
+                          const mr = Math.pow(1 + Math.max(0, rate / 100), 1 / 12) - 1;
+                          ecb.push(ecb[i - 1] * (1 + mr));
+                        }
                         const chartData = ws.months.map((m, i) => {
-                          const pf = ws.unitPriceSeries[i] / p0;
-                          const cpi = (cpiMap.get(m) ?? cpi0) / cpi0;
+                          const cpiG = (cpiMap.get(m) ?? cpi0) / cpi0;
+                          const realPf = (ws.unitPriceSeries[i] / p0) / cpiG;
+                          const realCash = ecb[i] / cpiG;
                           return {
                             month: m,
                             label: m.slice(0, 4),
-                            portfolio: pf,
-                            cpi,
-                            above: pf >= cpi ? pf : cpi,
-                            below: pf < cpi ? pf : cpi,
+                            portfolio: realPf,
+                            benchmark: realCash,
+                            above: realPf >= realCash ? realPf : realCash,
+                            below: realPf < realCash ? realPf : realCash,
                           };
                         });
                         return (
                           <div style={{ height: 320, marginBottom: 18 }}>
                             <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
-                              Winning portfolio vs CPI — <span style={{ color: "oklch(0.50 0.14 150)" }}>■</span> excess above CPI
-                              {" "}<span style={{ color: "oklch(0.60 0.16 25)" }}>■</span> deficit below CPI
+                              Winning portfolio (real) vs real cash deposit — <span style={{ color: "oklch(0.50 0.14 150)" }}>■</span> excess
+                              {" "}<span style={{ color: "oklch(0.60 0.16 25)" }}>■</span> deficit
                             </div>
                             <ResponsiveContainer width="100%" height="100%">
                               <RC.ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
@@ -3682,11 +3715,11 @@ function App() {
                                   formatter={(v, name) => [typeof v === "number" ? v.toFixed(3) : v, name]}
                                   labelFormatter={l => chartData.find(d => d.label === l)?.month || l} />
                                 <Area type="monotone" dataKey="above" stroke="none" fill="oklch(0.50 0.14 150)" fillOpacity={0.25} baseValue="dataMin" isAnimationActive={false} />
-                                <Area type="monotone" dataKey="cpi" stroke="none" fill="var(--panel)" fillOpacity={1} baseValue="dataMin" isAnimationActive={false} />
-                                <Area type="monotone" dataKey="cpi" stroke="none" fill="oklch(0.60 0.16 25)" fillOpacity={0.25} baseValue="dataMin" isAnimationActive={false} />
+                                <Area type="monotone" dataKey="benchmark" stroke="none" fill="var(--panel)" fillOpacity={1} baseValue="dataMin" isAnimationActive={false} />
+                                <Area type="monotone" dataKey="benchmark" stroke="none" fill="oklch(0.60 0.16 25)" fillOpacity={0.25} baseValue="dataMin" isAnimationActive={false} />
                                 <Area type="monotone" dataKey="below" stroke="none" fill="var(--panel)" fillOpacity={1} baseValue="dataMin" isAnimationActive={false} />
-                                <Line type="monotone" dataKey="cpi" stroke="oklch(0.25 0 0)" strokeWidth={1.8} dot={false} name="CPI" isAnimationActive={false} />
-                                <Line type="monotone" dataKey="portfolio" stroke="oklch(0.45 0.10 220)" strokeWidth={1.8} dot={false} name="Portfolio" isAnimationActive={false} />
+                                <Line type="monotone" dataKey="benchmark" stroke="oklch(0.25 0 0)" strokeWidth={1.8} dot={false} name="Real cash" isAnimationActive={false} />
+                                <Line type="monotone" dataKey="portfolio" stroke="oklch(0.45 0.10 220)" strokeWidth={1.8} dot={false} name="Portfolio (real)" isAnimationActive={false} />
                               </RC.ComposedChart>
                             </ResponsiveContainer>
                           </div>
@@ -3707,7 +3740,7 @@ function App() {
                           </tr></thead>
                           <tbody>
                             {renderRow("combined", "\u2b24 Largest net real return", efResults.winners.combined, true)}
-                            {renderRow("convex", "\u2b24 Convexity-weighted largest net excess return over CPI", efResults.winners.convex, true)}
+                            {renderRow("convex", "\u2b24 Convexity-weighted largest net real return", efResults.winners.convex, true)}
                             {renderRow("gainAvg", "\u2b24 Best gain\u00d7avgCAGR", efResults.winners.gainAvg, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}

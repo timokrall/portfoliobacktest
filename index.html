@@ -1814,7 +1814,7 @@ function App() {
   // assets (coIQ, momentum, value, quality, minvol, prime/PRAW, gold, BTC).
   // 12% × 4 + 13% × 4 = 100. Leveraged ETFs (lev3x, lev2x*) excluded by
   // default — too volatile for a strategic-core baseline.
-  const [userWeights, setUserWeights] = useState({ coIQ: 50, minvol: 25, gold: 25 });
+  const [userWeights, setUserWeights] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, 10])));
   // Per-asset 200-SMA toggle for the user portfolio's legs.
   const [userSMA, setUserSMA] = useState({});
   // Per-asset annual-rebalance-when-overperforming toggle. When ON for an
@@ -1822,8 +1822,8 @@ function App() {
   // redistribute proceeds to under-target assets (subject to spreads, fees,
   // §23 12-month rule for gold/silver, and Abgeltungsteuer × (1 − Teilfreistellung)
   // for funds). Default: all OFF — no rebalancing between assets.
-  const [userRebalance, setUserRebalance] = useState({});
-  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, 100])));
+  const [userRebalance, setUserRebalance] = useState({ gold: true });
+  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, 40])));
   const [bulkLimit, setBulkLimit] = useState(40);
 
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
@@ -3104,7 +3104,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 1:48 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 1:52 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3202,6 +3202,11 @@ function App() {
                   onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
                 <button className="btn btn-xs" onClick={() => setUpperLimits(Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, bulkLimit])))}>Apply</button>
               </span>
+            </div>
+            <div className="small-note" style={{ marginTop: 8 }}>
+              <strong>SMA</strong> — 200-day simple moving average timing. When ticked, this leg sells to cash when the daily price falls below the 200-day SMA and re-enters when it crosses back above. Reduces drawdowns at the cost of whipsaw losses in trendless markets.<br/>
+              <strong>REB</strong> — yearly rebalancing. When ticked, if this asset is overweight vs its target at each rebalancing date, the excess is sold (gold: only matured lots, tax-free under Spekulationsfrist; funds: subject to CGT) and proceeds are redistributed to underweight assets.<br/>
+              <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".
             </div>
           </div>
         </div>

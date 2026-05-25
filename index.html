@@ -1283,21 +1283,22 @@ function simulatePortfolioV2(state) {
     }
 
     // 4. rebalance.
-    //    Two modes:
-    //    (a) rebalanceFlags supplied (user portfolio): each January, for every
-    //        asset with flag ON that is OVER target, sell the excess (debt:
-    //        matured lots tax-free; fund: pay CGT on the gain), then distribute
-    //        the pooled proceeds to UNDER-target assets proportional to their
-    //        shortfall (capped at target).
-    //    (b) legacy gold-only path (predefined portfolios + rebalance prop):
-    //        gold sells matured lots, proceeds split across non-gold legs by
-    //        target weight.
-    if (rebalanceFlags) {
-      if (curMonth === 0 && i > 0) {
+    //    For every asset with rebalanceFlags[a] ON that is OVER target, sell the
+    //    excess (debt: matured lots tax-free; fund: pay CGT on gain), then
+    //    distribute pooled proceeds to UNDER-target assets proportional to shortfall.
+    //    Frequency controlled by the `rebalance` prop (yearly/monthly/biennial/never).
+    {
+      const due = rebalance === "never" ? false :
+        rebalance === "monthly" ? true :
+        rebalance === "yearly"  ? (curMonth === 0 && i > 0) :
+        rebalance === "biennial"? (curMonth === 0 && curYear % 2 === 0 && i > 0) :
+        false;
+      const flags = rebalanceFlags || {};
+      if (due) {
         const totalV = Object.values(holdings).reduce((s, v) => s + v, 0);
         let pooled = 0;
         for (const a of assets) {
-          if (!rebalanceFlags[a]) continue;
+          if (!flags[a]) continue;
           const tgt = (targets[a] || 0) * totalV;
           const cur = holdings[a] || 0;
           if (cur <= tgt + 1e-6) continue;
@@ -1308,7 +1309,6 @@ function simulatePortfolioV2(state) {
           pooled += proceeds;
         }
         if (pooled > 0) {
-          // Recompute totals AFTER sells. Distribute to under-target assets.
           const totalAfter = Object.values(holdings).reduce((s, v) => s + v, 0) + pooled;
           const shortfalls = {};
           let sfTotal = 0;
@@ -1321,34 +1321,6 @@ function simulatePortfolioV2(state) {
           if (sfTotal > 0) {
             for (const a of assets) {
               if (shortfalls[a] > 0) buy(a, pooled * (shortfalls[a] / sfTotal), i);
-            }
-          }
-        }
-      }
-    } else {
-      // legacy gold-only path
-      const hasGold = targets.gold != null && targets.gold > 0;
-      if (hasGold && rebalance !== "never") {
-      const due =
-        rebalance === "monthly" ? true :
-        rebalance === "yearly"  ? (curMonth === 0) :
-        rebalance === "biennial"? (curMonth === 0 && curYear % 2 === 0) :
-        false;
-        if (due) {
-          const nonGold = assets.filter(a => a !== "gold");
-          const totalNonGold = nonGold.reduce((s, a) => s + (holdings[a] || 0), 0);
-          const totalV = (holdings.gold || 0) + totalNonGold;
-          const goldShare = totalV > 0 ? (holdings.gold || 0) / totalV : 0;
-          if (goldShare > targets.gold + 1e-6) {
-            const desGold = totalV * targets.gold;
-            const overflow = (holdings.gold || 0) - desGold;
-            const proceeds = sellMaturedGold(overflow, i);
-            if (proceeds > 0) {
-              const wSum = nonGold.reduce((s, a) => s + (targets[a] || 0), 0);
-              for (const a of nonGold) {
-                const share = wSum > 0 ? (targets[a] || 0) / wSum : 1 / nonGold.length;
-                if (share > 0) buy(a, proceeds * share, i);
-              }
             }
           }
         }
@@ -2480,7 +2452,7 @@ function App() {
           portfolio: dynPf, targetGoldPct: wmap.gold || 0, data: dataBase,
           seriesType: effSeriesType, ongoingCost, spreads, orderFee,
           tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
-          starting, monthly, rebalance,
+          starting, monthly, rebalance, rebalanceFlags: userRebalance,
           ecbChanges: series.ecb || null,
         });
         if (!r || !r.metrics) continue;
@@ -2560,7 +2532,7 @@ function App() {
           const wv = row.weights;
           const wmap = {}; basket.forEach((a, i) => { wmap[a] = wv[i]; });
           const dynPf = { id: "ef_h", name: "h*", assets: basket, weights: wmap, equityId: basket.find(a => a !== "gold") || basket[0], fixedWeights: true, dynamic: true };
-          const r = runSim({ portfolio: dynPf, targetGoldPct: wmap.gold || 0, data: dataBase, seriesType: effSeriesType, ongoingCost, spreads, orderFee, tax: { rate: taxRate, teilfreistellung, allowance, basiszins }, starting, monthly, rebalance, ecbChanges: series.ecb || null });
+          const r = runSim({ portfolio: dynPf, targetGoldPct: wmap.gold || 0, data: dataBase, seriesType: effSeriesType, ongoingCost, spreads, orderFee, tax: { rate: taxRate, teilfreistellung, allowance, basiszins }, starting, monthly, rebalance, rebalanceFlags: userRebalance, ecbChanges: series.ecb || null });
           if (!r) return;
           if (isWinner) winnerSim = { unitPriceSeries: r.unitPriceSeries, months: r.months };
           if (!cpiAligned || cutCPI < 13) return;
@@ -3123,7 +3095,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 12:04 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 12:17 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

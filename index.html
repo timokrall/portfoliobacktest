@@ -1522,6 +1522,56 @@ function convexityWeightedExcessReturn(unitPriceSeries, ddSeries, finalRatio, mo
   return years > 0 ? weightedSum / years : null;
 }
 
+// ---------- Cross-validated (min-window) metrics ----------
+// Computes each metric on every rolling windowYears-year sub-window,
+// returns the MINIMUM across all windows. A portfolio scores well only
+// if it performs in EVERY decade — no single regime can carry it.
+const CV_WINDOW_YEARS = 10;
+function minWindowMetrics(unitPriceSeries, months, cpiSeries, ecbChanges) {
+  const wm = CV_WINDOW_YEARS * 12;
+  const n = unitPriceSeries.length;
+  if (n < wm + 1) return null; // not enough data
+  let minScore = Infinity, minSortino = Infinity, minUPI = Infinity;
+  let minAvgCAGR = Infinity, minGainAvgCAGR = Infinity;
+  // Step yearly (every 12 months) through possible start points
+  for (let s = 0; s + wm < n; s += 12) {
+    const end = Math.min(s + wm + 1, n);
+    const wUP = unitPriceSeries.slice(s, end);
+    const wMonths = months.slice(s, end);
+    if (wUP.length < 25) continue; // need at least ~2 years
+    // Score (permutation-median integral)
+    const score = integratedRiskReturn(wUP, null, null, wMonths, cpiSeries, ecbChanges);
+    if (score != null && score < minScore) minScore = score;
+    // Sortino
+    const rets = [];
+    for (let i = 1; i < wUP.length; i++) rets.push(wUP[i] / wUP[i - 1] - 1);
+    const meanR = rets.reduce((a, b) => a + b, 0) / rets.length;
+    const dsq = rets.reduce((a, r) => a + Math.pow(Math.min(0, r), 2), 0);
+    const dsDev = Math.sqrt(dsq / rets.length);
+    const sortino = dsDev > 0 ? (meanR / dsDev) * Math.sqrt(12) : null;
+    if (sortino != null && sortino < minSortino) minSortino = sortino;
+    // UPI
+    const dd = []; let peak = wUP[0];
+    for (const u of wUP) { peak = Math.max(peak, u); dd.push(u / peak - 1); }
+    const upi = computeUPI(dd, wUP, wMonths, ecbChanges);
+    if (upi != null && upi < minUPI) minUPI = upi;
+    // avgCAGR
+    const ac = avgYearlyCAGR(wUP);
+    if (ac != null && ac < minAvgCAGR) minAvgCAGR = ac;
+    // gain × avgCAGR
+    const gain = Math.max(0, wUP[wUP.length - 1] / wUP[0] - 1);
+    const gxc = gain * Math.max(0, ac || 0);
+    if (gxc < minGainAvgCAGR) minGainAvgCAGR = gxc;
+  }
+  return {
+    score: minScore < Infinity ? minScore : null,
+    sortino: minSortino < Infinity ? minSortino : null,
+    upi: minUPI < Infinity ? minUPI : null,
+    avgCAGR: minAvgCAGR < Infinity ? minAvgCAGR : null,
+    gainAvgCAGR: minGainAvgCAGR < Infinity ? minGainAvgCAGR : null,
+  };
+}
+
 // ---------- V2: rolling real-return engine + paired (return,CPI) MC ----------
 // On a portfolio's UNIT-PRICE series + aligned CPI level series, compute
 // per holding horizon h (years) the worst-window real CAGR/multiple, the
@@ -2481,6 +2531,8 @@ function App() {
         if (!r || !r.metrics) continue;
         const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
         let irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
+        // Cross-validated (min-window) metrics for robust ranking
+        const cv = minWindowMetrics(r.unitPriceSeries, r.months, series.cpi, series.ecb);
         // Quick historical h* for Pareto analysis: find smallest horizon where
         // ALL rolling windows have non-negative real return. O(H×n) per sample.
         let sampleHStar = null;
@@ -2502,13 +2554,14 @@ function App() {
         }
         results.push({
           weights: wv,
-          sortino: r.metrics.sortino,
-          upi: r.metrics.upi,
+          sortino: cv?.sortino ?? r.metrics.sortino,
+          upi: cv?.upi ?? r.metrics.upi,
           maxDD: r.metrics.maxDD,
           finalRatio: r.finalValue / r.totalInvested,
           finalValue: r.finalValue,
-          avgCAGR,
-          irrScore,
+          avgCAGR: cv?.avgCAGR ?? avgCAGR,
+          irrScore: cv?.score ?? irrScore,
+          gainAvgCAGR: cv?.gainAvgCAGR ?? (Math.max(0, r.finalValue / r.totalInvested - 1) * Math.max(0, avgCAGR || 0)),
           histHStar: sampleHStar,
           hStar: null,
           isUser: isUserSample,
@@ -2535,13 +2588,17 @@ function App() {
             ecbChanges: series.ecb || null,
           });
           if (!r || !r.metrics) continue;
+          const bmCV = minWindowMetrics(r.unitPriceSeries, r.months, series.cpi, series.ecb);
+          const bmAvgCAGR = avgYearlyCAGR(r.unitPriceSeries);
           benchResults.push({
             label: bm.label, assetId: bm.assetId,
-            sortino: r.metrics.sortino, upi: r.metrics.upi, maxDD: r.metrics.maxDD,
+            sortino: bmCV?.sortino ?? r.metrics.sortino,
+            upi: bmCV?.upi ?? r.metrics.upi,
+            maxDD: r.metrics.maxDD,
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
-            avgCAGR: avgYearlyCAGR(r.unitPriceSeries),
-            irrScore: integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb),
+            avgCAGR: bmCV?.avgCAGR ?? bmAvgCAGR,
+            irrScore: bmCV?.score ?? integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb),
             hStar: null, _unitPrice: r.unitPriceSeries,
           });
         }
@@ -2610,8 +2667,8 @@ function App() {
         // Combined: net real return over real cash — permutation median
         const cs = r.irrScore ?? -Infinity;
         if (cs > bcScore) { bc = r; bcScore = cs; }
-        // gain × avgCAGR
-        const ga = Math.max(0, r.finalRatio - 1) * Math.max(0, r.avgCAGR ?? 0);
+        // gain × avgCAGR (cross-validated)
+        const ga = r.gainAvgCAGR ?? (Math.max(0, r.finalRatio - 1) * Math.max(0, r.avgCAGR ?? 0));
         if (ga > bgaScore) { bga = r; bgaScore = ga; }
         if (r.finalRatio > br.finalRatio) br = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
@@ -3119,7 +3176,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 5:43 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 6:22 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3527,7 +3584,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>risk optimal</strong> portfolio is the Pareto knee of score vs h* — the point where sacrificing more return for a shorter h* becomes disproportionately expensive. The <strong>largest net real return</strong> maximizes the median level-based integral of real portfolio vs real cash across 100 random return orderings.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>risk optimal</strong> portfolio is the Pareto knee of score vs h*. The <strong>largest net real return</strong> maximizes the median level-based integral of real portfolio vs real cash across 100 random return orderings. All metrics except absolute return and max DD are <strong>cross-validated</strong>: computed on every rolling {CV_WINDOW_YEARS}-year window, showing the <em>worst</em> window — a portfolio must perform in every decade to score well.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -3660,7 +3717,7 @@ function App() {
                         </table>
 
                         <div className="small-note" style={{ marginTop: 8 }}>
-                          <strong>\u2b24</strong> marks the portfolio with the highest <strong>Score</strong> — the median level-based integral of real portfolio value vs real cash (ECB deposit / CPI) across 100 random permutations of the monthly returns. Path-independent: only the return distribution matters, not when returns occurred. Higher = more cumulative real wealth generated above a cash deposit, adjusted for inflation.
+                          <strong>\u2b24</strong> marks the portfolio with the highest <strong>Score</strong> — the minimum across all rolling {CV_WINDOW_YEARS}-year windows of the median permutation integral of real portfolio vs real cash (ECB/CPI). Path-independent and regime-independent: a portfolio must beat real cash consistently in every decade, not just overall.
                         </div>
 
                         <div style={{ marginTop: 18 }}>

@@ -1814,7 +1814,18 @@ function App() {
   // assets (coIQ, momentum, value, quality, minvol, prime/PRAW, gold, BTC).
   // 12% × 4 + 13% × 4 = 100. Leveraged ETFs (lev3x, lev2x*) excluded by
   // default — too volatile for a strategic-core baseline.
-  const [userWeights, setUserWeights] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, 10])));
+  const [userWeights, setUserWeights] = useState(() => {
+    const w = {};
+    const holdable = ASSETS.filter(a => a.holdable);
+    const active = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
+    const perAsset = Math.floor(100 / active.length);
+    let remainder = 100 - perAsset * active.length;
+    for (const a of holdable) {
+      if (a.id === "gold" || a.id === "silver") { w[a.id] = 0; }
+      else { w[a.id] = perAsset + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
+    }
+    return w;
+  });
   // Per-asset 200-SMA toggle for the user portfolio's legs.
   const [userSMA, setUserSMA] = useState({});
   // Per-asset annual-rebalance-when-overperforming toggle. When ON for an
@@ -3108,7 +3119,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 5:33 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 5:43 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

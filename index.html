@@ -1823,8 +1823,8 @@ function App() {
   // §23 12-month rule for gold/silver, and Abgeltungsteuer × (1 − Teilfreistellung)
   // for funds). Default: all OFF — no rebalancing between assets.
   const [userRebalance, setUserRebalance] = useState({ gold: true });
-  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, 40])));
-  const [bulkLimit, setBulkLimit] = useState(40);
+  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, 50])));
+  const [bulkLimit, setBulkLimit] = useState(50);
 
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
@@ -3104,7 +3104,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 1:52 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 2:13 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

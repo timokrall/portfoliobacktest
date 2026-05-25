@@ -3479,9 +3479,28 @@ function App() {
                           }
                         }
                         // Find best by CV score
-                        const valid = results.filter(r => r.cvScore != null);
-                        const best = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
-                        setGoldOptResult({ results, best, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
+                        const valid = results.filter(r => r.cvScore != null && r.fullScore != null);
+                        // Pareto knee: normalize CV and Full Score to [0,1], find point maximizing sum
+                        let best = null;
+                        if (valid.length > 0) {
+                          const cvMin = Math.min(...valid.map(r => r.cvScore));
+                          const cvMax = Math.max(...valid.map(r => r.cvScore));
+                          const fsMin = Math.min(...valid.map(r => r.fullScore));
+                          const fsMax = Math.max(...valid.map(r => r.fullScore));
+                          const cvRange = cvMax - cvMin || 1;
+                          const fsRange = fsMax - fsMin || 1;
+                          let bestKnee = -Infinity;
+                          for (const r of valid) {
+                            const normCV = (r.cvScore - cvMin) / cvRange;
+                            const normFS = (r.fullScore - fsMin) / fsRange;
+                            const knee = normCV + normFS;
+                            if (knee > bestKnee) { bestKnee = knee; best = r; }
+                          }
+                        }
+                        // Also track pure-CV and pure-FullScore winners for reference
+                        const bestCV = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
+                        const bestFS = valid.length > 0 ? valid.reduce((a, b) => b.fullScore > a.fullScore ? b : a) : null;
+                        setGoldOptResult({ results, best, bestCV, bestFS, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
                       } catch (e) { setGoldOptResult({ error: e.message }); }
                       setGoldOptRunning(false);
                     }, 50);
@@ -3524,16 +3543,16 @@ function App() {
                     <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
                       {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
                       {goldOptResult.smaDebug && <> SMA: {goldOptResult.smaDebug}.</>}
-                      {goldOptResult.best && <strong> Optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + SMA" : goldOptResult.best.sma === "taxfree" ? " + SMA (tax-free)" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} rebalancing` : ", no rebalancing"}.</strong>}
+                      {goldOptResult.best && <strong> Risk optimal (Pareto knee): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + SMA" : goldOptResult.best.sma === "taxfree" ? " + SMA (tax-free)" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}. </strong>}
+                      {goldOptResult.bestCV && <> Best worst-decade (CV): {goldOptResult.bestCV.goldPct}% gold{goldOptResult.bestCV.sma === "full" ? " + SMA" : ""}, CV {fmtPct(goldOptResult.bestCV.cvScore)}.</>}
+                      {goldOptResult.bestFS && <> Best full-period: {goldOptResult.bestFS.goldPct}% gold{goldOptResult.bestFS.sma === "full" ? " + SMA" : ""}{goldOptResult.bestFS.reb !== "never" ? ` + ${goldOptResult.bestFS.reb}` : ""}, Full {fmtPct(goldOptResult.bestFS.fullScore)}.</>}
                       {goldOptResult.hasSMA && (() => {
-                        const bestSMAFull = goldOptResult.results.filter(r => r.sma === "full" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
                         const bestSMATF = goldOptResult.results.filter(r => r.sma === "taxfree" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
                         const bestNoSMA = goldOptResult.results.filter(r => !r.sma && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
-                        const bestReb = goldOptResult.results.filter(r => r.reb !== "never" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
                         return <>
-                          {bestSMAFull && <> Best SMA (full): {bestSMAFull.goldPct}% gold, CV {fmtPct(bestSMAFull.cvScore)}.</>}
                           {bestSMATF && <> Best SMA (tax-free): {bestSMATF.goldPct}% gold, CV {fmtPct(bestSMATF.cvScore)}.</>}
                           {bestNoSMA && <> Best no SMA: {bestNoSMA.goldPct}% gold, CV {fmtPct(bestNoSMA.cvScore)}.</>}
+                        </>;
                         </>;
                       })()}
                     </div>
@@ -3550,15 +3569,24 @@ function App() {
                       </tr></thead>
                       <tbody>
                         {(() => {
-                          const sorted = goldOptResult.results
-                            .filter(r => r.cvScore != null)
-                            .sort((a, b) => (b.cvScore ?? -Infinity) - (a.cvScore ?? -Infinity));
-                          // Always include best SMA and best rebalancing rows
-                          const top30 = sorted.slice(0, 30);
-                          const bestSMAFull = sorted.find(r => r.sma === "full");
-                          const bestSMATF = sorted.find(r => r.sma === "taxfree");
-                          const bestNoSMA = sorted.find(r => !r.sma);
-                          const bestReb = sorted.find(r => r.reb !== "never");
+                          const withScores = goldOptResult.results.filter(r => r.cvScore != null && r.fullScore != null);
+                          // Compute knee score for sorting
+                          const cvMin = Math.min(...withScores.map(r => r.cvScore));
+                          const cvMax = Math.max(...withScores.map(r => r.cvScore));
+                          const fsMin = Math.min(...withScores.map(r => r.fullScore));
+                          const fsMax = Math.max(...withScores.map(r => r.fullScore));
+                          const cvRange = cvMax - cvMin || 1;
+                          const fsRange = fsMax - fsMin || 1;
+                          const scored = withScores.map(r => ({
+                            ...r,
+                            kneeScore: (r.cvScore - cvMin) / cvRange + (r.fullScore - fsMin) / fsRange,
+                          }));
+                          scored.sort((a, b) => b.kneeScore - a.kneeScore);
+                          const top30 = scored.slice(0, 30);
+                          const bestSMAFull = scored.find(r => r.sma === "full");
+                          const bestSMATF = scored.find(r => r.sma === "taxfree");
+                          const bestNoSMA = scored.find(r => !r.sma);
+                          const bestReb = scored.find(r => r.reb !== "never");
                           const shown = new Set(top30.map(r => `${r.goldPct}-${r.sma}-${r.reb}`));
                           const extras = [];
                           for (const x of [bestSMAFull, bestSMATF, bestNoSMA, bestReb]) {
@@ -3591,7 +3619,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 12:03 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 12:19 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

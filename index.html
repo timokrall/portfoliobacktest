@@ -2509,16 +2509,20 @@ function App() {
         const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
         let irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
         // Zero the score if any rolling efHorizon-year window has negative real return
+        // Cap at available history — if horizon > data length, check the longest available window
         if (irrScore != null && series.cpi && efHorizon > 0) {
-          const hMonths = efHorizon * 12;
           const ups = r.unitPriceSeries;
           const mths = r.months;
           const cpMap = new Map(series.cpi.map(x => [x.month, x.value]));
-          for (let j = 0; j + hMonths < ups.length; j++) {
-            const cpiA = cpMap.get(mths[j]), cpiB = cpMap.get(mths[j + hMonths]);
-            if (cpiA && cpiB && cpiA > 0) {
-              const realReturn = (ups[j + hMonths] / ups[j]) / (cpiB / cpiA);
-              if (realReturn < 1) { irrScore = 0; break; }
+          const maxWindow = ups.length - 1;
+          const hMonths = Math.min(efHorizon * 12, maxWindow);
+          if (hMonths >= 12) {
+            for (let j = 0; j + hMonths < ups.length; j++) {
+              const cpiA = cpMap.get(mths[j]), cpiB = cpMap.get(mths[j + hMonths]);
+              if (cpiA && cpiB && cpiA > 0) {
+                const realReturn = (ups[j + hMonths] / ups[j]) / (cpiB / cpiA);
+                if (realReturn < 1) { irrScore = 0; break; }
+              }
             }
           }
         }
@@ -3169,7 +3173,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:23 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:31 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

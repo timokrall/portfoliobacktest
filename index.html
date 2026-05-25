@@ -3249,6 +3249,7 @@ function App() {
                         const dailyGold = seriesDaily.gold || null;
                         // Build monthly SMA signal: for each month, was gold above 200-SMA at month-end?
                         const smaSignal = {};
+                        let smaDebug = dailyGold ? `daily: ${dailyGold.length} rows` : "no daily data";
                         if (dailyGold && dailyGold.length > 200) {
                           // Compute 200-day SMA for each day
                           const closes = dailyGold.map(d => d.value);
@@ -3273,6 +3274,7 @@ function App() {
                             }
                           }
                         }
+                        smaDebug += `, signals: ${Object.keys(smaSignal).length}/${allMonths.length}`;
 
                         const msciOngoing = (ASSETS.find(a => a.id === "msciWorld")?.defaultOngoing ?? 0.20) / 100;
                         const mDrag = Math.pow(1 - msciOngoing, 1 / 12);
@@ -3347,7 +3349,7 @@ function App() {
                         // Find best by CV score
                         const valid = results.filter(r => r.cvScore != null && r.cvScore > 0);
                         const best = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
-                        setGoldOptResult({ results, best, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0 });
+                        setGoldOptResult({ results, best, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
                       } catch (e) { setGoldOptResult({ error: e.message }); }
                       setGoldOptRunning(false);
                     }, 50);
@@ -3389,7 +3391,7 @@ function App() {
                   <div style={{ marginTop: 12 }}>
                     <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
                       {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
-                      {!goldOptResult.hasSMA && " SMA not available (no daily gold data)."}
+                      {!goldOptResult.hasSMA && <> SMA not active ({goldOptResult.smaDebug || "unknown"}).</>}
                       {goldOptResult.best && <strong> Optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma ? " + SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} rebalancing` : ", no rebalancing"}.</strong>}
                     </div>
                     <table className="bt" style={{ fontSize: 11 }}>
@@ -3434,7 +3436,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:51 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:57 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

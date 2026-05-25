@@ -398,6 +398,16 @@ const ASSETS = [
   { shortName: "silver", id: "silver",   file: "silver.csv",   manifestKey: "silver",   taxLike: "debt", holdable: true,
     label: "iShares Physical Silver ETC",          isin: "IE00B4NCWG09", equity: false, defaultOngoing: 0.20, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,  note: "EUR price (Xetra SSLN) — WKN A1KWPR. Physically-backed silver ETC (debt-like, §23 EStG).",
     sourceUrl: "https://stooq.com/q/d/?f=19900104&t=20260522&s=xageur&c=0" },
+  // Auxiliary data: MSCI World USD (for long-term gold/equity optimization)
+  { shortName: "MSCI World", id: "msciWorld", file: "", manifestKey: "msciWorld", taxLike: "fund", holdable: false, auxiliary: true,
+    label: "MSCI World Index (USD)", isin: "^990100-USD-STRD", equity: true, defaultOngoing: 0.20, defaultBuySpread: 0.05, defaultSellSpread: 0.05, defaultTF: 30,
+    note: "Yahoo Finance daily USD. Converted to EUR using EUR/USD rate.",
+    sourceUrl: "https://de.finance.yahoo.com/quote/%5E990100-USD-STRD/history/" },
+  // Auxiliary data: EUR/USD exchange rate (for currency conversion)
+  { shortName: "EUR/USD", id: "eurusd", file: "", manifestKey: "eurusd", taxLike: "fund", holdable: false, auxiliary: true,
+    label: "EUR/USD Exchange Rate", isin: "", equity: false, defaultOngoing: 0, defaultBuySpread: 0, defaultSellSpread: 0, defaultTF: 0,
+    note: "Stooq daily. Synthetic pre-1999 via DEM.",
+    sourceUrl: "https://stooq.com/q/d/?s=eurusd" },
   // Synthetic asset: coIQ with 200-SMA timing baked into the monthly series.
   // Driven off coIQ's daily series + the VT signal; cash leg earns ECB−0.25%.
   // NOT a real instrument — never appears in Data / Costs UI panels (holdable:false).
@@ -1887,6 +1897,36 @@ function App() {
   const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, (a.id === "gold" || a.id === "silver") ? 0 : 50])));
   const [bulkLimit, setBulkLimit] = useState(50);
 
+  // Gold/equity long-term optimization
+  const [goldOptResult, setGoldOptResult] = useState(null);
+  const [goldOptRunning, setGoldOptRunning] = useState(false);
+  const [autoApplyGold, setAutoApplyGold] = useState(false);
+
+  // Convert MSCI World USD to EUR using EUR/USD rate
+  const msciWorldEur = useMemo(() => {
+    const msci = series.msciWorld;
+    const eurusd = series.eurusd;
+    if (!msci || !eurusd || msci.length < 12 || eurusd.length < 12) return null;
+    // Build date→rate map from EUR/USD daily data
+    const rateMap = new Map();
+    for (const row of eurusd) {
+      const key = typeof row.month === "string" ? row.month : (row.Date || "");
+      rateMap.set(key, row.value || row.Close);
+    }
+    // Convert: EUR price = USD price / EUR-USD rate
+    const result = [];
+    let lastRate = null;
+    for (const row of msci) {
+      const key = typeof row.month === "string" ? row.month : (row.Date || "");
+      const rate = rateMap.get(key) || lastRate;
+      if (rate && rate > 0) {
+        lastRate = rate;
+        result.push({ month: row.month, value: row.value / rate });
+      }
+    }
+    return result.length > 12 ? result : null;
+  }, [series.msciWorld, series.eurusd]);
+
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
 
@@ -3121,7 +3161,7 @@ function App() {
       <div className="grid grid-2">
         <div className="panel">
           <div className="panel-h">
-            <h2>1 · Data — weekly auto-update</h2>
+            <h2>1 · Data</h2>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <ManifestPill manifest={manifest} />
               <button className="btn btn-accent btn-xs" onClick={reloadAll}>Reload from /data</button>
@@ -3175,8 +3215,226 @@ function App() {
           </div>
         </div>
 
-        <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 6:22 PM</span></div>
+        <div className="panel" style={{ marginTop: 18 }}>
+          <div className="panel-h">
+            <h2>1.5 · Long-term gold vs equity split</h2>
+            <span className="h-meta">MSCI World EUR + Gold (extended history)</span>
+          </div>
+          <div className="panel-body">
+            {(!msciWorldEur || !series.gold) ? (
+              <div className="dim" style={{ fontSize: 12 }}>Upload MSCI World (USD) and EUR/USD exchange rate in section 1 to enable. Gold data also required.</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, marginBottom: 10 }}>
+                  MSCI World EUR: {msciWorldEur.length} points · Gold: {series.gold?.length || 0} points.
+                  Searches gold 0–100% (5% steps) × SMA on/off × rebalancing (never/monthly/yearly/biennial).
+                  SMA and rebalancing apply only to gold — equities are buy-and-hold.
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <button className="btn btn-accent btn-xs" disabled={goldOptRunning} onClick={() => {
+                    setGoldOptRunning(true);
+                    setTimeout(() => {
+                      try {
+                        // Build monthly gold + equity maps
+                        const goldMap = new Map();
+                        for (const r of series.gold) goldMap.set(r.month, r.value);
+                        const equityMap = new Map();
+                        for (const r of msciWorldEur) equityMap.set(r.month, r.value);
+                        const allMonths = [...goldMap.keys()].filter(m => equityMap.has(m)).sort();
+                        if (allMonths.length < 121) { setGoldOptResult({ error: "Need \u226510 years of overlapping data" }); setGoldOptRunning(false); return; }
+                        const goldArr = allMonths.map(m => goldMap.get(m));
+                        const equityArr = allMonths.map(m => equityMap.get(m));
+
+                        // Parse daily gold for 200-SMA signal
+                        const dailyGold = csvText.gold ? parseCsvToDaily(csvText.gold) : null;
+                        // Build monthly SMA signal: for each month, was gold above 200-SMA at month-end?
+                        const smaSignal = {};
+                        if (dailyGold && dailyGold.length > 200) {
+                          // Compute 200-day SMA for each day
+                          const closes = dailyGold.map(d => d.close);
+                          const dates = dailyGold.map(d => d.date);
+                          const sma200 = new Array(closes.length).fill(null);
+                          let sum = 0;
+                          for (let i = 0; i < closes.length; i++) {
+                            sum += closes[i];
+                            if (i >= 200) sum -= closes[i - 200];
+                            if (i >= 199) sma200[i] = sum / 200;
+                          }
+                          // For each month, find the last trading day and check signal
+                          const monthLastDay = new Map();
+                          for (let i = 0; i < dates.length; i++) {
+                            const m = dates[i].slice(0, 7);
+                            monthLastDay.set(m, i);
+                          }
+                          for (const m of allMonths) {
+                            const idx = monthLastDay.get(m);
+                            if (idx != null && sma200[idx] != null) {
+                              smaSignal[m] = closes[idx] >= sma200[idx];
+                            }
+                          }
+                        }
+
+                        const msciOngoing = (ASSETS.find(a => a.id === "msciWorld")?.defaultOngoing ?? 0.20) / 100;
+                        const mDrag = Math.pow(1 - msciOngoing, 1 / 12);
+                        const goldSellSpread = (ASSETS.find(a => a.id === "gold")?.defaultSellSpread ?? 0.20) / 100;
+                        const ecbChanges = series.ecb || null;
+
+                        const results = [];
+                        const rebOptions = ["never", "monthly", "yearly", "biennial"];
+                        const smaOptions = [false, true];
+
+                        for (const useSMA of smaOptions) {
+                          // Skip SMA if no daily data available
+                          if (useSMA && Object.keys(smaSignal).length === 0) continue;
+                          for (const rebFreq of rebOptions) {
+                            for (let gPct = 0; gPct <= 100; gPct += 5) {
+                              const tgtG = gPct / 100;
+                              // Simulate with position tracking
+                              let goldVal = 100 * tgtG, eqVal = 100 * (1 - tgtG);
+                              const up = [goldVal + eqVal];
+                              for (let i = 1; i < allMonths.length; i++) {
+                                const m = allMonths[i];
+                                const prevM = allMonths[i - 1];
+                                // Gold return: if SMA on and signal says "out", earn ECB cash rate
+                                let gRet;
+                                if (useSMA && smaSignal[prevM] === false) {
+                                  // Gold is "out" — in cash, earn ECB rate
+                                  const t = Date.parse(m + "-15");
+                                  const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                  gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                } else {
+                                  gRet = goldArr[i] / goldArr[i - 1] - 1;
+                                }
+                                // Equity return with ongoing cost drag
+                                const eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
+                                // Apply returns
+                                goldVal *= (1 + gRet);
+                                eqVal *= (1 + eRet);
+                                // Rebalancing: sell overweight gold only
+                                const curMonth = parseInt(m.slice(5, 7));
+                                const curYear = parseInt(m.slice(0, 4));
+                                const rebDue = rebFreq === "never" ? false :
+                                  rebFreq === "monthly" ? true :
+                                  rebFreq === "yearly" ? (curMonth === 1 && i > 0) :
+                                  rebFreq === "biennial" ? (curMonth === 1 && curYear % 2 === 0 && i > 0) :
+                                  false;
+                                if (rebDue && tgtG > 0 && tgtG < 1) {
+                                  const total = goldVal + eqVal;
+                                  const goldShare = goldVal / total;
+                                  if (goldShare > tgtG + 0.005) {
+                                    const excess = goldVal - tgtG * total;
+                                    const proceeds = excess * (1 - goldSellSpread); // sell spread on gold
+                                    goldVal -= excess;
+                                    eqVal += proceeds;
+                                  }
+                                }
+                                up.push(goldVal + eqVal);
+                              }
+                              // Compute metrics
+                              const cv = minWindowMetrics(up, allMonths, series.cpi, ecbChanges);
+                              const fullScore = integratedRiskReturn(up, null, null, allMonths, series.cpi, ecbChanges);
+                              const rets = [];
+                              for (let i = 1; i < up.length; i++) rets.push(up[i] / up[i - 1] - 1);
+                              const meanR = rets.reduce((s, r) => s + r, 0) / rets.length;
+                              const dsDev = Math.sqrt(rets.reduce((s, r) => s + Math.pow(Math.min(0, r), 2), 0) / rets.length);
+                              const sortino = dsDev > 0 ? (meanR / dsDev) * Math.sqrt(12) : 0;
+                              let peak = up[0], maxDD = 0;
+                              for (const u of up) { peak = Math.max(peak, u); maxDD = Math.min(maxDD, u / peak - 1); }
+                              results.push({ goldPct: gPct, sma: useSMA, reb: rebFreq, cvScore: cv?.score ?? null, fullScore, sortino, maxDD, gain: up[up.length - 1] / up[0] - 1 });
+                            }
+                          }
+                        }
+                        // Find best by CV score
+                        const valid = results.filter(r => r.cvScore != null && r.cvScore > 0);
+                        const best = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
+                        setGoldOptResult({ results, best, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0 });
+                      } catch (e) { setGoldOptResult({ error: e.message }); }
+                      setGoldOptRunning(false);
+                    }, 50);
+                  }}>
+                    {goldOptRunning && <span className="spin"></span>} Run optimization
+                  </button>
+                  {goldOptResult?.best && (
+                    <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <input type="checkbox" checked={autoApplyGold} onChange={e => {
+                        const checked = e.target.checked;
+                        setAutoApplyGold(checked);
+                        if (checked && goldOptResult?.best) {
+                          const gPct = goldOptResult.best.goldPct;
+                          const holdable = ASSETS.filter(a => a.holdable);
+                          const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
+                          const eqPer = Math.floor((100 - gPct) / nonGold.length);
+                          let rem = (100 - gPct) - eqPer * nonGold.length;
+                          const w = {};
+                          for (const a of holdable) {
+                            if (a.id === "gold") w[a.id] = gPct;
+                            else if (a.id === "silver") w[a.id] = 0;
+                            else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
+                          }
+                          setUserWeights(w);
+                          setUpperLimits(prev => ({ ...prev, gold: gPct }));
+                          // Also set SMA and rebalance to match
+                          if (goldOptResult.best.sma) setUserSMA(prev => ({ ...prev, gold: true }));
+                          else setUserSMA(prev => ({ ...prev, gold: false }));
+                          setUserRebalance(prev => ({ ...prev, gold: goldOptResult.best.reb !== "never" }));
+                          setRebalance(goldOptResult.best.reb);
+                        }
+                      }} />
+                      Apply {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma ? " + SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} rebalancing` : ""}
+                    </label>
+                  )}
+                </div>
+                {goldOptResult?.error && <div style={{ color: "var(--neg)", fontSize: 12, marginTop: 8 }}>{goldOptResult.error}</div>}
+                {goldOptResult?.results && (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
+                      {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
+                      {!goldOptResult.hasSMA && " SMA not available (no daily gold data)."}
+                      {goldOptResult.best && <strong> Optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma ? " + SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} rebalancing` : ", no rebalancing"}.</strong>}
+                    </div>
+                    <table className="bt" style={{ fontSize: 11 }}>
+                      <thead><tr>
+                        <th style={{ textAlign: "right" }}>Gold %</th>
+                        <th style={{ textAlign: "center" }}>SMA</th>
+                        <th>Rebalance</th>
+                        <th style={{ textAlign: "right" }}>CV Score</th>
+                        <th style={{ textAlign: "right" }}>Full Score</th>
+                        <th style={{ textAlign: "right" }}>Sortino</th>
+                        <th style={{ textAlign: "right" }}>Max DD</th>
+                        <th style={{ textAlign: "right" }}>Gain</th>
+                      </tr></thead>
+                      <tbody>
+                        {goldOptResult.results
+                          .filter(r => r.cvScore != null && r.cvScore > 0)
+                          .sort((a, b) => (b.cvScore ?? 0) - (a.cvScore ?? 0))
+                          .slice(0, 30)
+                          .map((r, i) => (
+                          <tr key={`${r.goldPct}-${r.sma}-${r.reb}`} style={goldOptResult.best && r.goldPct === goldOptResult.best.goldPct && r.sma === goldOptResult.best.sma && r.reb === goldOptResult.best.reb ? { background: "oklch(0.97 0.02 150)" } : {}}>
+                            <td className="num" style={{ textAlign: "right", fontWeight: i === 0 ? 700 : 400 }}>{r.goldPct}%</td>
+                            <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma ? "\u2713" : ""}</td>
+                            <td style={{ fontSize: 10.5 }}>{r.reb === "never" ? "\u2014" : r.reb}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{r.fullScore != null ? fmtPct(r.fullScore) : "\u2014"}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.sortino, 3)}</td>
+                            <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
+                            <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="small-note" style={{ marginTop: 6 }}>
+                      Showing top 30 by CV score. SMA = gold sold when below 200-day SMA, cash earns ECB rate, repurchased when above (spread cost applied).
+                      Rebalancing = sell overweight gold only (tax-free after 12 months, spread cost applied), proceeds buy equity. Equities are never sold.
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="panel" style={{ marginTop: 18 }}>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:25 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3219,7 +3477,8 @@ function App() {
                       <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
                     </div>
                     <input type="number" min="0" max="100" step="1" value={w}
-                           style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
+                           style={{ textAlign: "right", padding: "4px 6px", fontSize: 12, opacity: (autoApplyGold && a.id === "gold") ? 0.5 : 1 }}
+                           disabled={autoApplyGold && a.id === "gold"}
                            onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
                     <div style={{ display: "flex", justifyContent: "center" }}>
                       {canSMA
@@ -3291,11 +3550,11 @@ function App() {
             <table className="bt">
               <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th></tr></thead>
               <tbody>
-                {ASSETS.filter(a => a.holdable).map(a =>
+                {ASSETS.filter(a => a.holdable || a.id === "msciWorld").map(a =>
                   <tr key={a.id}>
-                    <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin}</div></td>
-                    <td><input type="number" step="0.01" value={spreads[a.id]?.buy ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], buy: +e.target.value } }))} style={{ textAlign: "right" }} /></td>
-                    <td><input type="number" step="0.01" value={spreads[a.id]?.sell ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], sell: +e.target.value } }))} style={{ textAlign: "right" }} /></td>
+                    <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin || a.id}</div></td>
+                    <td>{a.holdable ? <input type="number" step="0.01" value={spreads[a.id]?.buy ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], buy: +e.target.value } }))} style={{ textAlign: "right" }} /> : <span className="dim" style={{ fontSize: 11 }}>—</span>}</td>
+                    <td>{a.holdable ? <input type="number" step="0.01" value={spreads[a.id]?.sell ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], sell: +e.target.value } }))} style={{ textAlign: "right" }} /> : <span className="dim" style={{ fontSize: 11 }}>—</span>}</td>
                     <td className="num" style={{ textAlign: "right", fontSize: 11.5, color: (a.defaultOngoing ?? 0) > 0 ? "var(--ink)" : "var(--ink-mute)" }}>
                       {(a.defaultOngoing ?? 0).toFixed(2)}%{a.costCutoff ? " *" : ""}
                     </td>

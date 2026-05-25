@@ -3104,7 +3104,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 2:13 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 4:23 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3622,20 +3622,37 @@ function App() {
                             <th></th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("riskOptimal", "\u2b24 Risk optimal largest net real return", efResults.winners.riskOptimal, true, true)}
-                            {renderRow("combined", "\u2b24 Largest net real return", efResults.winners.combined, true, true)}
-                            {renderRow("gainAvg", "\u2b24 Largest absolute return \u00d7 avg. CAGR", efResults.winners.gainAvg, true, true)}
-                            {renderRow("sortino", "Largest Sortino", efResults.winners.sortino, false, true)}
-                            {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure, false, true)}
-                            {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure, false, true)}
                             {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn, false, true)}
-                            {renderRow("user", "Your current weights", efResults.winners.user, false, false)}
-                          </tbody>
-                          <tbody style={{ borderTop: "2px solid var(--border)" }}>
-                            {renderBench("acwi", bmACWI)}
-                            {renderBench("coiq", bmCoIQ)}
+                            {renderRow("combined", "\u2b24 Largest net real return", efResults.winners.combined, false, true)}
+                            {renderRow("riskOptimal", "\u2b24 Risk optimal largest net real return", efResults.winners.riskOptimal, true, true)}
+                            {renderRow("gainAvg", "\u2b24 Largest absolute return \u00d7 avg. CAGR", efResults.winners.gainAvg, false, true)}
+                            {renderRow("sortino", "Largest Sortino", efResults.winners.sortino, false, true)}
+                            {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure, false, true)}
+                            {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure, false, true)}
                           </tbody>
                         </table>
+
+                        <div style={{ marginTop: 18 }}>
+                          <div className="dim" style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Benchmarks</div>
+                          <table className="bt">
+                            <thead><tr>
+                              <th>Portfolio</th><th>Composition</th>
+                              <th style={{ textAlign: "right" }}>h*</th>
+                              <th style={{ textAlign: "right" }}>Sortino</th>
+                              <th style={{ textAlign: "right" }}>UPI</th>
+                              <th style={{ textAlign: "right" }}>Avg. CAGR</th>
+                              <th style={{ textAlign: "right" }}>Max DD</th>
+                              <th style={{ textAlign: "right" }}>Gain</th>
+                              <th style={{ textAlign: "right" }}>Score</th>
+                              <th></th>
+                            </tr></thead>
+                            <tbody>
+                              {renderRow("user", "Your current weights", efResults.winners.user, false, false)}
+                              {renderBench("acwi", bmACWI)}
+                              {renderBench("coiq", bmCoIQ)}
+                            </tbody>
+                          </table>
+                        </div>
                         <div className="footnote" style={{ marginTop: 6, fontSize: 10.5 }}>
                           {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => ASSETS.find(x => x.id === a)?.shortName || a).join(" \u00b7 ")}.
                           {efResults.includesUserSMA ? " SMA toggles applied." : " SMA off — all legs buy-and-hold."}

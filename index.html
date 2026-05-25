@@ -3160,7 +3160,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:57 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:02 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3791,11 +3791,7 @@ function CsvCard({ asset, text, data, error, fetchStatus, manifestEntry, onReloa
         <h3>{asset.label}</h3>
         <div className="id">{asset.isin}</div>
       </div>
-      <textarea rows={3} placeholder="date,value&#10;2020-01-31,100.00&#10;2020-02-29,101.34&#10;…" value={text} onChange={e => onText(e.target.value)} />
       <div className="ctrl">
-        <button className="btn btn-xs btn-accent" disabled={busy} onClick={onReload}>
-          {busy && <span className="spin"></span>} Reload
-        </button>
         <button className="btn btn-xs" onClick={() => fileRef.current?.click()}>Upload CSV…</button>
         {asset.sourceUrl && <a href={asset.sourceUrl} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-ghost" style={{ textDecoration: "none" }}>Source ↗</a>}
         <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}

@@ -1430,23 +1430,29 @@ function avgYearlyCAGR(unitPriceSeries) {
 // typical ordering.
 function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries, ecbChanges) {
   if (!unitPriceSeries || unitPriceSeries.length < 13 || !months || !cpiSeries) return null;
-  const n = unitPriceSeries.length;
   const cpiMap = new Map(cpiSeries.map(r => [r.month, r.value]));
-  const cpi0 = cpiMap.get(months[0]);
+  // Find first month with CPI data and trim series to start there
+  let startIdx = 0;
+  while (startIdx < months.length && !cpiMap.has(months[startIdx])) startIdx++;
+  if (startIdx >= months.length - 12) return null;
+  const trimUP = unitPriceSeries.slice(startIdx);
+  const trimMonths = months.slice(startIdx);
+  const n = trimUP.length;
+  const cpi0 = cpiMap.get(trimMonths[0]);
   if (!cpi0 || cpi0 <= 0) return null;
   // Extract monthly portfolio returns
   const rets = [];
   for (let i = 1; i < n; i++) {
-    rets.push(unitPriceSeries[i] / unitPriceSeries[i - 1] - 1);
+    rets.push(trimUP[i] / trimUP[i - 1] - 1);
   }
   // Build fixed real cash benchmark curve (ECB accumulation / CPI growth)
   const realCash = [1];
   let ecbAcc = 1;
   for (let i = 1; i < n; i++) {
-    const t = Date.parse(months[i] + "-15");
+    const t = Date.parse(trimMonths[i] + "-15");
     const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
     ecbAcc *= (1 + Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1);
-    const cpiVal = cpiMap.get(months[i]);
+    const cpiVal = cpiMap.get(trimMonths[i]);
     if (cpiVal == null) { realCash.push(realCash[realCash.length - 1]); continue; }
     realCash.push(ecbAcc / (cpiVal / cpi0));
   }
@@ -1468,7 +1474,7 @@ function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, cpi
     let integral = (1 / (cpi0 / cpi0)) - realCash[0]; // month 0: both start at 1
     for (let i = 0; i < shuffled.length; i++) {
       level *= (1 + shuffled[i]);
-      const cpiVal = cpiMap.get(months[i + 1]);
+      const cpiVal = cpiMap.get(trimMonths[i + 1]);
       const cpiGrowth = cpiVal ? cpiVal / cpi0 : 1;
       const realPf = level / cpiGrowth;
       integral += realPf - realCash[i + 1];
@@ -3453,7 +3459,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:32 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:45 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

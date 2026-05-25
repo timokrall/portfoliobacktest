@@ -288,28 +288,28 @@ function ecbRateAt(changes, t) {
 // may have header rows, German date formats (YYYY-MM), and comma decimals.
 // Returns step-function [{t, rate}] — same format as ECB changes.
 function parseBbkDiskontsatz(text) {
-  // Try semicolon-separated first
   const lines = text.trim().split(/\r?\n/);
   const pts = [];
   let lastRate = null;
   for (const line of lines) {
-    // Split by semicolons or commas
     const parts = line.includes(";") ? line.split(";") : line.split(",");
     if (parts.length < 2) continue;
     const ds = parts[0].trim().replace(/"/g, "");
     const vs = parts[1].trim().replace(/"/g, "").replace(",", ".");
-    // Skip non-date rows
-    if (!/^\d{4}/.test(ds)) continue;
-    // Parse date: YYYY-MM or YYYY-MM-DD
+    // Skip header/non-date rows
+    if (!/\d/.test(ds)) continue;
+    // Parse date: DD.MM.YYYY (German), YYYY-MM-DD, or YYYY-MM
     let t;
-    if (/^\d{4}-\d{2}$/.test(ds)) {
-      t = Date.parse(ds + "-15"); // mid-month for YYYY-MM
+    const deMatch = ds.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (deMatch) {
+      t = Date.parse(`${deMatch[3]}-${deMatch[2].padStart(2,"0")}-${deMatch[1].padStart(2,"0")}`);
+    } else if (/^\d{4}-\d{2}$/.test(ds)) {
+      t = Date.parse(ds + "-15");
     } else {
       t = Date.parse(ds);
     }
     const v = parseFloat(vs);
     if (!isFinite(t) || !isFinite(v)) continue;
-    // Only emit when rate changes (convert monthly levels to step function)
     if (lastRate === null || v !== lastRate) {
       pts.push({ t, rate: v });
       lastRate = v;
@@ -3591,7 +3591,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:58 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 12:03 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

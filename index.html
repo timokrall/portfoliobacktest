@@ -3289,7 +3289,9 @@ function App() {
 
                         const results = [];
                         const rebOptions = ["never", "monthly", "yearly", "biennial"];
-                        const smaOptions = [false, true];
+                        const smaOptions = [false, "full", "taxfree"]; // false, sell always (tax if <12mo), sell only if tax-free
+
+                        const SPEKFRIST_TAX = 0.42; // §23 EStG marginal income tax rate on gold gains within 12 months
 
                         for (const useSMA of smaOptions) {
                           // Skip SMA if no daily data available
@@ -3299,19 +3301,63 @@ function App() {
                               const tgtG = gPct / 100;
                               // Simulate with position tracking
                               let goldVal = 100 * tgtG, eqVal = 100 * (1 - tgtG);
+                              let goldInCash = false; // is gold position currently in cash (SMA out)?
+                              let goldHeldMonths = 0; // months since last gold purchase
+                              let goldEntryVal = goldVal; // value at which gold was last entered
                               const up = [goldVal + eqVal];
                               for (let i = 1; i < allMonths.length; i++) {
                                 const m = allMonths[i];
                                 const prevM = allMonths[i - 1];
-                                // Gold return: if SMA on and signal says "out", earn ECB cash rate
+                                const smaOut = smaSignal[prevM] === false; // signal says exit gold
+
                                 let gRet;
-                                if (useSMA && smaSignal[prevM] === false) {
-                                  // Gold is "out" — in cash, earn ECB rate
-                                  const t = Date.parse(m + "-15");
-                                  const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-                                  gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                if (useSMA && goldVal > 0) {
+                                  if (goldInCash) {
+                                    // Currently in cash — check if SMA says re-enter
+                                    if (!smaOut) {
+                                      // Re-enter gold: spread cost on buy
+                                      goldVal *= (1 - goldSellSpread); // buy spread
+                                      goldInCash = false;
+                                      goldHeldMonths = 0;
+                                      goldEntryVal = goldVal;
+                                    }
+                                    // Earn ECB cash rate while in cash
+                                    const t = Date.parse(m + "-15");
+                                    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                    gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                  } else {
+                                    // Currently in gold — check if SMA says exit
+                                    if (smaOut) {
+                                      const canSellTaxFree = goldHeldMonths >= 12;
+                                      const shouldSell = useSMA === "full" || (useSMA === "taxfree" && canSellTaxFree);
+                                      if (shouldSell) {
+                                        // Sell gold: spread cost
+                                        goldVal *= (1 - goldSellSpread);
+                                        // Tax if within Spekulationsfrist
+                                        if (!canSellTaxFree && goldVal > goldEntryVal) {
+                                          const gain = goldVal - goldEntryVal;
+                                          goldVal -= gain * SPEKFRIST_TAX;
+                                        }
+                                        goldInCash = true;
+                                        // Earn ECB cash rate
+                                        const t = Date.parse(m + "-15");
+                                        const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                        gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                      } else {
+                                        // Can't sell (tax-free only but held <12mo) — stay in gold
+                                        gRet = goldArr[i] / goldArr[i - 1] - 1;
+                                        goldHeldMonths++;
+                                      }
+                                    } else {
+                                      // SMA says stay in gold
+                                      gRet = goldArr[i] / goldArr[i - 1] - 1;
+                                      goldHeldMonths++;
+                                    }
+                                  }
                                 } else {
+                                  // No SMA — buy and hold gold
                                   gRet = goldArr[i] / goldArr[i - 1] - 1;
+                                  goldHeldMonths++;
                                 }
                                 // Equity return with ongoing cost drag
                                 const eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
@@ -3388,7 +3434,7 @@ function App() {
                           setRebalance(goldOptResult.best.reb);
                         }
                       }} />
-                      Apply {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma ? " + SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} rebalancing` : ""}
+                      Apply {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + SMA" : goldOptResult.best.sma === "taxfree" ? " + SMA (tax-free)" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} rebalancing` : ""}
                     </label>
                   )}
                 </div>
@@ -3398,13 +3444,16 @@ function App() {
                     <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
                       {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
                       {goldOptResult.smaDebug && <> SMA: {goldOptResult.smaDebug}.</>}
-                      {goldOptResult.best && <strong> Optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma ? " + SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} rebalancing` : ", no rebalancing"}.</strong>}
+                      {goldOptResult.best && <strong> Optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + SMA" : goldOptResult.best.sma === "taxfree" ? " + SMA (tax-free)" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} rebalancing` : ", no rebalancing"}.</strong>}
                       {goldOptResult.hasSMA && (() => {
-                        const bestSMA = goldOptResult.results.filter(r => r.sma && r.cvScore != null && r.cvScore > 0).sort((a, b) => b.cvScore - a.cvScore)[0];
-                        const bestReb = goldOptResult.results.filter(r => r.reb !== "never" && r.cvScore != null && r.cvScore > 0).sort((a, b) => b.cvScore - a.cvScore)[0];
+                        const bestSMAFull = goldOptResult.results.filter(r => r.sma === "full" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
+                        const bestSMATF = goldOptResult.results.filter(r => r.sma === "taxfree" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
+                        const bestNoSMA = goldOptResult.results.filter(r => !r.sma && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
+                        const bestReb = goldOptResult.results.filter(r => r.reb !== "never" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
                         return <>
-                          {bestSMA && !goldOptResult.best?.sma && <> Best with SMA: {bestSMA.goldPct}% gold, CV {fmtPct(bestSMA.cvScore)}.</>}
-                          {bestReb && goldOptResult.best?.reb === "never" && <> Best with rebalancing: {bestReb.goldPct}% gold ({bestReb.reb}), CV {fmtPct(bestReb.cvScore)}.</>}
+                          {bestSMAFull && <> Best SMA (full): {bestSMAFull.goldPct}% gold, CV {fmtPct(bestSMAFull.cvScore)}.</>}
+                          {bestSMATF && <> Best SMA (tax-free): {bestSMATF.goldPct}% gold, CV {fmtPct(bestSMATF.cvScore)}.</>}
+                          {bestNoSMA && <> Best no SMA: {bestNoSMA.goldPct}% gold, CV {fmtPct(bestNoSMA.cvScore)}.</>}
                         </>;
                       })()}
                     </div>
@@ -3426,16 +3475,19 @@ function App() {
                             .sort((a, b) => (b.cvScore ?? -Infinity) - (a.cvScore ?? -Infinity));
                           // Always include best SMA and best rebalancing rows
                           const top30 = sorted.slice(0, 30);
-                          const bestSMA = sorted.find(r => r.sma);
+                          const bestSMAFull = sorted.find(r => r.sma === "full");
+                          const bestSMATF = sorted.find(r => r.sma === "taxfree");
+                          const bestNoSMA = sorted.find(r => !r.sma);
                           const bestReb = sorted.find(r => r.reb !== "never");
                           const shown = new Set(top30.map(r => `${r.goldPct}-${r.sma}-${r.reb}`));
                           const extras = [];
-                          if (bestSMA && !shown.has(`${bestSMA.goldPct}-${bestSMA.sma}-${bestSMA.reb}`)) extras.push(bestSMA);
-                          if (bestReb && !shown.has(`${bestReb.goldPct}-${bestReb.sma}-${bestReb.reb}`)) extras.push(bestReb);
+                          for (const x of [bestSMAFull, bestSMATF, bestNoSMA, bestReb]) {
+                            if (x && !shown.has(`${x.goldPct}-${x.sma}-${x.reb}`)) { extras.push(x); shown.add(`${x.goldPct}-${x.sma}-${x.reb}`); }
+                          }
                           return [...top30, ...extras].map((r, i) => (
                           <tr key={`${r.goldPct}-${r.sma}-${r.reb}`} style={goldOptResult.best && r.goldPct === goldOptResult.best.goldPct && r.sma === goldOptResult.best.sma && r.reb === goldOptResult.best.reb ? { background: "oklch(0.97 0.02 150)" } : {}}>
                             <td className="num" style={{ textAlign: "right", fontWeight: i === 0 ? 700 : 400 }}>{r.goldPct}%</td>
-                            <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma ? "\u2713" : ""}</td>
+                            <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : ""}</td>
                             <td style={{ fontSize: 10.5 }}>{r.reb === "never" ? "\u2014" : r.reb}</td>
                             <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
                             <td className="num" style={{ textAlign: "right" }}>{r.fullScore != null ? fmtPct(r.fullScore) : "\u2014"}</td>
@@ -3448,7 +3500,7 @@ function App() {
                       </tbody>
                     </table>
                     <div className="small-note" style={{ marginTop: 6 }}>
-                      Showing top 30 by CV score. SMA = gold sold when below 200-day SMA, cash earns ECB rate, repurchased when above (spread cost applied).
+                      Showing top 30 by CV score (plus best of each SMA variant). SMA column: ✓ = full SMA (sell always, 42% tax on gains if held &lt;12 months), tf = tax-free SMA (only sell when Spekulationsfrist met, ≥12 months held).
                       Rebalancing = sell overweight gold only (tax-free after 12 months, spread cost applied), proceeds buy equity. Equities are never sold.
                     </div>
                   </div>
@@ -3459,7 +3511,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:51 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:11 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

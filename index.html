@@ -3553,7 +3553,6 @@ function App() {
                           {bestSMATF && <> Best SMA (tax-free): {bestSMATF.goldPct}% gold, CV {fmtPct(bestSMATF.cvScore)}.</>}
                           {bestNoSMA && <> Best no SMA: {bestNoSMA.goldPct}% gold, CV {fmtPct(bestNoSMA.cvScore)}.</>}
                         </>;
-                        </>;
                       })()}
                     </div>
                     <table className="bt" style={{ fontSize: 11 }}>
@@ -3619,7 +3618,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 12:19 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 12:22 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

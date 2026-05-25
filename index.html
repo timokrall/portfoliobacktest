@@ -3129,7 +3129,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:29 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 9:35 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3624,7 +3624,7 @@ function App() {
                       <td className="num" style={{ textAlign: "right" }}>{row.avgCAGR != null ? fmtPct(row.avgCAGR) : "\u2014"}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
                       <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{row.irrScore != null ? fmtNum(row.irrScore, 1) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{row.irrScore != null ? fmtPct(row.irrScore) : "\u2014"}</td>
                       <td>{showUse ? <button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => applyWeights(row)}>Use</button> : null}</td>
                     </tr>
                   ) : null;
@@ -3640,7 +3640,7 @@ function App() {
                       <td className="num" style={{ textAlign: "right" }}>{bm.avgCAGR != null ? fmtPct(bm.avgCAGR) : "\u2014"}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
                       <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.irrScore != null ? fmtNum(bm.irrScore, 1) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "\u2014"}</td>
                       <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => setUserWeights({ [bm.assetId]: 100 })}>Use</button></td>
                     </tr>
                   ) : null;

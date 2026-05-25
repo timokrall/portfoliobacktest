@@ -2363,7 +2363,7 @@ function App() {
   const efCancelRef = useRef(false);
   const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
-  const [efHorizon, setEfHorizon] = useState(10); // investment horizon (years) — portfolios failing real-preservation at this horizon score 0
+  const [efRequireHStar, setEfRequireHStar] = useState(true); // filter out portfolios where h* can't compute
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
@@ -2508,23 +2508,25 @@ function App() {
         if (!r || !r.metrics) continue;
         const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
         let irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
-        // Zero the score if any rolling efHorizon-year window has negative real return
-        // Cap at available history — if horizon > data length, check the longest available window
-        if (irrScore != null && series.cpi && efHorizon > 0) {
+        // If toggle is on, zero score for portfolios where h* can't compute
+        // (no horizon exists at which ALL rolling windows have non-negative real return)
+        if (irrScore != null && efRequireHStar && series.cpi) {
           const ups = r.unitPriceSeries;
           const mths = r.months;
           const cpMap = new Map(series.cpi.map(x => [x.month, x.value]));
-          const maxWindow = ups.length - 1;
-          const hMonths = Math.min(efHorizon * 12, maxWindow);
-          if (hMonths >= 12) {
-            for (let j = 0; j + hMonths < ups.length; j++) {
-              const cpiA = cpMap.get(mths[j]), cpiB = cpMap.get(mths[j + hMonths]);
+          let hStarFound = false;
+          for (let hy = 1; hy * 12 < ups.length; hy++) {
+            const hm = hy * 12;
+            let allPositive = true;
+            for (let j = 0; j + hm < ups.length; j++) {
+              const cpiA = cpMap.get(mths[j]), cpiB = cpMap.get(mths[j + hm]);
               if (cpiA && cpiB && cpiA > 0) {
-                const realReturn = (ups[j + hMonths] / ups[j]) / (cpiB / cpiA);
-                if (realReturn < 1) { irrScore = 0; break; }
+                if ((ups[j + hm] / ups[j]) / (cpiB / cpiA) < 1) { allPositive = false; break; }
               }
             }
+            if (allPositive) { hStarFound = true; break; }
           }
+          if (!hStarFound) irrScore = 0;
         }
         results.push({
           weights: wv,
@@ -3173,7 +3175,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:31 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 10:38 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3550,10 +3552,9 @@ function App() {
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
                   </label>
-                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    horizon
-                    <input type="number" min={1} max={30} value={efHorizon} onChange={e => setEfHorizon(Math.max(1, Math.min(30, +e.target.value)))}
-                      style={{ width: 40, textAlign: "center", fontSize: 11, padding: "1px 4px", border: "1px solid var(--border)", borderRadius: 4 }} />y
+                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <input type="checkbox" checked={efRequireHStar} onChange={e => setEfRequireHStar(e.target.checked)} />
+                    require h*
                   </label>
                   {efRunning && (
                     <span className="mono" style={{ fontSize: 11 }}>
@@ -3569,7 +3570,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes net real return score — the median level-based integral of real portfolio vs real cash across 100 random return orderings. Portfolios failing real-preservation at the configured horizon (any rolling window with negative real return) score zero.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes net real return score — the median level-based integral of real portfolio vs real cash across 100 random return orderings. When "require h*" is on, portfolios that never achieve real-preservation at any horizon within the backtest score zero.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {

@@ -368,36 +368,36 @@ function parseCsvToDaily(text) {
 // (gold + lev3x ETP) skips both: taxed only on actual sale via §23 EStG.
 // `holdable: false` means the series is loaded as a SIGNAL ONLY — never held.
 const ASSETS = [
-  { shortName: "coIQ", id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",     taxLike: "fund", holdable: true,
-    label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, costCutoff: "2021-12", defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series: Nasdaq-100 proxy pre-2022, actual fund NAV (fees embedded) from 2022",
-    sourceUrl: "https://stooq.com/q/d/?f=19900103&t=20260522&s=%5Endx&c=0" },
-  { shortName: "momentum", id: "momentum", file: "momentum.csv", manifestKey: "momentum", taxLike: "fund", holdable: true,
-    label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)",
-    sourceUrl: "https://www.msci.com/indexes/index/892400" },
+  { shortName: "prime", id: "world",    file: "world.csv",    manifestKey: "world",    taxLike: "fund", holdable: true,
+    label: "Amundi Prime All Country World UCITS ETF Acc", isin: "IE000716YHJ7", equity: true, defaultOngoing: 0.07, defaultBuySpread: 0.05, defaultSellSpread: 0.05, defaultTF: 30, note: "EUR price (Xetra WEBN) — Solactive GBS Global Markets Large & Mid Cap.",
+    sourceUrl: "https://www.msci.com/indexes/index/129896" },
+  { shortName: "minvol", id: "minvol",   file: "minvol.csv",   manifestKey: "minvol",   taxLike: "fund", holdable: true,
+    label: "iShares Edge MSCI World Min Volatility ETF", isin: "IE00B8FHGS14", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IQQ0)",
+    sourceUrl: "https://www.msci.com/indexes/index/703755" },
+  { shortName: "eqwt", id: "eqwt",     file: "eqwt.csv",     manifestKey: "eqwt",     taxLike: "fund", holdable: true,
+    label: "Invesco MSCI World Equal Weight UCITS ETF Acc", isin: "IE000OEF25S1", equity: true, defaultOngoing: 0.20, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra MWEQ) — WKN A40G12. Equal-weighted developed-world index.",
+    sourceUrl: "https://www.msci.com/indexes/index/129857" },
   { shortName: "value", id: "value",    file: "value.csv",    manifestKey: "value",    taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Value Factor ETF",   isin: "IE00BP3QZB59", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3S)",
     sourceUrl: "https://www.msci.com/indexes/index/105868" },
   { shortName: "quality", id: "quality",  file: "quality.csv",  manifestKey: "quality",  taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Quality Factor ETF", isin: "IE00BP3QZ601", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3Q)",
     sourceUrl: "https://www.msci.com/indexes/index/702787" },
-  { shortName: "minvol", id: "minvol",   file: "minvol.csv",   manifestKey: "minvol",   taxLike: "fund", holdable: true,
-    label: "iShares Edge MSCI World Min Volatility ETF", isin: "IE00B8FHGS14", equity: true, defaultOngoing: 0.30, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IQQ0)",
-    sourceUrl: "https://www.msci.com/indexes/index/703755" },
-  { shortName: "prime", id: "world",    file: "world.csv",    manifestKey: "world",    taxLike: "fund", holdable: true,
-    label: "Amundi Prime All Country World UCITS ETF Acc", isin: "IE000716YHJ7", equity: true, defaultOngoing: 0.07, defaultBuySpread: 0.05, defaultSellSpread: 0.05, defaultTF: 30, note: "EUR price (Xetra WEBN) — Solactive GBS Global Markets Large & Mid Cap.",
-    sourceUrl: "https://www.msci.com/indexes/index/129896" },
-  { shortName: "gold", id: "gold",     file: "gold.csv",     manifestKey: "gold",     taxLike: "debt", holdable: true,
-    label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT",
-    sourceUrl: "https://stooq.com/q/d/?s=xaueur" },
-  { shortName: "eqwt", id: "eqwt",     file: "eqwt.csv",     manifestKey: "eqwt",     taxLike: "fund", holdable: true,
-    label: "Invesco MSCI World Equal Weight UCITS ETF Acc", isin: "IE000OEF25S1", equity: true, defaultOngoing: 0.20, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra MWEQ) — WKN A40G12. Equal-weighted developed-world index.",
-    sourceUrl: "https://www.msci.com/indexes/index/129857" },
-  { shortName: "silver", id: "silver",   file: "silver.csv",   manifestKey: "silver",   taxLike: "debt", holdable: true,
-    label: "iShares Physical Silver ETC",          isin: "IE00B4NCWG09", equity: false, defaultOngoing: 0.20, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,  note: "EUR price (Xetra SSLN) — WKN A1KWPR. Physically-backed silver ETC (debt-like, §23 EStG).",
-    sourceUrl: "https://stooq.com/q/d/?f=19900104&t=20260522&s=xageur&c=0" },
+  { shortName: "momentum", id: "momentum", file: "momentum.csv", manifestKey: "momentum", taxLike: "fund", holdable: true,
+    label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)",
+    sourceUrl: "https://www.msci.com/indexes/index/892400" },
   { shortName: "em", id: "em",         file: "em.csv",       manifestKey: "em",       taxLike: "fund", holdable: true,
     label: "iShares MSCI EM UCITS ETF (Acc)",        isin: "IE00B4L5YC18", equity: true, defaultOngoing: 0.18, defaultBuySpread: 0.15, defaultSellSpread: 0.15, defaultTF: 30, note: "WKN A0RPWJ · EM equity factor exposure (Acc).",
     sourceUrl: "https://www.msci.com/indexes/index/891800" },
+  { shortName: "coIQ", id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",     taxLike: "fund", holdable: true,
+    label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, costCutoff: "2021-12", defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series: Nasdaq-100 proxy pre-2022, actual fund NAV (fees embedded) from 2022",
+    sourceUrl: "https://stooq.com/q/d/?f=19900103&t=20260522&s=%5Endx&c=0" },
+  { shortName: "gold", id: "gold",     file: "gold.csv",     manifestKey: "gold",     taxLike: "debt", holdable: true,
+    label: "Xetra-Gold",                          isin: "DE000A0S9GB0", equity: false, defaultOngoing: 0.00, defaultBuySpread: 0.20, defaultSellSpread: 0.20, defaultTF: 0,  note: "Inhaberschuldverschreibung; §23 CGT",
+    sourceUrl: "https://stooq.com/q/d/?s=xaueur" },
+  { shortName: "silver", id: "silver",   file: "silver.csv",   manifestKey: "silver",   taxLike: "debt", holdable: true,
+    label: "iShares Physical Silver ETC",          isin: "IE00B4NCWG09", equity: false, defaultOngoing: 0.20, defaultBuySpread: 0.30, defaultSellSpread: 0.30, defaultTF: 0,  note: "EUR price (Xetra SSLN) — WKN A1KWPR. Physically-backed silver ETC (debt-like, §23 EStG).",
+    sourceUrl: "https://stooq.com/q/d/?f=19900104&t=20260522&s=xageur&c=0" },
   // Synthetic asset: coIQ with 200-SMA timing baked into the monthly series.
   // Driven off coIQ's daily series + the VT signal; cash leg earns ECB−0.25%.
   // NOT a real instrument — never appears in Data / Costs UI panels (holdable:false).
@@ -3104,7 +3104,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 5:15 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 5:20 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

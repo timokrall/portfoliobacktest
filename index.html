@@ -273,6 +273,63 @@ function parseEcbRateChanges(text) {
 // Look up the active ECB rate at a given epoch_ms (last change ≤ t).
 // Returns null if no change has happened yet (before-series); caller defaults to 0.
 function ecbRateAt(changes, t) {
+
+// Parse Bundesbank Diskontsatz CSV. Bundesbank CSVs use semicolons,
+// may have header rows, German date formats (YYYY-MM), and comma decimals.
+// Returns step-function [{t, rate}] — same format as ECB changes.
+function parseBbkDiskontsatz(text) {
+  // Try semicolon-separated first
+  const lines = text.trim().split(/\r?\n/);
+  const pts = [];
+  let lastRate = null;
+  for (const line of lines) {
+    // Split by semicolons or commas
+    const parts = line.includes(";") ? line.split(";") : line.split(",");
+    if (parts.length < 2) continue;
+    const ds = parts[0].trim().replace(/"/g, "");
+    const vs = parts[1].trim().replace(/"/g, "").replace(",", ".");
+    // Skip non-date rows
+    if (!/^\d{4}/.test(ds)) continue;
+    // Parse date: YYYY-MM or YYYY-MM-DD
+    let t;
+    if (/^\d{4}-\d{2}$/.test(ds)) {
+      t = Date.parse(ds + "-15"); // mid-month for YYYY-MM
+    } else {
+      t = Date.parse(ds);
+    }
+    const v = parseFloat(vs);
+    if (!isFinite(t) || !isFinite(v)) continue;
+    // Only emit when rate changes (convert monthly levels to step function)
+    if (lastRate === null || v !== lastRate) {
+      pts.push({ t, rate: v });
+      lastRate = v;
+    }
+  }
+  if (pts.length === 0) throw new Error("BBK CSV: no rows parsed");
+  pts.sort((a, b) => a.t - b.t);
+  return pts;
+}
+
+// Merge Bundesbank Diskontsatz (pre-1999) with ECB DFR (1999+).
+// Returns a single step-function array [{t, rate}].
+function mergeRateSeries(bbkChanges, ecbChanges) {
+  const cutoff = Date.parse("1999-01-01");
+  const merged = [];
+  if (bbkChanges) {
+    for (const p of bbkChanges) {
+      if (p.t < cutoff) merged.push(p);
+    }
+  }
+  if (ecbChanges) {
+    for (const p of ecbChanges) {
+      if (p.t >= cutoff) merged.push(p);
+    }
+  }
+  merged.sort((a, b) => a.t - b.t);
+  return merged.length > 0 ? merged : null;
+}
+
+
   if (!changes || changes.length === 0) return null;
   // Binary search for the last change.t ≤ t
   let lo = 0, hi = changes.length - 1, ans = -1;
@@ -459,6 +516,7 @@ const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "Germ
 // At any date, the active rate is the LAST change with date ≤ that date.
 // During SMA cash periods we earn max(rate, 0) on the synthetic risk leg.
 const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Deposit Facility Rate (changes-only)", isin: "ECB:DFR", note: "Step function: each row is a rate change date. Drives SMA cash-period returns (floored at 0%) and Vorabpauschale Basiszins (pre-2018). If header contains 'lending', rates are auto-converted to estimated DFR (−0.75pp).", sourceUrl: "https://data.ecb.europa.eu/data/datasets/FM/FM.B.U2.EUR.4F.KR.DFR.LEV" };
+const BBK_ASSET = { id: "bbk", file: "", manifestKey: "bbk", label: "Bundesbank Diskontsatz (pre-1999)", isin: "BBK:SU0112", note: "Diskontsatz der Deutschen Bundesbank, monthly end-of-period. Used as cash benchmark pre-1999 (spliced with ECB DFR from 1999).", sourceUrl: "https://www.bundesbank.de/de/statistiken/geld-und-kapitalmaerkte/zinssaetze-und-renditen/diskontsatz-lombardsatz-und-basiszinssatz-650692" };
 
 const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
@@ -1933,6 +1991,11 @@ function App() {
     return result.length > 12 ? result : null;
   }, [series.msciWorld, series.eurusd]);
 
+  // Merge Bundesbank Diskontsatz (pre-1999) with ECB DFR (1999+)
+  const mergedRates = useMemo(() => {
+    return mergeRateSeries(series.bbk, series.ecb);
+  }, [series.bbk, series.ecb]);
+
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
 
@@ -2100,6 +2163,12 @@ function App() {
         const changes = parseEcbRateChanges(text);
         setSeries(prev => ({ ...prev, ecb: changes }));
         setSeriesError(p => ({ ...p, ecb: null }));
+        return;
+      }
+      if (id === "bbk") {
+        const changes = parseBbkDiskontsatz(text);
+        setSeries(prev => ({ ...prev, bbk: changes }));
+        setSeriesError(p => ({ ...p, bbk: null }));
         return;
       }
       const monthly = parseCsvToMonthly(text);
@@ -3213,6 +3282,17 @@ function App() {
                 onText={(t) => onUserCsvChange("ecb", t)}
                 onFile={(f) => onFileLoad("ecb", f)}
               />
+              <CsvCard
+                key="bbk"
+                asset={BBK_ASSET}
+                text={csvText.bbk || ""}
+                data={series.bbk}
+                error={seriesError.bbk}
+                fetchStatus={fetchStatus.bbk}
+                onReload={() => {}}
+                onText={(t) => onUserCsvChange("bbk", t)}
+                onFile={(f) => onFileLoad("bbk", f)}
+              />
             </div>
             <div className="small-note" style={{ marginTop: 10 }}>
               CSVs are committed weekly by a GitHub Action (<code>.github/workflows/update-data.yml</code>) into <code>./data/</code> and served same-origin — no CORS, no proxies, no rate limits. Each asset tries <strong>Stooq → yfinance</strong> in turn; coIQ uses ariva (no fallback). Manual upload/paste per asset overrides the committed file if you want fresher numbers.
@@ -3233,7 +3313,8 @@ function App() {
               <>
                 <div style={{ fontSize: 12, marginBottom: 10 }}>
                   MSCI World EUR: {msciWorldEur.length} points · Gold: {series.gold?.length || 0} points.
-                  Searches gold 0–100% (5% steps) × SMA on/off × rebalancing (never/monthly/yearly/biennial).
+                  {mergedRates ? `Cash benchmark: merged Bundesbank/ECB rates (${new Date(mergedRates[0].t).getFullYear()}–${new Date(mergedRates[mergedRates.length-1].t).getFullYear()}).` : series.ecb ? "Cash benchmark: ECB rate only (pre-1999 = 0%)." : "No rate data for cash benchmark."}
+                  {" "}Searches gold 0–100% (5% steps) × SMA on/off × rebalancing (never/monthly/yearly/biennial).
                   SMA and rebalancing apply only to gold — equities are buy-and-hold.
                 </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -3285,7 +3366,7 @@ function App() {
                         const msciOngoing = (ASSETS.find(a => a.id === "msciWorld")?.defaultOngoing ?? 0.20) / 100;
                         const mDrag = Math.pow(1 - msciOngoing, 1 / 12);
                         const goldSellSpread = (ASSETS.find(a => a.id === "gold")?.defaultSellSpread ?? 0.20) / 100;
-                        const ecbChanges = series.ecb || null;
+                        const ecbChanges = mergedRates || series.ecb || null;
 
                         const results = [];
                         const rebOptions = ["never", "monthly", "yearly", "biennial"];
@@ -3511,7 +3592,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:11 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:53 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

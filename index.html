@@ -1540,36 +1540,6 @@ function convexityWeightedExcessReturn(unitPriceSeries, ddSeries, finalRatio, mo
   const years = validCount / 12;
   return years > 0 ? weightedSum / years : null;
 }
-function monteCarloMaxDD(monthlyRets, horizonMonths, blockLen, nPaths, seed = 1) {
-  if (!monthlyRets || monthlyRets.length < 2) return { median: null, mean: null, p95: null };
-  // simple LCG for repeatable randomness
-  let s = seed >>> 0;
-  const rand = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
-  const maxStarts = monthlyRets.length - blockLen;
-  if (maxStarts < 1) return { median: null, mean: null, p95: null };
-  const ddArr = [];
-  for (let p = 0; p < nPaths; p++) {
-    let unit = 1, peak = 1, dd = 0;
-    let needed = horizonMonths;
-    while (needed > 0) {
-      const start = Math.floor(rand() * (maxStarts + 1));
-      const take = Math.min(blockLen, needed);
-      for (let i = 0; i < take; i++) {
-        unit *= (1 + monthlyRets[start + i]);
-        if (unit > peak) peak = unit;
-        const cur = unit / peak - 1;
-        if (cur < dd) dd = cur;
-      }
-      needed -= take;
-    }
-    ddArr.push(dd);
-  }
-  ddArr.sort((a, b) => a - b);
-  const p95 = ddArr[Math.floor(0.05 * (ddArr.length - 1))];   // 5th percentile is the WORST 95% drawdown
-  const median = ddArr[Math.floor(0.5 * (ddArr.length - 1))];
-  const mean = ddArr.reduce((s, x) => s + x, 0) / ddArr.length;
-  return { median, mean, p95 };
-}
 
 // ---------- V2: rolling real-return engine + paired (return,CPI) MC ----------
 // On a portfolio's UNIT-PRICE series + aligned CPI level series, compute
@@ -1892,7 +1862,7 @@ function App() {
   const [ownNativeHistory, setOwnNativeHistory] = useState(false);
 
   // --- monte carlo ---
-  const [mc, setMc] = useState({ paths: 2000, horizon: 120, block: 6 });
+  const [mc, setMc] = useState({ paths: 500, horizon: 120, block: 6 });
 
   // (Cost/spread defaults are now applied via lazy init above — no useEffect needed.)
 
@@ -2318,7 +2288,7 @@ function App() {
       if (!months) continue;
       const data = buildPortfolioData(pf, months, pfAssetSeries[pid]);
       if (!data) continue;
-      const targetGoldPct = pf.isMarket ? 0 : (goldWeights[pid] || 0) / 100;
+      const targetGoldPct = pf.isMarket ? 0 : pid === "user" ? (pf.weights.gold || 0) : (goldWeights[pid] || 0) / 100;
       // For timed risk legs we feed the synthetic monthly series directly; the
       // "gross" ongoing-cost drag is suppressed for that asset because the
       // daily engine already compounds at the underlying daily-price level
@@ -2762,68 +2732,7 @@ function App() {
     }, 30);
   };
 
-  // ---- monte carlo per portfolio ----
-  const mcResults = useMemo(() => {
-    if (!simResults) return null;
-    const out = {};
-    for (const pid of Object.keys(simResults)) {
-      const r = simResults[pid];
-      if (!r) continue;
-      out[pid] = monteCarloMaxDD(r.metrics.monthlyRets, mc.horizon, mc.block, mc.paths, 12345 + pid.length);
-    }
-    return out;
-  }, [simResults, mc]);
-
-  // ---- V2: real-preservation curves per portfolio (historical + MC extension) ----
-  // For each portfolio, align CPI to its window. Compute rolling real returns
-  // at h=1..30 years; mark each h as historical (count>=6) or MC-only. For MC
-  // h's, paired-bootstrap (unit-price return, CPI return) together.
   const H_MAX = 30;
-  const realResults = useMemo(() => {
-    if (!simResults || !series.cpi) return null;
-    const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
-    const out = {};
-    for (const pid of Object.keys(simResults)) {
-      const r = simResults[pid];
-      if (!r) continue;
-      // Truncate to the prefix of months that have CPI data. Tail months
-      // missing because CPI publishes with a 2-4 month lag are dropped.
-      let cut = r.months.length;
-      for (let i = 0; i < r.months.length; i++) {
-        if (!cpiMap.has(r.months[i])) { cut = i; break; }
-      }
-      const months = r.months.slice(0, cut);
-      const upTrunc = r.unitPriceSeries.slice(0, cut);
-      const cpiAligned = months.map(m => cpiMap.get(m));
-      if (cut < 13 || cpiAligned.some(v => v == null)) {
-        out[pid] = { error: cut < 13 ? "CPI window too short for rolling 1y returns" : "CPI alignment failed" };
-        continue;
-      }
-      const droppedTail = r.months.length - cut;
-      const paired = buildPairedReturns(upTrunc, cpiAligned);
-      // Always MC (per request): drop the in-sample worst-window line, which
-      // is overfit on this short bear-market-free window. MC is the only
-      // robust signal at any horizon.
-      const curve = [];
-      for (let h = 1; h <= H_MAX; h++) {
-        const mcPt = rollingRealReturnsMC(paired, h, mc.paths, mc.block, 78901 + pid.length * 31 + h);
-        if (mcPt) curve.push({ h, kind: "mc", count: mcPt.n, worstRealCAGR: mcPt.worstRealCAGR, worstRealMultiple: null, p5RealCAGR: mcPt.p5RealCAGR });
-        else curve.push({ h, kind: "none" });
-      }
-      // h* = smallest h beyond which worstRealCAGR stays >= 0 for all subsequent h
-      let hStar = null;
-      for (let i = 0; i < curve.length; i++) {
-        let allOk = true;
-        for (let j = i; j < curve.length; j++) {
-          const v = curve[j].worstRealCAGR;
-          if (v == null || v < 0) { allOk = false; break; }
-        }
-        if (allOk) { hStar = curve[i].h; break; }
-      }
-      out[pid] = { curve, hStar, droppedTail };
-    }
-    return out;
-  }, [simResults, series.cpi, mc]);
 
   // ---- drawdown-period correlation matrix (selected assets) ----
   // Computes pairwise Pearson correlations of monthly returns, filtered to
@@ -3205,7 +3114,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:15 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:40 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3414,7 +3323,7 @@ function App() {
                     const r = simResults && simResults[pid];
                     const pf = getPF(pid);
                     if (!r) return null;
-                    const tg = pf.isMarket ? null : (goldWeights[pid] ?? 0);
+                    const tg = pf.isMarket ? null : pid === "user" ? Math.round((pf.weights.gold || 0) * 100) : (goldWeights[pid] ?? 0);
                     const fg = pf.isMarket ? null : r.finalGoldWeight * 100;
                     const gain = r.finalValue - r.totalInvested;
                     const gainPct = r.finalValue / r.totalInvested - 1;
@@ -3538,40 +3447,34 @@ function App() {
               );
             })}
 
-            {/* monte carlo */}
-            <div className="panel" style={{ marginBottom: 18 }}>
-              <div className="panel-h"><h2>Monte Carlo · max-drawdown distribution</h2><span className="h-meta">{mc.paths} paths · horizon {mc.horizon} months · block {mc.block}</span></div>
-              <table className="bt">
-                <thead><tr>
-                  <th>Portfolio</th>
-                  <th style={{ textAlign: "right" }}>Sample length</th>
-                  <th style={{ textAlign: "right" }}>Median max DD</th>
-                  <th style={{ textAlign: "right" }}>Mean max DD</th>
-                  <th style={{ textAlign: "right" }}>95th-pctl worst max DD</th>
-                  <th>Caveat</th>
-                </tr></thead>
-                <tbody>
-                  {selectedPortfolios.map(pid => {
-                    const r = simResults && simResults[pid];
-                    const mcr = mcResults && mcResults[pid];
-                    const pf = getPF(pid);
-                    if (!r || !mcr) return null;
-                    const short = r.metrics.n < 120;
-                    return (
-                      <tr key={pid}>
-                        <td className="name">{pf.name}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{r.metrics.n} months</td>
-                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(mcr.median)}</td>
-                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(mcr.mean)}</td>
-                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(mcr.p95)}</td>
-                        <td className="dim">{short ? <span className="tag warn">&lt; 10 yrs — high uncertainty</span> : <span className="tag ok">≥ 10 yrs</span>}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <div className="panel-body tight footnote">Block bootstrap on each portfolio's <em>own</em> unit-price monthly returns. Preserves short autocorrelation; assumes stationarity. The reported 95th percentile is the worst end of the distribution (5% of paths are worse).</div>
-            </div>
+
+            {/* drawdown correlation matrix */}
+            {ddCorrelation && (
+              <div className="panel" style={{ marginBottom: 18 }}>
+                <div className="panel-h"><h2>Drawdown correlation matrix</h2><span className="h-meta">{ddCorrelation.ddMonths} drawdown months of {ddCorrelation.totalMonths} total</span></div>
+                <div className="panel-body">
+                  <table className="bt" style={{ fontSize: 12 }}>
+                    <thead><tr>
+                      <th></th>
+                      {ddCorrelation.basket.map(a => <th key={a} style={{ textAlign: "right", fontWeight: 600 }}>{ddCorrelation.shortName(a)}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {ddCorrelation.basket.map(a => (
+                        <tr key={a}>
+                          <td style={{ fontWeight: 600 }}>{ddCorrelation.shortName(a)}</td>
+                          {ddCorrelation.basket.map(b => {
+                            const v = ddCorrelation.matrix[a][b];
+                            const bg = a === b ? "transparent" : v > 0.7 ? "oklch(0.92 0.06 25)" : v > 0.4 ? "oklch(0.95 0.03 60)" : v < 0 ? "oklch(0.92 0.06 150)" : "oklch(0.95 0.02 150)";
+                            return <td key={b} className="num" style={{ textAlign: "right", background: bg }}>{a === b ? "—" : fmtNum(v, 2)}</td>;
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="footnote" style={{ marginTop: 10 }}>Pearson correlation of monthly returns during months when the equal-weight basket is below its running peak — the periods that drive UPI. Low or negative values = genuine diversification when it matters. High values (&gt;0.7) = assets fall together, reducing the portfolio's crisis resilience.</div>
+                </div>
+              </div>
+            )}
 
             {/* v3 · Efficient Frontier */}
             <div className="panel" style={{ marginBottom: 18 }}>
@@ -3708,7 +3611,7 @@ function App() {
                           <tbody>
                             {renderRow("riskOptimal", "\u2b24 Risk optimal largest net real return", efResults.winners.riskOptimal, true, true)}
                             {renderRow("combined", "\u2b24 Largest net real return", efResults.winners.combined, true, true)}
-                            {renderRow("gainAvg", "\u2b24 Best gain\u00d7avgCAGR", efResults.winners.gainAvg, true, true)}
+                            {renderRow("gainAvg", "\u2b24 Largest absolute return \u00d7 avg. CAGR", efResults.winners.gainAvg, true, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino, false, true)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure, false, true)}
                             {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure, false, true)}
@@ -3731,33 +3634,6 @@ function App() {
               </div>
             </div>
 
-            {/* drawdown correlation matrix */}
-            {ddCorrelation && (
-              <div className="panel" style={{ marginBottom: 18 }}>
-                <div className="panel-h"><h2>Drawdown correlation matrix</h2><span className="h-meta">{ddCorrelation.ddMonths} drawdown months of {ddCorrelation.totalMonths} total</span></div>
-                <div className="panel-body">
-                  <table className="bt" style={{ fontSize: 12 }}>
-                    <thead><tr>
-                      <th></th>
-                      {ddCorrelation.basket.map(a => <th key={a} style={{ textAlign: "right", fontWeight: 600 }}>{ddCorrelation.shortName(a)}</th>)}
-                    </tr></thead>
-                    <tbody>
-                      {ddCorrelation.basket.map(a => (
-                        <tr key={a}>
-                          <td style={{ fontWeight: 600 }}>{ddCorrelation.shortName(a)}</td>
-                          {ddCorrelation.basket.map(b => {
-                            const v = ddCorrelation.matrix[a][b];
-                            const bg = a === b ? "transparent" : v > 0.7 ? "oklch(0.92 0.06 25)" : v > 0.4 ? "oklch(0.95 0.03 60)" : v < 0 ? "oklch(0.92 0.06 150)" : "oklch(0.95 0.02 150)";
-                            return <td key={b} className="num" style={{ textAlign: "right", background: bg }}>{a === b ? "—" : fmtNum(v, 2)}</td>;
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="footnote" style={{ marginTop: 10 }}>Pearson correlation of monthly returns during months when the equal-weight basket is below its running peak — the periods that drive UPI. Low or negative values = genuine diversification when it matters. High values (&gt;0.7) = assets fall together, reducing the portfolio's crisis resilience.</div>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>

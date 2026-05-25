@@ -1429,34 +1429,74 @@ function avgYearlyCAGR(unitPriceSeries) {
   return count > 0 ? sum / count : null;
 }
 
-// Integrated risk-return score: excess area over ECB rate.
-// For each month, compare portfolio unit price vs what €1 earns at the ECB DFR.
-// Score = (∫ area_above − ∫ area_below) / years.
-// Rewards portfolios that stay above the risk-free alternative consistently —
-// drawdowns that dip below the ECB line hurt for every month they persist.
-function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, ecbChanges) {
-  if (!unitPriceSeries || unitPriceSeries.length < 13 || !months) return null;
+// Integrated risk-return score: net excess return over CPI (inflation).
+// For each month, compare portfolio unit price (normalized to 1) vs CPI growth
+// (also normalized to 1). Score = Σ(portfolio − CPI) / years.
+// Positive when portfolio outpaces inflation; negative when it doesn't.
+// Drawdowns below the CPI line cost for every month they persist.
+function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries) {
+  if (!unitPriceSeries || unitPriceSeries.length < 13 || !months || !cpiSeries) return null;
   const n = unitPriceSeries.length;
   const p0 = unitPriceSeries[0];
   if (p0 <= 0) return null;
-  // Build ECB accumulation curve (€1 compounding at DFR monthly)
-  const ecbCurve = [1];
-  for (let i = 1; i < n; i++) {
-    const t = Date.parse(months[i] + "-15");
-    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-    const monthlyRate = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-    ecbCurve.push(ecbCurve[i - 1] * (1 + monthlyRate));
-  }
-  // Normalized portfolio curve (start at 1)
+  // Build CPI-aligned curve normalized to 1 at the portfolio start
+  const cpiMap = new Map(cpiSeries.map(r => [r.month, r.value]));
+  const cpi0 = cpiMap.get(months[0]);
+  if (!cpi0 || cpi0 <= 0) return null;
   let excessSum = 0;
+  let validMonths = 0;
   for (let i = 0; i < n; i++) {
-    excessSum += (unitPriceSeries[i] / p0) - ecbCurve[i];
+    const cpiVal = cpiMap.get(months[i]);
+    if (cpiVal == null) continue;
+    excessSum += (unitPriceSeries[i] / p0) - (cpiVal / cpi0);
+    validMonths++;
   }
-  const years = (n - 1) / 12;
+  const years = validMonths / 12;
   return years > 0 ? excessSum / years : null;
 }
 
-// ---------- Monte Carlo block bootstrap ----------
+// Convexity-weighted excess return over CPI.
+// w(f', f'') = 1 + α × sign(f''), where α = stdev(f'') / mean(|f''|).
+// Overweights months with convex curvature (accelerating up or decelerating down)
+// and underweights concave months (decelerating up or accelerating down).
+function convexityWeightedExcessReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries) {
+  if (!unitPriceSeries || unitPriceSeries.length < 15 || !months || !cpiSeries) return null;
+  const n = unitPriceSeries.length;
+  const p0 = unitPriceSeries[0];
+  if (p0 <= 0) return null;
+  const cpiMap = new Map(cpiSeries.map(r => [r.month, r.value]));
+  const cpi0 = cpiMap.get(months[0]);
+  if (!cpi0 || cpi0 <= 0) return null;
+  // Compute f' (monthly returns) and f'' (change in returns)
+  const pNorm = unitPriceSeries.map(v => v / p0);
+  const fp = []; // f'[i] = pNorm[i+1] - pNorm[i]
+  for (let i = 0; i < n - 1; i++) fp.push(pNorm[i + 1] - pNorm[i]);
+  const fpp = []; // f''[i] = fp[i+1] - fp[i]
+  for (let i = 0; i < fp.length - 1; i++) fpp.push(fp[i + 1] - fp[i]);
+  // α = stdev(f'') / mean(|f''|)
+  const absFpp = fpp.map(v => Math.abs(v));
+  const meanAbsFpp = absFpp.reduce((s, v) => s + v, 0) / absFpp.length;
+  if (meanAbsFpp <= 0) return null;
+  const meanFpp = fpp.reduce((s, v) => s + v, 0) / fpp.length;
+  const varFpp = fpp.reduce((s, v) => s + (v - meanFpp) ** 2, 0) / fpp.length;
+  const alpha = Math.sqrt(varFpp) / meanAbsFpp;
+  // Weighted excess: w(t) = 1 + α × sign(f''(t))
+  // f'' is defined for indices 0..n-3 (maps to months 1..n-2)
+  let weightedSum = 0;
+  let validMonths = 0;
+  for (let i = 0; i < n; i++) {
+    const cpiVal = cpiMap.get(months[i]);
+    if (cpiVal == null) continue;
+    const excess = pNorm[i] - (cpiVal / cpi0);
+    // f'' index: i maps to fpp[i-1] (since fpp starts at month index 1)
+    const fppIdx = i - 1;
+    const w = (fppIdx >= 0 && fppIdx < fpp.length) ? 1 + alpha * Math.sign(fpp[fppIdx]) : 1;
+    weightedSum += w * excess;
+    validMonths++;
+  }
+  const years = validMonths / 12;
+  return years > 0 ? weightedSum / years : null;
+}
 function monteCarloMaxDD(monthlyRets, horizonMonths, blockLen, nPaths, seed = 1) {
   if (!monthlyRets || monthlyRets.length < 2) return { median: null, mean: null, p95: null };
   // simple LCG for repeatable randomness
@@ -2423,7 +2463,8 @@ function App() {
         });
         if (!r || !r.metrics) continue;
         const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
-        const irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.ecb);
+        const irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi);
+        const cvxScore = convexityWeightedExcessReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi);
         results.push({
           weights: wv,
           sortino: r.metrics.sortino,
@@ -2433,6 +2474,7 @@ function App() {
           finalValue: r.finalValue,
           avgCAGR,
           irrScore,
+          cvxScore,
           hStar: null,
         });
       }
@@ -2463,7 +2505,8 @@ function App() {
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
             avgCAGR: avgYearlyCAGR(r.unitPriceSeries),
-            irrScore: integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.ecb),
+            irrScore: integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi),
+            cvxScore: convexityWeightedExcessReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi),
             hStar: null, _unitPrice: r.unitPriceSeries,
           });
         }
@@ -2471,13 +2514,17 @@ function App() {
         const winners = computeWinners(results);
 
         // Compute h* only for the table rows: winners + user + benchmarks
-        const computeHStarForRow = (row) => {
-          if (!row || !cpiAligned || cutCPI < 13) return;
+        // Also store the combined winner's full simulation for the chart.
+        let winnerSim = null;
+        const computeHStarForRow = (row, isWinner) => {
+          if (!row) return;
           const wv = row.weights;
           const wmap = {}; basket.forEach((a, i) => { wmap[a] = wv[i]; });
           const dynPf = { id: "ef_h", name: "h*", assets: basket, weights: wmap, equityId: basket.find(a => a !== "gold") || basket[0], fixedWeights: true, dynamic: true };
           const r = runSim({ portfolio: dynPf, targetGoldPct: wmap.gold || 0, data: dataBase, seriesType: effSeriesType, ongoingCost, spreads, orderFee, tax: { rate: taxRate, teilfreistellung, allowance, basiszins }, starting, monthly, rebalance, ecbChanges: series.ecb || null });
           if (!r) return;
+          if (isWinner) winnerSim = { unitPriceSeries: r.unitPriceSeries, months: r.months };
+          if (!cpiAligned || cutCPI < 13) return;
           const upTrunc = r.unitPriceSeries.slice(0, cutCPI);
           const cpiTrunc = cpiAligned.slice(0, cutCPI);
           const paired = buildPairedReturns(upTrunc, cpiTrunc);
@@ -2485,18 +2532,20 @@ function App() {
           for (let h = 1; h <= H_MAX_EF; h++) { const mcPt = rollingRealReturnsMC(paired, h, MC_PATHS_EF, mc.block, 77777 + h); curve.push(mcPt ? mcPt.worstRealCAGR : null); }
           for (let i = 0; i < curve.length; i++) { let ok = true; for (let j = i; j < curve.length; j++) { if (curve[j] == null || curve[j] < 0) { ok = false; break; } } if (ok) { row.hStar = i + 1; break; } }
         };
-        // De-duplicate: only compute once per unique weight vector
+        const allWinnerRows = [winners.combined, winners.convex, winners.gainAvg, winners.sortino, winners.upiPure, winners.avgPure, winners.finalReturn, winners.user].filter(Boolean);
         const seen = new Set();
         const keyOf = (row) => row.weights.map(w => w.toFixed(4)).join(",");
-        for (const row of [winners.combined, winners.sortino, winners.upiPure, winners.avgPure, winners.sortinoUpi, winners.sortinoAvg, winners.upiAvg, winners.avgGain, winners.finalReturn, winners.user].filter(Boolean)) {
+        for (const row of allWinnerRows) {
           const k = keyOf(row);
-          if (seen.has(k)) { /* copy hStar from already-computed duplicate */
-            const donor = [winners.combined, winners.sortino, winners.upiPure, winners.avgPure, winners.sortinoUpi, winners.sortinoAvg, winners.upiAvg, winners.avgGain, winners.finalReturn, winners.user].find(r => r && keyOf(r) === k && r.hStar != null);
+          const isWinner = row === winners.combined;
+          if (seen.has(k)) {
+            const donor = allWinnerRows.find(r => r && keyOf(r) === k && r.hStar != null);
             if (donor) row.hStar = donor.hStar;
+            if (isWinner && !winnerSim) computeHStarForRow(row, true); // still need the sim for chart
             continue;
           }
           seen.add(k);
-          computeHStarForRow(row);
+          computeHStarForRow(row, isWinner);
         }
         // h* for benchmarks (use stored unitPriceSeries)
         for (const bm of benchResults) {
@@ -2510,42 +2559,32 @@ function App() {
           delete bm._unitPrice; // free memory
         }
 
-        setEfResults({ basket, samples: results, benchmarks: benchResults, winners, includesUserSMA: efIncludeUserSMA });
+        setEfResults({ basket, samples: results, benchmarks: benchResults, winners, winnerSim, includesUserSMA: efIncludeUserSMA });
         setEfRunning(false);
       }
     };
 
     const computeWinners = (rs) => {
-      if (rs.length === 0) return { sortino: null, upiPure: null, avgPure: null, sortinoUpi: null, sortinoAvg: null, upiAvg: null, avgGain: null, combined: null, finalReturn: null, hStar: null, user: null };
-      let bs = rs[0], bup = rs[0], bap = rs[0], bc = rs[0], br = rs[0], bh = null;
-      let bsu = rs[0], bsm = rs[0], bum = rs[0], bag = rs[0];
-      let bcScore = -Infinity, bsuScore = -Infinity, bsmScore = -Infinity, bumScore = -Infinity, bagScore = -Infinity;
+      if (rs.length === 0) return { sortino: null, upiPure: null, avgPure: null, combined: null, convex: null, gainAvg: null, finalReturn: null, hStar: null, user: null };
+      let bs = rs[0], bup = rs[0], bap = rs[0], bc = rs[0], bx = rs[0], bga = rs[0], br = rs[0], bh = null;
+      let bcScore = -Infinity, bxScore = -Infinity, bgaScore = -Infinity;
       for (const r of rs) {
-        const avg = Math.max(0, r.avgCAGR ?? 0);
-        const gain = Math.max(0, r.finalRatio - 1);
         if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
         if ((r.upi ?? -Infinity) > (bup.upi ?? -Infinity)) bup = r;
-        // Largest avgCAGR
-        if (avg > (bap.avgCAGR ?? -Infinity)) bap = r;
-        // Pairwise: Sortino × UPI
-        const su = Math.max(0, r.sortino ?? 0) * Math.max(0, r.upi ?? 0);
-        if (su > bsuScore) { bsu = r; bsuScore = su; }
-        // Pairwise: Sortino × avgCAGR
-        const sm = Math.max(0, r.sortino ?? 0) * avg;
-        if (sm > bsmScore) { bsm = r; bsmScore = sm; }
-        // Pairwise: UPI × avgCAGR
-        const um = Math.max(0, r.upi ?? 0) * avg;
-        if (um > bumScore) { bum = r; bumScore = um; }
-        // Pairwise: avgCAGR × absolute return
-        const ag = avg * gain;
-        if (ag > bagScore) { bag = r; bagScore = ag; }
-        // Combined: excess area over ECB — integrated risk-return score
+        if ((r.avgCAGR ?? -Infinity) > (bap.avgCAGR ?? -Infinity)) bap = r;
+        // Combined: net excess return over CPI
         const cs = r.irrScore ?? -Infinity;
         if (cs > bcScore) { bc = r; bcScore = cs; }
+        // Convexity-weighted excess return over CPI
+        const xs = r.cvxScore ?? -Infinity;
+        if (xs > bxScore) { bx = r; bxScore = xs; }
+        // gain × avgCAGR
+        const ga = Math.max(0, r.finalRatio - 1) * Math.max(0, r.avgCAGR ?? 0);
+        if (ga > bgaScore) { bga = r; bgaScore = ga; }
         if (r.finalRatio > br.finalRatio) br = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
       }
-      return { sortino: bs, upiPure: bup, avgPure: bap, sortinoUpi: bsu, sortinoAvg: bsm, upiAvg: bum, avgGain: bag, combined: bc, finalReturn: br, hStar: bh, user: rs[0] };
+      return { sortino: bs, upiPure: bup, avgPure: bap, combined: bc, convex: bx, gainAvg: bga, finalReturn: br, hStar: bh, user: rs[0] };
     };
 
     setTimeout(() => processChunk(0), 30);
@@ -3179,7 +3218,7 @@ function App() {
               <span className="footnote" style={{ fontSize: 10.5 }}>benchmarked against <strong>100% coIQ</strong> and <strong>Market (Prime ACWI)</strong></span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
-              * <strong>Risk-return ratio</strong> = (∫ area above ECB − ∫ area below ECB) / years. Compares the portfolio unit-price curve against a €1 deposit compounding at the ECB DFR. Every month the portfolio is above the deposit earns credit; every month below costs. Rewards consistent outperformance — drawdowns that dip below the risk-free line hurt for every month they persist. Requires the Efficient Frontier section below to be calculated first.
+              * <strong>Net excess return over CPI</strong> = Σ(portfolio[t] − CPI[t]) / years, where both curves are normalized to 1 at the start. Every month the portfolio outpaces inflation earns credit; every month below costs. Rewards consistent real outperformance — drawdowns that dip below the CPI line hurt for every month they persist. Requires CPI data and the Efficient Frontier section below to be calculated first.
             </div>
             {userPortfolio.assets.length > 0 && (
               <div className="small-note" style={{ marginTop: 8 }}>
@@ -3569,15 +3608,10 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes excess area over ECB — the integral of portfolio value above the risk-free deposit, minus the integral below, per year.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>recommended portfolio</strong> maximizes net excess return over CPI — the integral of portfolio value above inflation, minus the integral below, per year.
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
-                  const data = efResults.samples.map(s => ({
-                    sortino: s.sortino,
-                    upi: s.upi,
-                    finalRatio: (s.finalRatio - 1) * 100,
-                  }));
                   const fmtWeights = (sample) => efResults.basket.map((a, i) => {
                     const w = sample.weights[i] * 100;
                     if (w < 0.5) return null;
@@ -3614,32 +3648,50 @@ function App() {
                   ) : null;
                   return (
                     <>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
-                        <div style={{ height: 280 }}>
-                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>Sortino vs absolute gain</div>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <RC.ScatterChart margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
-                              <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" />
-                              <XAxis type="number" dataKey="finalRatio" name="gain %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" />
-                              <YAxis type="number" dataKey="sortino" name="Sortino" tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
-                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }} />
-                              <RC.Scatter data={data} fill="oklch(0.55 0.05 220 / 0.35)" />
-                            </RC.ScatterChart>
-                          </ResponsiveContainer>
-                        </div>
-                        <div style={{ height: 280 }}>
-                          <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>UPI vs absolute gain</div>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <RC.ScatterChart margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
-                              <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" />
-                              <XAxis type="number" dataKey="finalRatio" name="gain %" tickFormatter={v => v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" />
-                              <YAxis type="number" dataKey="upi" name="UPI" tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
-                              <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }} />
-                              <RC.Scatter data={data} fill="oklch(0.55 0.10 160 / 0.35)" />
-                            </RC.ScatterChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </div>
+                      {/* Excess return chart: winning portfolio vs CPI */}
+                      {efResults.winnerSim && series.cpi && (() => {
+                        const ws = efResults.winnerSim;
+                        const p0 = ws.unitPriceSeries[0];
+                        const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
+                        const cpi0 = cpiMap.get(ws.months[0]);
+                        if (!cpi0 || p0 <= 0) return null;
+                        const chartData = ws.months.map((m, i) => {
+                          const pf = ws.unitPriceSeries[i] / p0;
+                          const cpi = (cpiMap.get(m) ?? cpi0) / cpi0;
+                          return {
+                            month: m,
+                            label: m.slice(0, 4),
+                            portfolio: pf,
+                            cpi,
+                            above: pf >= cpi ? pf : cpi,
+                            below: pf < cpi ? pf : cpi,
+                          };
+                        });
+                        return (
+                          <div style={{ height: 320, marginBottom: 18 }}>
+                            <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
+                              Winning portfolio vs CPI — <span style={{ color: "oklch(0.50 0.14 150)" }}>■</span> excess above CPI
+                              {" "}<span style={{ color: "oklch(0.60 0.16 25)" }}>■</span> deficit below CPI
+                            </div>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <RC.ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
+                                <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="label" stroke="oklch(0.7 0.008 240)" interval={Math.max(1, Math.floor(chartData.length / 10))} />
+                                <YAxis tickFormatter={v => v.toFixed(1)} stroke="oklch(0.7 0.008 240)" width={48} />
+                                <Tooltip contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                                  formatter={(v, name) => [typeof v === "number" ? v.toFixed(3) : v, name]}
+                                  labelFormatter={l => chartData.find(d => d.label === l)?.month || l} />
+                                <Area type="monotone" dataKey="above" stroke="none" fill="oklch(0.50 0.14 150)" fillOpacity={0.25} baseValue="dataMin" isAnimationActive={false} />
+                                <Area type="monotone" dataKey="cpi" stroke="none" fill="var(--panel)" fillOpacity={1} baseValue="dataMin" isAnimationActive={false} />
+                                <Area type="monotone" dataKey="cpi" stroke="none" fill="oklch(0.60 0.16 25)" fillOpacity={0.25} baseValue="dataMin" isAnimationActive={false} />
+                                <Area type="monotone" dataKey="below" stroke="none" fill="var(--panel)" fillOpacity={1} baseValue="dataMin" isAnimationActive={false} />
+                                <Line type="monotone" dataKey="cpi" stroke="oklch(0.25 0 0)" strokeWidth={1.8} dot={false} name="CPI" isAnimationActive={false} />
+                                <Line type="monotone" dataKey="portfolio" stroke="oklch(0.45 0.10 220)" strokeWidth={1.8} dot={false} name="Portfolio" isAnimationActive={false} />
+                              </RC.ComposedChart>
+                            </ResponsiveContainer>
+                          </div>
+                        );
+                      })()}
                       <div style={{ marginBottom: 18 }}>
                         <table className="bt">
                           <thead><tr>
@@ -3651,18 +3703,16 @@ function App() {
                             <th style={{ textAlign: "right" }}>Avg. CAGR</th>
                             <th style={{ textAlign: "right" }}>Max DD</th>
                             <th style={{ textAlign: "right" }}>Gain</th>
-                            <th style={{ textAlign: "right" }}>Excess area</th>
+                            <th style={{ textAlign: "right" }}>Excess ret.</th>
                           </tr></thead>
                           <tbody>
-                            {renderRow("combined", "\u2b24 Largest net excess return over ECB rate", efResults.winners.combined, true)}
+                            {renderRow("combined", "\u2b24 Largest net real return", efResults.winners.combined, true)}
+                            {renderRow("convex", "\u2b24 Convexity-weighted largest net excess return over CPI", efResults.winners.convex, true)}
+                            {renderRow("gainAvg", "\u2b24 Best gain\u00d7avgCAGR", efResults.winners.gainAvg, true)}
                             {renderRow("sortino", "Largest Sortino", efResults.winners.sortino)}
                             {renderRow("upiPure", "Largest UPI", efResults.winners.upiPure)}
                             {renderRow("avgPure", "Largest avg. CAGR", efResults.winners.avgPure)}
                             {renderRow("finalReturn", "Largest absolute return", efResults.winners.finalReturn)}
-                            {renderRow("sortinoUpi", "Best Sortino\u00d7UPI", efResults.winners.sortinoUpi)}
-                            {renderRow("sortinoAvg", "Best Sortino\u00d7avgCAGR", efResults.winners.sortinoAvg)}
-                            {renderRow("upiAvg", "Best UPI\u00d7avgCAGR", efResults.winners.upiAvg)}
-                            {renderRow("avgGain", "Best avgCAGR\u00d7gain", efResults.winners.avgGain)}
                             {renderRow("user", "Your current weights", efResults.winners.user)}
                           </tbody>
                           <tbody style={{ borderTop: "2px solid var(--border)" }}>

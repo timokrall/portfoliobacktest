@@ -273,6 +273,16 @@ function parseEcbRateChanges(text) {
 // Look up the active ECB rate at a given epoch_ms (last change ≤ t).
 // Returns null if no change has happened yet (before-series); caller defaults to 0.
 function ecbRateAt(changes, t) {
+  if (!changes || changes.length === 0) return null;
+  // Binary search for the last change.t ≤ t
+  let lo = 0, hi = changes.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (changes[mid].t <= t) { ans = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return ans >= 0 ? changes[ans].rate : null;
+}
 
 // Parse Bundesbank Diskontsatz CSV. Bundesbank CSVs use semicolons,
 // may have header rows, German date formats (YYYY-MM), and comma decimals.
@@ -329,17 +339,6 @@ function mergeRateSeries(bbkChanges, ecbChanges) {
   return merged.length > 0 ? merged : null;
 }
 
-
-  if (!changes || changes.length === 0) return null;
-  // Binary search for the last change.t ≤ t
-  let lo = 0, hi = changes.length - 1, ans = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (changes[mid].t <= t) { ans = mid; lo = mid + 1; }
-    else hi = mid - 1;
-  }
-  return ans >= 0 ? changes[ans].rate : null;
-}
 
 // Derive a yearly Basiszins table from ECB rate changes.
 // For each year, takes the ECB rate in effect on Jan 1. For years 2018+,
@@ -3592,7 +3591,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:53 PM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:58 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

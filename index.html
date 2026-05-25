@@ -369,7 +369,7 @@ function parseCsvToDaily(text) {
 // `holdable: false` means the series is loaded as a SIGNAL ONLY — never held.
 const ASSETS = [
   { shortName: "coIQ", id: "coIQ",     file: "coiq.csv",     manifestKey: "coiq",     taxLike: "fund", holdable: true,
-    label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series",
+    label: "CoIQ Collective Intelligence Fund R", isin: "DE000A3C91C5", equity: true,  defaultOngoing: 1.30, costCutoff: "2021-12", defaultBuySpread: 0.00, defaultSellSpread: 0.00, defaultTF: 30, note: "NAV series: Nasdaq-100 proxy pre-2022, actual fund NAV (fees embedded) from 2022",
     sourceUrl: "https://stooq.com/q/d/?f=19900103&t=20260522&s=%5Endx&c=0" },
   { shortName: "momentum", id: "momentum", file: "momentum.csv", manifestKey: "momentum", taxLike: "fund", holdable: true,
     label: "iShares Edge MSCI World Momentum ETF", isin: "IE00BP3QZ825", equity: true,  defaultOngoing: 0.50, defaultBuySpread: 0.10, defaultSellSpread: 0.10, defaultTF: 30, note: "EUR price (Xetra IS3R)",
@@ -1015,7 +1015,12 @@ function simulatePortfolioV2(state) {
   const N = months.length;
   if (N < 2) return null;
   const monthlyDrag = {};
-  for (const a of assets) monthlyDrag[a] = seriesType[a] === "gross" ? Math.pow(1 - (ongoingCost[a] / 100), 1 / 12) : 1;
+  const monthlyDragCutoff = {};
+  for (const a of assets) {
+    monthlyDrag[a] = seriesType[a] === "gross" ? Math.pow(1 - (ongoingCost[a] / 100), 1 / 12) : 1;
+    const meta = ASSETS.find(x => x.id === a);
+    monthlyDragCutoff[a] = meta?.costCutoff || null;
+  }
   const returns = buildReturnsMap(data);
   const assetEquityId = portfolio.equityId;
   const isMarket = !!portfolio.isMarket;
@@ -1037,7 +1042,11 @@ function simulatePortfolioV2(state) {
   for (const a of assets) {
     const arr = new Array(N);
     arr[0] = 100;
-    for (let i = 1; i < N; i++) arr[i] = arr[i - 1] * (1 + returns[a][i]) * monthlyDrag[a];
+    const cutoff = monthlyDragCutoff[a];
+    for (let i = 1; i < N; i++) {
+      const drag = (cutoff && months[i] > cutoff) ? 1 : monthlyDrag[a];
+      arr[i] = arr[i - 1] * (1 + returns[a][i]) * drag;
+    }
     priceHist[a] = arr;
   }
 
@@ -1805,8 +1814,8 @@ function App() {
   });
   const [seriesError, setSeriesError] = useState({});
   // All series are net (prices from CSV already include fund costs).
-  const seriesType = useMemo(() => Object.fromEntries(ASSETS.map(a => [a.id, "net"])), []);
-  const ongoingCost = useMemo(() => Object.fromEntries(ASSETS.map(a => [a.id, 0])), []);
+  const seriesType = useMemo(() => Object.fromEntries(ASSETS.map(a => [a.id, a.defaultOngoing > 0 ? "gross" : "net"])), []);
+  const ongoingCost = useMemo(() => Object.fromEntries(ASSETS.map(a => [a.id, a.defaultOngoing ?? 0])), []);
   const [fetchStatus, setFetchStatus] = useState({});   // assetId -> {kind, msg}
   const [manifest, setManifest] = useState(null);
 
@@ -3114,7 +3123,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:40 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-25, 11:59 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

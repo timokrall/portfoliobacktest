@@ -1959,7 +1959,7 @@ function App() {
   const [userRebalance, setUserRebalance] = useState({ gold: true });
   const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, (a.id === "gold" || a.id === "silver") ? 0 : 50])));
   const [bulkLimit, setBulkLimit] = useState(50);
-  const [lockedAssets, setLockedAssets] = useState({});
+  const [lockedAssets, setLockedAssets] = useState({ silver: true });
 
   // Gold/equity long-term optimization
   const [goldOptResult, setGoldOptResult] = useState(null);
@@ -3236,6 +3236,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-26, 10:28 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3315,6 +3316,7 @@ function App() {
             </div>
           </div>
         </div>
+      </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
           <div className="panel-h">
@@ -3856,7 +3858,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 10:19 PM</span></div>
+          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

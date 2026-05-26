@@ -1959,6 +1959,7 @@ function App() {
   const [userRebalance, setUserRebalance] = useState({ gold: true });
   const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, (a.id === "gold" || a.id === "silver") ? 0 : 50])));
   const [bulkLimit, setBulkLimit] = useState(50);
+  const [lockedAssets, setLockedAssets] = useState({});
 
   // Gold/equity long-term optimization
   const [goldOptResult, setGoldOptResult] = useState(null);
@@ -2272,8 +2273,10 @@ function App() {
   // Persists ONLY the assets in userUploadedIds.
   useEffect(() => {
     try {
+      const SKIP_SAVE = new Set(["msciWorld", "eurusd"]); // too large for localStorage
       const out = {};
       for (const id of userUploadedIds) {
+        if (SKIP_SAVE.has(id)) continue;
         const t = csvText[id];
         if (typeof t === "string" && t.trim().length > 0) out[id] = t;
       }
@@ -2631,6 +2634,14 @@ function App() {
           for (let ai = 0; ai < basket.length; ai++) {
             const limit = (upperLimits[basket[ai]] ?? 100) / 100;
             if (wv[ai] > limit + 1e-9) { skip = true; break; }
+          }
+          if (skip) continue;
+          // Skip if any locked asset's weight doesn't match its current value
+          for (let ai = 0; ai < basket.length; ai++) {
+            if (lockedAssets[basket[ai]]) {
+              const lockedW = (userWeights[basket[ai]] || 0) / 100;
+              if (Math.abs(wv[ai] - lockedW) > 1e-9) { skip = true; break; }
+            }
           }
           if (skip) continue;
         }
@@ -3691,6 +3702,7 @@ function App() {
                               }
                               setUserWeights(w);
                               setUpperLimits(prev => ({ ...prev, gold: gPct }));
+                              setLockedAssets(prev => ({ ...prev, gold: true }));
                               setUserSMA(prev => {
                                 const u = { ...prev, gold: !!r.sma };
                                 for (const a of holdable) { if (a.equity) u[a.id] = !!r.eqSma; }
@@ -3724,7 +3736,7 @@ function App() {
                             )}
                             <table className="bt" style={{ fontSize: 11.5, marginBottom: 12 }}>
                               {headerRow("Buy-and-hold recommendation")}
-                              <tbody>{dataRow(goldOptResult.bestBH, false)}</tbody>
+                              <tbody>{dataRow(goldOptResult.bestBH, true)}</tbody>
                             </table>
                           </>;
                         })()}
@@ -3818,6 +3830,7 @@ function App() {
                               }
                               setUserWeights(w);
                               setUpperLimits(prev => ({ ...prev, gold: gPct }));
+                              setLockedAssets(prev => ({ ...prev, gold: true }));
                               setUserSMA(prev => ({ ...prev, gold: !!r.sma }));
                               // Set equity SMA for all equity assets
                               const eqSmaUpdate = {};
@@ -3843,7 +3856,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 10:11 PM</span></div>
+          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 10:19 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3866,12 +3879,13 @@ function App() {
                 Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
               </span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px 36px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }} title="Maximum weight % allowed in the efficient frontier grid search">MAX</div>
+              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Lock this asset — weight and MAX won't change with bulk buttons, frontier won't vary it">🔒</div>
               {ASSETS.filter(a => a.holdable).map(a => {
                 const w = userWeights[a.id] ?? 0;
                 const canSMA = true;   // gold + silver SMA now supported
@@ -3901,6 +3915,10 @@ function App() {
                     <input type="number" min="0" max="100" step="5" value={upperLimits[a.id] ?? 100}
                            style={{ textAlign: "right", padding: "4px 6px", fontSize: 11, width: "100%" }}
                            onChange={e => setUpperLimits(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      <input type="checkbox" checked={!!lockedAssets[a.id]}
+                             onChange={e => setLockedAssets(s => ({ ...s, [a.id]: e.target.checked }))} />
+                    </div>
                   </React.Fragment>
                 );
               })}
@@ -3909,25 +3927,40 @@ function App() {
               <button className="btn btn-xs" onClick={() => {
                 const total = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
                 if (total <= 0) return;
-                const scaled = {};
-                let acc = 0; const keys = Object.keys(userWeights);
-                keys.forEach((k, i) => {
-                  if (i < keys.length - 1) { const v = Math.round((userWeights[k] || 0) * 100 / total); scaled[k] = v; acc += v; }
-                  else { scaled[k] = 100 - acc; }
+                const lockedTotal = Object.entries(userWeights).filter(([k]) => lockedAssets[k]).reduce((s, [, v]) => s + (v || 0), 0);
+                const unlocked = Object.keys(userWeights).filter(k => !lockedAssets[k]);
+                const unlockedTotal = total - lockedTotal;
+                const target = 100 - lockedTotal;
+                if (unlockedTotal <= 0 || target <= 0) return;
+                const scaled = { ...userWeights };
+                let acc = 0;
+                unlocked.forEach((k, i) => {
+                  if (i < unlocked.length - 1) { const v = Math.round((userWeights[k] || 0) * target / unlockedTotal); scaled[k] = v; acc += v; }
+                  else { scaled[k] = target - acc; }
                 });
                 setUserWeights(scaled);
               }}>Normalize to 100</button>
               <button className="btn btn-xs" onClick={() => {
                 const holdable = ASSETS.filter(a => a.holdable);
-                const n = holdable.length;
+                const lockedTotal = holdable.filter(a => lockedAssets[a.id]).reduce((s, a) => s + (userWeights[a.id] || 0), 0);
+                const unlocked = holdable.filter(a => !lockedAssets[a.id]);
+                const remaining = Math.max(0, 100 - lockedTotal);
+                const n = unlocked.length;
                 if (n === 0) return;
-                const base = Math.floor(100 / n);
-                let remainder = 100 - base * n;
-                const eq = {};
-                for (const a of holdable) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
+                const base = Math.floor(remaining / n);
+                let remainder = remaining - base * n;
+                const eq = { ...userWeights };
+                for (const a of unlocked) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
                 setUserWeights(eq);
               }}>Equal weight all</button>
-              <button className="btn btn-xs btn-ghost" onClick={() => { setUserWeights({}); setUserSMA({}); }}>Clear</button>
+              <button className="btn btn-xs btn-ghost" onClick={() => {
+                const kept = {};
+                for (const [k, v] of Object.entries(userWeights)) { if (lockedAssets[k]) kept[k] = v; }
+                setUserWeights(kept);
+                const keptSMA = {};
+                for (const [k, v] of Object.entries(userSMA)) { if (lockedAssets[k]) keptSMA[k] = v; }
+                setUserSMA(keptSMA);
+              }}>Clear</button>
               <button className="btn btn-xs btn-ghost"
                 disabled={userWeightTotal >= 100}
                 style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
@@ -3939,13 +3972,18 @@ function App() {
                 <input type="number" min="0" max="100" step="5" value={bulkLimit}
                   style={{ width: 44, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
                   onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
-                <button className="btn btn-xs" onClick={() => setUpperLimits(Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, bulkLimit])))}>Apply</button>
+                <button className="btn btn-xs" onClick={() => setUpperLimits(prev => {
+                  const next = { ...prev };
+                  for (const a of ASSETS.filter(a => a.holdable)) { if (!lockedAssets[a.id]) next[a.id] = bulkLimit; }
+                  return next;
+                })}>Apply</button>
               </span>
             </div>
             <div className="small-note" style={{ marginTop: 8 }}>
               <strong>SMA</strong> — 200-day simple moving average timing. When ticked, this leg sells to cash when the daily price falls below the 200-day SMA and re-enters when it crosses back above. Reduces drawdowns at the cost of whipsaw losses in trendless markets.<br/>
               <strong>REB</strong> — yearly rebalancing. When ticked, if this asset is overweight vs its target at each rebalancing date, the excess is sold (gold: only matured lots, tax-free under Spekulationsfrist; funds: subject to CGT) and proceeds are redistributed to underweight assets.<br/>
-              <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".
+              <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".<br/>
+              <strong>🔒</strong> — lock this asset. Locked assets keep their weight and MAX when using Normalize, Equal weight, Clear, or Set all MAX. The frontier fixes locked assets at their current weight instead of varying them.
             </div>
           </div>
         </div>

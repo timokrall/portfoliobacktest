@@ -1957,7 +1957,7 @@ function App() {
   // §23 12-month rule for gold/silver, and Abgeltungsteuer × (1 − Teilfreistellung)
   // for funds). Default: all OFF — no rebalancing between assets.
   const [userRebalance, setUserRebalance] = useState({ gold: true });
-  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, (a.id === "gold" || a.id === "silver") ? 0 : 50])));
+  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, a.id === "silver" ? 0 : 100])));
   const [bulkLimit, setBulkLimit] = useState(50);
   const [lockedAssets, setLockedAssets] = useState({ silver: true });
 
@@ -1970,6 +1970,7 @@ function App() {
   const [optIncludeEqSma, setOptIncludeEqSma] = useState(true);
   const [optIncludeReb, setOptIncludeReb] = useState(true);
   const [optRecommendedOnly, setOptRecommendedOnly] = useState(true);
+  const [goldOptSort, setGoldOptSort] = useState({ col: "kneeScore", asc: false });
 
   // Convert MSCI World USD to EUR using EUR/USD rate
   const msciWorldEur = useMemo(() => {
@@ -3236,7 +3237,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-26, 10:31 PM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-26, 11:14 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3730,12 +3731,6 @@ function App() {
                             </tr>
                           );
                           return <>
-                            {bestActive && (
-                              <table className="bt" style={{ fontSize: 11.5, marginBottom: 12 }}>
-                                {headerRow("Practical recommendation")}
-                                <tbody>{dataRow(bestActive, true)}</tbody>
-                              </table>
-                            )}
                             <table className="bt" style={{ fontSize: 11.5, marginBottom: 12 }}>
                               {headerRow("Buy-and-hold recommendation")}
                               <tbody>{dataRow(goldOptResult.bestBH, true)}</tbody>
@@ -3747,16 +3742,23 @@ function App() {
                     {goldOptResult.recommendedOnly && <div className="dim" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Theoretically risk-optimal allocations <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(warning: likely overfitted to backtest duration)</span></div>}
                     <table className="bt" style={{ fontSize: 11 }}>
                       <thead><tr>
-                        <th style={{ textAlign: "right" }}>Gold %</th>
-                        <th style={{ textAlign: "center" }}>Gold SMA</th>
-                        <th style={{ textAlign: "center" }}>Eq SMA</th>
-                        <th>Rebalance</th>
-                        <th style={{ textAlign: "right" }}>h*</th>
-                        <th style={{ textAlign: "right" }}>CV Score</th>
-                        <th style={{ textAlign: "right" }}>Full Score</th>
-                        <th style={{ textAlign: "right" }}>Sortino</th>
-                        <th style={{ textAlign: "right" }}>Max DD</th>
-                        <th style={{ textAlign: "right" }}>Gain</th>
+                        {[
+                          { col: "goldPct", label: "Gold %", align: "right" },
+                          { col: "sma", label: "Gold SMA", align: "center" },
+                          { col: "eqSma", label: "Eq SMA", align: "center" },
+                          { col: "reb", label: "Rebalance", align: "left" },
+                          { col: "hStar", label: "h*", align: "right" },
+                          { col: "cvScore", label: "CV Score", align: "right" },
+                          { col: "fullScore", label: "Full Score", align: "right" },
+                          { col: "sortino", label: "Sortino", align: "right" },
+                          { col: "maxDD", label: "Max DD", align: "right" },
+                          { col: "gain", label: "Gain", align: "right" },
+                        ].map(h => (
+                          <th key={h.col} style={{ textAlign: h.align, cursor: "pointer", userSelect: "none" }}
+                            onClick={() => setGoldOptSort(prev => prev.col === h.col ? { col: h.col, asc: !prev.asc } : { col: h.col, asc: false })}>
+                            {h.label}{goldOptSort.col === h.col ? (goldOptSort.asc ? " \u25B2" : " \u25BC") : ""}
+                          </th>
+                        ))}
                         <th></th>
                       </tr></thead>
                       <tbody>
@@ -3772,7 +3774,7 @@ function App() {
                             }
                             withScores = bhOnly;
                           }
-                          // Sort by Pareto knee: score vs h*
+                          // Compute knee scores for default sort
                           const withH = withScores.filter(r => r.hStar != null);
                           const noH = withScores.filter(r => r.hStar == null);
                           let scored;
@@ -3787,13 +3789,24 @@ function App() {
                               ...r,
                               kneeScore: (r.cvScore - scoreMin) / sRange + (1 - (r.hStar - hMin) / hRange),
                             }));
-                            scored.sort((a, b) => b.kneeScore - a.kneeScore);
-                            // Append non-h* rows sorted by CV at the bottom
-                            noH.sort((a, b) => (b.cvScore ?? -Infinity) - (a.cvScore ?? -Infinity));
-                            scored = [...scored, ...noH.map(r => ({ ...r, kneeScore: -Infinity }))];
+                            noH.forEach(r => scored.push({ ...r, kneeScore: -Infinity }));
                           } else {
                             scored = withScores.map(r => ({ ...r, kneeScore: r.cvScore ?? -Infinity }));
-                            scored.sort((a, b) => b.kneeScore - a.kneeScore);
+                          }
+                          // Apply user sort
+                          const sc = goldOptSort.col;
+                          const dir = goldOptSort.asc ? 1 : -1;
+                          if (sc === "kneeScore") {
+                            scored.sort((a, b) => dir * ((b.kneeScore ?? -Infinity) - (a.kneeScore ?? -Infinity)));
+                          } else {
+                            scored.sort((a, b) => {
+                              let av = a[sc], bv = b[sc];
+                              if (av == null) av = sc === "hStar" ? 999 : -Infinity;
+                              if (bv == null) bv = sc === "hStar" ? 999 : -Infinity;
+                              if (typeof av === "boolean") { av = av ? 1 : 0; bv = bv ? 1 : 0; }
+                              if (typeof av === "string") return dir * av.localeCompare(bv);
+                              return dir * (bv - av);
+                            });
                           }
                           const top30 = scored.slice(0, 30);
                           const bestSMAFull = scored.find(r => r.sma === "full");

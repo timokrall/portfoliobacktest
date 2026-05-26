@@ -3326,7 +3326,9 @@ function App() {
                         for (const r of series.gold) goldMap.set(r.month, r.value);
                         const equityMap = new Map();
                         for (const r of msciWorldEur) equityMap.set(r.month, r.value);
-                        const allMonths = [...goldMap.keys()].filter(m => equityMap.has(m)).sort();
+                        const allMonthsRaw = [...goldMap.keys()].filter(m => equityMap.has(m)).sort();
+                        // Start analysis from 1974-12 (gold market liberalized 1974-11-19)
+                        const allMonths = allMonthsRaw.filter(m => m >= "1974-12");
                         if (allMonths.length < 121) { setGoldOptResult({ error: "Need \u226510 years of overlapping data" }); setGoldOptRunning(false); return; }
                         const goldArr = allMonths.map(m => goldMap.get(m));
                         const equityArr = allMonths.map(m => equityMap.get(m));
@@ -3618,7 +3620,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 12:22 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 7:49 AM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

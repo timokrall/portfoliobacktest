@@ -1964,6 +1964,10 @@ function App() {
   const [goldOptResult, setGoldOptResult] = useState(null);
   const [goldOptRunning, setGoldOptRunning] = useState(false);
   const [autoApplyGold, setAutoApplyGold] = useState(false);
+  const [optIncludeGoldSmaFull, setOptIncludeGoldSmaFull] = useState(true);
+  const [optIncludeGoldSmaTF, setOptIncludeGoldSmaTF] = useState(true);
+  const [optIncludeEqSma, setOptIncludeEqSma] = useState(true);
+  const [optIncludeReb, setOptIncludeReb] = useState(true);
 
   // Convert MSCI World USD to EUR using EUR/USD rate
   const msciWorldEur = useMemo(() => {
@@ -3316,6 +3320,21 @@ function App() {
                   {" "}Searches gold 0–100% (5% steps) × SMA on/off × rebalancing (never/monthly/yearly/biennial).
                   SMA and rebalancing apply only to gold — equities are buy-and-hold.
                 </div>
+                <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 11, marginBottom: 8 }}>
+                  <span style={{ color: "var(--ink-mute)", fontSize: 10.5 }}>Include:</span>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input type="checkbox" checked={optIncludeGoldSmaFull} onChange={e => setOptIncludeGoldSmaFull(e.target.checked)} /> Gold SMA (full)
+                  </label>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input type="checkbox" checked={optIncludeGoldSmaTF} onChange={e => setOptIncludeGoldSmaTF(e.target.checked)} /> Gold SMA (tax-free)
+                  </label>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input type="checkbox" checked={optIncludeEqSma} onChange={e => setOptIncludeEqSma(e.target.checked)} /> Equity SMA
+                  </label>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input type="checkbox" checked={optIncludeReb} onChange={e => setOptIncludeReb(e.target.checked)} /> Rebalancing
+                  </label>
+                </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                   <button className="btn btn-accent btn-xs" disabled={goldOptRunning} onClick={() => {
                     setGoldOptRunning(true);
@@ -3364,85 +3383,145 @@ function App() {
                         }
                         smaDebug += `, signals: ${Object.keys(smaSignal).length}/${allMonths.length}`;
 
+                        // Compute equity (MSCI World) SMA signal from daily data
+                        const eqSmaSignal = {};
+                        const dailyEq = seriesDaily.msciWorld || null;
+                        if (dailyEq && dailyEq.length > 200) {
+                          const eqCloses = dailyEq.map(d => d.value);
+                          const eqDates = dailyEq.map(d => d.date);
+                          const eqSma200 = new Array(eqCloses.length).fill(null);
+                          let eqSum = 0;
+                          for (let i = 0; i < eqCloses.length; i++) {
+                            eqSum += eqCloses[i];
+                            if (i >= 200) eqSum -= eqCloses[i - 200];
+                            if (i >= 199) eqSma200[i] = eqSum / 200;
+                          }
+                          const eqMonthLastDay = new Map();
+                          for (let i = 0; i < eqDates.length; i++) {
+                            const m = eqDates[i].slice(0, 7);
+                            eqMonthLastDay.set(m, i);
+                          }
+                          for (const m of allMonths) {
+                            const idx = eqMonthLastDay.get(m);
+                            if (idx != null && eqSma200[idx] != null) {
+                              eqSmaSignal[m] = eqCloses[idx] >= eqSma200[idx];
+                            }
+                          }
+                        }
+                        smaDebug += `, eq signals: ${Object.keys(eqSmaSignal).length}/${allMonths.length}`;
+
                         const msciOngoing = (ASSETS.find(a => a.id === "msciWorld")?.defaultOngoing ?? 0.20) / 100;
                         const mDrag = Math.pow(1 - msciOngoing, 1 / 12);
                         const goldSellSpread = (ASSETS.find(a => a.id === "gold")?.defaultSellSpread ?? 0.20) / 100;
+                        const eqSpread = (ASSETS.find(a => a.id === "msciWorld")?.defaultBuySpread ?? 0.05) / 100;
                         const ecbChanges = mergedRates || series.ecb || null;
 
                         const results = [];
-                        const rebOptions = ["never", "monthly", "yearly", "biennial"];
-                        const smaOptions = [false, "full", "taxfree"]; // false, sell always (tax if <12mo), sell only if tax-free
+                        const rebOptions = optIncludeReb ? ["never", "monthly", "yearly", "biennial"] : ["never"];
+                        const goldSmaOptions = [false];
+                        if (optIncludeGoldSmaFull) goldSmaOptions.push("full");
+                        if (optIncludeGoldSmaTF) goldSmaOptions.push("taxfree");
+                        const eqSmaOptions = (optIncludeEqSma && Object.keys(eqSmaSignal).length > 0) ? [false, true] : [false];
 
-                        const SPEKFRIST_TAX = 0.42; // §23 EStG marginal income tax rate on gold gains within 12 months
+                        const SPEKFRIST_TAX = 0.42;
+                        const EQ_CGT = 0.26375; // AbgSt on equity fund gains
 
-                        for (const useSMA of smaOptions) {
-                          // Skip SMA if no daily data available
-                          if (useSMA && Object.keys(smaSignal).length === 0) continue;
-                          for (const rebFreq of rebOptions) {
-                            for (let gPct = 0; gPct <= 100; gPct += 5) {
+                        for (const useGoldSMA of goldSmaOptions) {
+                          if (useGoldSMA && Object.keys(smaSignal).length === 0) continue;
+                          for (const useEqSMA of eqSmaOptions) {
+                            for (const rebFreq of rebOptions) {
+                              for (let gPct = 0; gPct <= 100; gPct += 5) {
                               const tgtG = gPct / 100;
                               // Simulate with position tracking
                               let goldVal = 100 * tgtG, eqVal = 100 * (1 - tgtG);
-                              let goldInCash = false; // is gold position currently in cash (SMA out)?
-                              let goldHeldMonths = 0; // months since last gold purchase
-                              let goldEntryVal = goldVal; // value at which gold was last entered
+                              let goldInCash = false;
+                              let goldHeldMonths = 0;
+                              let goldEntryVal = goldVal;
+                              let eqInCash = false;
+                              let eqHeldMonths = 0;
+                              let eqEntryVal = eqVal;
                               const up = [goldVal + eqVal];
                               for (let i = 1; i < allMonths.length; i++) {
                                 const m = allMonths[i];
                                 const prevM = allMonths[i - 1];
-                                const smaOut = smaSignal[prevM] === false; // signal says exit gold
+                                const goldSmaOut = smaSignal[prevM] === false;
+                                const eqSmaOut = eqSmaSignal[prevM] === false;
 
+                                // --- Gold return ---
                                 let gRet;
-                                if (useSMA && goldVal > 0) {
+                                if (useGoldSMA && goldVal > 0) {
                                   if (goldInCash) {
-                                    // Currently in cash — check if SMA says re-enter
-                                    if (!smaOut) {
-                                      // Re-enter gold: spread cost on buy
-                                      goldVal *= (1 - goldSellSpread); // buy spread
+                                    if (!goldSmaOut) {
+                                      goldVal *= (1 - goldSellSpread);
                                       goldInCash = false;
                                       goldHeldMonths = 0;
                                       goldEntryVal = goldVal;
                                     }
-                                    // Earn ECB cash rate while in cash
                                     const t = Date.parse(m + "-15");
                                     const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
                                     gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
                                   } else {
-                                    // Currently in gold — check if SMA says exit
-                                    if (smaOut) {
+                                    if (goldSmaOut) {
                                       const canSellTaxFree = goldHeldMonths >= 12;
-                                      const shouldSell = useSMA === "full" || (useSMA === "taxfree" && canSellTaxFree);
+                                      const shouldSell = useGoldSMA === "full" || (useGoldSMA === "taxfree" && canSellTaxFree);
                                       if (shouldSell) {
-                                        // Sell gold: spread cost
                                         goldVal *= (1 - goldSellSpread);
-                                        // Tax if within Spekulationsfrist
                                         if (!canSellTaxFree && goldVal > goldEntryVal) {
                                           const gain = goldVal - goldEntryVal;
                                           goldVal -= gain * SPEKFRIST_TAX;
                                         }
                                         goldInCash = true;
-                                        // Earn ECB cash rate
                                         const t = Date.parse(m + "-15");
                                         const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
                                         gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
                                       } else {
-                                        // Can't sell (tax-free only but held <12mo) — stay in gold
                                         gRet = goldArr[i] / goldArr[i - 1] - 1;
                                         goldHeldMonths++;
                                       }
                                     } else {
-                                      // SMA says stay in gold
                                       gRet = goldArr[i] / goldArr[i - 1] - 1;
                                       goldHeldMonths++;
                                     }
                                   }
                                 } else {
-                                  // No SMA — buy and hold gold
                                   gRet = goldArr[i] / goldArr[i - 1] - 1;
                                   goldHeldMonths++;
                                 }
-                                // Equity return with ongoing cost drag
-                                const eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
+
+                                // --- Equity return ---
+                                let eRet;
+                                if (useEqSMA && eqVal > 0) {
+                                  if (eqInCash) {
+                                    if (!eqSmaOut) {
+                                      eqVal *= (1 - eqSpread); // buy spread
+                                      eqInCash = false;
+                                      eqHeldMonths = 0;
+                                      eqEntryVal = eqVal;
+                                    }
+                                    const t = Date.parse(m + "-15");
+                                    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                    eRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                  } else {
+                                    if (eqSmaOut) {
+                                      // Sell equity — always pay AbgSt on gains
+                                      eqVal *= (1 - eqSpread); // sell spread
+                                      if (eqVal > eqEntryVal) {
+                                        const gain = eqVal - eqEntryVal;
+                                        eqVal -= gain * EQ_CGT;
+                                      }
+                                      eqInCash = true;
+                                      const t = Date.parse(m + "-15");
+                                      const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                      eRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                    } else {
+                                      eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
+                                      eqHeldMonths++;
+                                    }
+                                  }
+                                } else {
+                                  eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
+                                  eqHeldMonths++;
+                                }
                                 // Apply returns
                                 goldVal *= (1 + gRet);
                                 eqVal *= (1 + eRet);
@@ -3476,9 +3555,10 @@ function App() {
                               const sortino = dsDev > 0 ? (meanR / dsDev) * Math.sqrt(12) : 0;
                               let peak = up[0], maxDD = 0;
                               for (const u of up) { peak = Math.max(peak, u); maxDD = Math.min(maxDD, u / peak - 1); }
-                              results.push({ goldPct: gPct, sma: useSMA, reb: rebFreq, cvScore: cv?.score ?? null, fullScore, sortino, maxDD, gain: up[up.length - 1] / up[0] - 1 });
+                              results.push({ goldPct: gPct, sma: useGoldSMA, eqSma: useEqSMA, reb: rebFreq, cvScore: cv?.score ?? null, fullScore, sortino, maxDD, gain: up[up.length - 1] / up[0] - 1 });
                             }
                           }
+                        }
                         }
                         // Find best by CV score
                         const valid = results.filter(r => r.cvScore != null && r.fullScore != null);
@@ -3535,7 +3615,7 @@ function App() {
                           setRebalance(goldOptResult.best.reb);
                         }
                       }} />
-                      Apply {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + SMA" : goldOptResult.best.sma === "taxfree" ? " + SMA (tax-free)" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} rebalancing` : ""}
+                      Apply {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} reb.` : ""}
                     </label>
                   )}
                 </div>
@@ -3545,7 +3625,7 @@ function App() {
                     <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
                       {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
                       {goldOptResult.smaDebug && <> SMA: {goldOptResult.smaDebug}.</>}
-                      {goldOptResult.best && <strong> Risk optimal (Pareto knee): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + SMA" : goldOptResult.best.sma === "taxfree" ? " + SMA (tax-free)" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}. </strong>}
+                      {goldOptResult.best && <strong> Risk optimal (Pareto knee): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}. </strong>}
                       {goldOptResult.bestCV && <> Best worst-decade (CV): {goldOptResult.bestCV.goldPct}% gold{goldOptResult.bestCV.sma === "full" ? " + SMA" : ""}, CV {fmtPct(goldOptResult.bestCV.cvScore)}.</>}
                       {goldOptResult.bestFS && <> Best full-period: {goldOptResult.bestFS.goldPct}% gold{goldOptResult.bestFS.sma === "full" ? " + SMA" : ""}{goldOptResult.bestFS.reb !== "never" ? ` + ${goldOptResult.bestFS.reb}` : ""}, Full {fmtPct(goldOptResult.bestFS.fullScore)}.</>}
                       {goldOptResult.hasSMA && (() => {
@@ -3560,7 +3640,8 @@ function App() {
                     <table className="bt" style={{ fontSize: 11 }}>
                       <thead><tr>
                         <th style={{ textAlign: "right" }}>Gold %</th>
-                        <th style={{ textAlign: "center" }}>SMA</th>
+                        <th style={{ textAlign: "center" }}>Gold SMA</th>
+                        <th style={{ textAlign: "center" }}>Eq SMA</th>
                         <th>Rebalance</th>
                         <th style={{ textAlign: "right" }}>CV Score</th>
                         <th style={{ textAlign: "right" }}>Full Score</th>
@@ -3586,17 +3667,19 @@ function App() {
                           const top30 = scored.slice(0, 30);
                           const bestSMAFull = scored.find(r => r.sma === "full");
                           const bestSMATF = scored.find(r => r.sma === "taxfree");
-                          const bestNoSMA = scored.find(r => !r.sma);
+                          const bestNoSMA = scored.find(r => !r.sma && !r.eqSma);
+                          const bestEqSMA = scored.find(r => r.eqSma && !r.sma);
                           const bestReb = scored.find(r => r.reb !== "never");
-                          const shown = new Set(top30.map(r => `${r.goldPct}-${r.sma}-${r.reb}`));
+                          const shown = new Set(top30.map(r => `${r.goldPct}-${r.sma}-${r.eqSma}-${r.reb}`));
                           const extras = [];
-                          for (const x of [bestSMAFull, bestSMATF, bestNoSMA, bestReb]) {
-                            if (x && !shown.has(`${x.goldPct}-${x.sma}-${x.reb}`)) { extras.push(x); shown.add(`${x.goldPct}-${x.sma}-${x.reb}`); }
+                          for (const x of [bestSMAFull, bestSMATF, bestNoSMA, bestEqSMA, bestReb]) {
+                            if (x && !shown.has(`${x.goldPct}-${x.sma}-${x.eqSma}-${x.reb}`)) { extras.push(x); shown.add(`${x.goldPct}-${x.sma}-${x.eqSma}-${x.reb}`); }
                           }
                           return [...top30, ...extras].map((r, i) => (
-                          <tr key={`${r.goldPct}-${r.sma}-${r.reb}`} style={goldOptResult.best && r.goldPct === goldOptResult.best.goldPct && r.sma === goldOptResult.best.sma && r.reb === goldOptResult.best.reb ? { background: "oklch(0.97 0.02 150)" } : {}}>
+                          <tr key={`${r.goldPct}-${r.sma}-${r.eqSma}-${r.reb}`} style={goldOptResult.best && r.goldPct === goldOptResult.best.goldPct && r.sma === goldOptResult.best.sma && r.eqSma === goldOptResult.best.eqSma && r.reb === goldOptResult.best.reb ? { background: "oklch(0.97 0.02 150)" } : {}}>
                             <td className="num" style={{ textAlign: "right", fontWeight: i === 0 ? 700 : 400 }}>{r.goldPct}%</td>
                             <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : ""}</td>
+                            <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.eqSma ? "\u2713" : ""}</td>
                             <td style={{ fontSize: 10.5 }}>{r.reb === "never" ? "\u2014" : r.reb}</td>
                             <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
                             <td className="num" style={{ textAlign: "right" }}>{r.fullScore != null ? fmtPct(r.fullScore) : "\u2014"}</td>
@@ -3609,8 +3692,8 @@ function App() {
                       </tbody>
                     </table>
                     <div className="small-note" style={{ marginTop: 6 }}>
-                      Showing top 30 by CV score (plus best of each SMA variant). SMA column: ✓ = full SMA (sell always, 42% tax on gains if held &lt;12 months), tf = tax-free SMA (only sell when Spekulationsfrist met, ≥12 months held).
-                      Rebalancing = sell overweight gold only (tax-free after 12 months, spread cost applied), proceeds buy equity. Equities are never sold.
+                      Showing top 30 (plus best of each SMA variant). Gold SMA: ✓ = full (sell always, 42% tax if &lt;12mo), tf = tax-free only (sell only if ≥12mo held). Eq SMA: ✓ = equity sold when below 200-day SMA (26.375% AbgSt on gains, spread cost), cash earns deposit rate.
+                      Rebalancing = sell overweight gold only, proceeds buy equity. Equities are only sold via equity SMA, never via rebalancing.
                     </div>
                   </div>
                 )}
@@ -3620,7 +3703,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 7:49 AM</span></div>
+          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 12:51 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

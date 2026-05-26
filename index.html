@@ -1968,6 +1968,7 @@ function App() {
   const [optIncludeGoldSmaTF, setOptIncludeGoldSmaTF] = useState(true);
   const [optIncludeEqSma, setOptIncludeEqSma] = useState(true);
   const [optIncludeReb, setOptIncludeReb] = useState(true);
+  const [optRecommendedOnly, setOptRecommendedOnly] = useState(true);
 
   // Convert MSCI World USD to EUR using EUR/USD rate
   const msciWorldEur = useMemo(() => {
@@ -3320,18 +3321,22 @@ function App() {
                   {" "}The <strong>risk optimal</strong> portfolio is the Pareto knee of score vs h*. All metrics except absolute return and max DD are <strong>cross-validated</strong>: computed on every rolling {CV_WINDOW_YEARS}-year window, showing the worst window.
                 </div>
                 <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 11, marginBottom: 8 }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 500 }}>
+                    <input type="checkbox" checked={optRecommendedOnly} onChange={e => setOptRecommendedOnly(e.target.checked)} /> Show recommended only
+                  </label>
+                  <span style={{ color: "var(--ink-mute)", fontSize: 10 }}>|</span>
                   <span style={{ color: "var(--ink-mute)", fontSize: 10.5 }}>Include:</span>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={optIncludeGoldSmaFull} onChange={e => setOptIncludeGoldSmaFull(e.target.checked)} /> Gold SMA (full)
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
+                    <input type="checkbox" checked={optRecommendedOnly || optIncludeGoldSmaFull} disabled={optRecommendedOnly} onChange={e => setOptIncludeGoldSmaFull(e.target.checked)} /> Gold SMA (full)
                   </label>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={optIncludeGoldSmaTF} onChange={e => setOptIncludeGoldSmaTF(e.target.checked)} /> Gold SMA (tax-free)
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
+                    <input type="checkbox" checked={optRecommendedOnly || optIncludeGoldSmaTF} disabled={optRecommendedOnly} onChange={e => setOptIncludeGoldSmaTF(e.target.checked)} /> Gold SMA (tax-free)
                   </label>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={optIncludeEqSma} onChange={e => setOptIncludeEqSma(e.target.checked)} /> Equity SMA
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
+                    <input type="checkbox" checked={optRecommendedOnly || optIncludeEqSma} disabled={optRecommendedOnly} onChange={e => setOptIncludeEqSma(e.target.checked)} /> Equity SMA
                   </label>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={optIncludeReb} onChange={e => setOptIncludeReb(e.target.checked)} /> Rebalancing
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
+                    <input type="checkbox" checked={optRecommendedOnly || optIncludeReb} disabled={optRecommendedOnly} onChange={e => setOptIncludeReb(e.target.checked)} /> Rebalancing
                   </label>
                 </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -3416,11 +3421,11 @@ function App() {
                         const ecbChanges = mergedRates || series.ecb || null;
 
                         const results = [];
-                        const rebOptions = optIncludeReb ? ["never", "monthly", "yearly", "biennial"] : ["never"];
+                        const rebOptions = (optRecommendedOnly || optIncludeReb) ? ["never", "monthly", "yearly", "biennial"] : ["never"];
                         const goldSmaOptions = [false];
-                        if (optIncludeGoldSmaFull) goldSmaOptions.push("full");
-                        if (optIncludeGoldSmaTF) goldSmaOptions.push("taxfree");
-                        const eqSmaOptions = (optIncludeEqSma && Object.keys(eqSmaSignal).length > 0) ? [false, true] : [false];
+                        if (optRecommendedOnly || optIncludeGoldSmaFull) goldSmaOptions.push("full");
+                        if (optRecommendedOnly || optIncludeGoldSmaTF) goldSmaOptions.push("taxfree");
+                        const eqSmaOptions = ((optRecommendedOnly || optIncludeEqSma) && Object.keys(eqSmaSignal).length > 0) ? [false, true] : [false];
 
                         const SPEKFRIST_TAX = 0.42;
                         const EQ_CGT = 0.26375; // AbgSt on equity fund gains
@@ -3602,7 +3607,25 @@ function App() {
                         const bestCV = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
                         const bestFS = valid.filter(r => r.fullScore != null).length > 0 ? valid.filter(r => r.fullScore != null).reduce((a, b) => b.fullScore > a.fullScore ? b : a) : null;
                         const bestHStar = withHStar.length > 0 ? withHStar.reduce((a, b) => a.hStar < b.hStar ? a : (a.hStar === b.hStar && a.cvScore > b.cvScore ? a : b)) : null;
-                        setGoldOptResult({ results, best, bestCV, bestFS, bestHStar, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
+                        // Buy-and-hold optimal: Pareto knee among no-SMA, no-rebalancing rows
+                        const bhRows = valid.filter(r => !r.sma && !r.eqSma && r.reb === "never");
+                        let bestBH = null;
+                        const bhWithH = bhRows.filter(r => r.hStar != null);
+                        if (bhWithH.length > 0) {
+                          const sMin = Math.min(...bhWithH.map(r => r.cvScore));
+                          const sMax = Math.max(...bhWithH.map(r => r.cvScore));
+                          const hMin2 = Math.min(...bhWithH.map(r => r.hStar));
+                          const hMax2 = Math.max(...bhWithH.map(r => r.hStar));
+                          const sR = sMax - sMin || 1, hR = hMax2 - hMin2 || 1;
+                          let bestK = -Infinity;
+                          for (const r of bhWithH) {
+                            const k = (r.cvScore - sMin) / sR + (1 - (r.hStar - hMin2) / hR);
+                            if (k > bestK) { bestK = k; bestBH = r; }
+                          }
+                        } else if (bhRows.length > 0) {
+                          bestBH = bhRows.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
+                        }
+                        setGoldOptResult({ results, best, bestCV, bestFS, bestHStar, bestBH, recommendedOnly: optRecommendedOnly, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
                       } catch (e) { setGoldOptResult({ error: e.message }); }
                       setGoldOptRunning(false);
                     }, 50);
@@ -3615,19 +3638,24 @@ function App() {
                   <div style={{ marginTop: 12 }}>
                     <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
                       {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
-                      {goldOptResult.smaDebug && <> SMA: {goldOptResult.smaDebug}.</>}
-                      {goldOptResult.best && <strong> Risk optimal (Pareto knee score vs h*): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y. </strong>}
-                      {goldOptResult.bestCV && <> Best worst-decade (CV): {goldOptResult.bestCV.goldPct}% gold{goldOptResult.bestCV.sma === "full" ? " + SMA" : ""}, CV {fmtPct(goldOptResult.bestCV.cvScore)}.</>}
-                      {goldOptResult.bestHStar && <> Shortest h*: {goldOptResult.bestHStar.hStar}y ({goldOptResult.bestHStar.goldPct}% gold{goldOptResult.bestHStar.sma === "full" ? " + SMA" : ""}).</>}
-                      {goldOptResult.bestFS && <> Best full-period: {goldOptResult.bestFS.goldPct}% gold{goldOptResult.bestFS.sma === "full" ? " + SMA" : ""}{goldOptResult.bestFS.reb !== "never" ? ` + ${goldOptResult.bestFS.reb}` : ""}, Full {fmtPct(goldOptResult.bestFS.fullScore)}.</>}
-                      {goldOptResult.hasSMA && (() => {
-                        const bestSMATF = goldOptResult.results.filter(r => r.sma === "taxfree" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
-                        const bestNoSMA = goldOptResult.results.filter(r => !r.sma && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
-                        return <>
-                          {bestSMATF && <> Best SMA (tax-free): {bestSMATF.goldPct}% gold, CV {fmtPct(bestSMATF.cvScore)}.</>}
-                          {bestNoSMA && <> Best no SMA: {bestNoSMA.goldPct}% gold, CV {fmtPct(bestNoSMA.cvScore)}.</>}
-                        </>;
-                      })()}
+                      {goldOptResult.smaDebug && !goldOptResult.recommendedOnly && <> SMA: {goldOptResult.smaDebug}.</>}
+                      {goldOptResult.recommendedOnly ? (<>
+                        {goldOptResult.bestBH && <><strong> Buy-and-hold optimal: {goldOptResult.bestBH.goldPct}% gold, h*={goldOptResult.bestBH.hStar || "\u2014"}y.</strong></>}
+                        {goldOptResult.best && (goldOptResult.best.sma || goldOptResult.best.eqSma || goldOptResult.best.reb !== "never") && <><strong> Risk optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y.</strong></>}
+                      </>) : (<>
+                        {goldOptResult.best && <strong> Risk optimal (Pareto knee score vs h*): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y. </strong>}
+                        {goldOptResult.bestCV && <> Best worst-decade (CV): {goldOptResult.bestCV.goldPct}% gold{goldOptResult.bestCV.sma === "full" ? " + SMA" : ""}, CV {fmtPct(goldOptResult.bestCV.cvScore)}.</>}
+                        {goldOptResult.bestHStar && <> Shortest h*: {goldOptResult.bestHStar.hStar}y ({goldOptResult.bestHStar.goldPct}% gold{goldOptResult.bestHStar.sma === "full" ? " + SMA" : ""}).</>}
+                        {goldOptResult.bestFS && <> Best full-period: {goldOptResult.bestFS.goldPct}% gold{goldOptResult.bestFS.sma === "full" ? " + SMA" : ""}{goldOptResult.bestFS.reb !== "never" ? ` + ${goldOptResult.bestFS.reb}` : ""}, Full {fmtPct(goldOptResult.bestFS.fullScore)}.</>}
+                        {goldOptResult.hasSMA && (() => {
+                          const bestSMATF = goldOptResult.results.filter(r => r.sma === "taxfree" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
+                          const bestNoSMA = goldOptResult.results.filter(r => !r.sma && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
+                          return <>
+                            {bestSMATF && <> Best SMA (tax-free): {bestSMATF.goldPct}% gold, CV {fmtPct(bestSMATF.cvScore)}.</>}
+                            {bestNoSMA && <> Best no SMA: {bestNoSMA.goldPct}% gold, CV {fmtPct(bestNoSMA.cvScore)}.</>}
+                          </>;
+                        })()}
+                      </>)}
                     </div>
                     <table className="bt" style={{ fontSize: 11 }}>
                       <thead><tr>
@@ -3645,7 +3673,17 @@ function App() {
                       </tr></thead>
                       <tbody>
                         {(() => {
-                          const withScores = goldOptResult.results.filter(r => r.cvScore != null);
+                          let withScores = goldOptResult.results.filter(r => r.cvScore != null);
+                          // In recommended mode: show only buy-and-hold rows + risk optimal
+                          if (goldOptResult.recommendedOnly) {
+                            const bhOnly = withScores.filter(r => !r.sma && !r.eqSma && r.reb === "never");
+                            // Add risk-optimal row if it uses SMA/rebalancing
+                            const riskOpt = goldOptResult.best;
+                            if (riskOpt && (riskOpt.sma || riskOpt.eqSma || riskOpt.reb !== "never")) {
+                              bhOnly.push(riskOpt);
+                            }
+                            withScores = bhOnly;
+                          }
                           // Sort by Pareto knee: score vs h*
                           const withH = withScores.filter(r => r.hStar != null);
                           const noH = withScores.filter(r => r.hStar == null);
@@ -3731,7 +3769,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 9:04 PM</span></div>
+          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 9:30 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

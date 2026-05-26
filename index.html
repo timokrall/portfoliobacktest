@@ -1546,54 +1546,6 @@ function integratedRiskReturn(unitPriceSeries, ddSeries, finalRatio, months, cpi
 
 // Convexity-weighted excess return over real cash (ECB/CPI).
 // Convexity-weighted average monthly excess return over real cash.
-// w(f', f'') = 1 + α × sign(f''), where α = stdev(f'') / mean(|f''|).
-// f' and f'' are computed on monthly real excess returns.
-function convexityWeightedExcessReturn(unitPriceSeries, ddSeries, finalRatio, months, cpiSeries, ecbChanges) {
-  if (!unitPriceSeries || unitPriceSeries.length < 15 || !months || !cpiSeries) return null;
-  const n = unitPriceSeries.length;
-  const cpiMap = new Map(cpiSeries.map(r => [r.month, r.value]));
-  // Compute monthly real excess returns
-  const exRets = [];
-  for (let i = 1; i < n; i++) {
-    const cpiPrev = cpiMap.get(months[i - 1]);
-    const cpiCur = cpiMap.get(months[i]);
-    if (cpiPrev == null || cpiCur == null || cpiPrev <= 0) { exRets.push(null); continue; }
-    const rPf = unitPriceSeries[i] / unitPriceSeries[i - 1] - 1;
-    const t = Date.parse(months[i] + "-15");
-    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-    const rCash = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-    const infl = cpiCur / cpiPrev - 1;
-    exRets.push((1 + rPf) / (1 + infl) - 1 - ((1 + rCash) / (1 + infl) - 1));
-  }
-  // f' = exRets, f'' = change in exRets
-  const valid = exRets.filter(v => v != null);
-  if (valid.length < 12) return null;
-  const fpp = [];
-  for (let i = 1; i < exRets.length; i++) {
-    if (exRets[i] != null && exRets[i - 1] != null) fpp.push(exRets[i] - exRets[i - 1]);
-  }
-  if (fpp.length < 6) return null;
-  const absFpp = fpp.map(v => Math.abs(v));
-  const meanAbsFpp = absFpp.reduce((s, v) => s + v, 0) / absFpp.length;
-  if (meanAbsFpp <= 0) return null;
-  const meanFpp = fpp.reduce((s, v) => s + v, 0) / fpp.length;
-  const varFpp = fpp.reduce((s, v) => s + (v - meanFpp) ** 2, 0) / fpp.length;
-  const alpha = Math.sqrt(varFpp) / meanAbsFpp;
-  // Weighted sum of monthly excess returns
-  let weightedSum = 0;
-  let validCount = 0;
-  let fppIdx = 0;
-  for (let i = 0; i < exRets.length; i++) {
-    if (exRets[i] == null) continue;
-    // Align f'' index: fpp[j] corresponds to change from exRets[j] to exRets[j+1]
-    const w = (fppIdx > 0 && fppIdx - 1 < fpp.length) ? 1 + alpha * Math.sign(fpp[fppIdx - 1]) : 1;
-    weightedSum += w * exRets[i];
-    validCount++;
-    fppIdx++;
-  }
-  const years = validCount / 12;
-  return years > 0 ? weightedSum / years : null;
-}
 
 // ---------- Cross-validated (min-window) metrics ----------
 // Computes each metric on every rolling windowYears-year sub-window,
@@ -1971,6 +1923,7 @@ function App() {
   const [optIncludeReb, setOptIncludeReb] = useState(true);
   const [optRecommendedOnly, setOptRecommendedOnly] = useState(true);
   const [goldOptSort, setGoldOptSort] = useState({ col: "kneeScore", asc: false });
+  const [goldOptTableCollapsed, setGoldOptTableCollapsed] = useState(true);
 
   // Convert MSCI World USD to EUR using EUR/USD rate
   const msciWorldEur = useMemo(() => {
@@ -3237,7 +3190,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-26, 11:14 PM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-26, 11:55 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3704,7 +3657,7 @@ function App() {
                                 else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
                               }
                               setUserWeights(w);
-                              setUpperLimits(prev => ({ ...prev, gold: gPct }));
+                              setUpperLimits(prev => { const next = { ...prev }; for (const a of ASSETS.filter(a => a.holdable)) { if (a.id !== 'silver') next[a.id] = gPct; } return next; });
                               setLockedAssets(prev => ({ ...prev, gold: true }));
                               setUserSMA(prev => {
                                 const u = { ...prev, gold: !!r.sma };
@@ -3739,7 +3692,11 @@ function App() {
                         })()}
                       </div>
                     )}
-                    {goldOptResult.recommendedOnly && <div className="dim" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Theoretically risk-optimal allocations <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(warning: likely overfitted to backtest duration)</span></div>}
+                    {goldOptResult.recommendedOnly && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <div className="dim" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Theoretically risk-optimal allocations <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(warning: likely overfitted to backtest duration)</span></div>
+                      <button className="btn btn-xs btn-ghost" style={{ fontSize: 10 }} onClick={() => setGoldOptTableCollapsed(p => !p)}>{goldOptTableCollapsed ? "Show ▼" : "Hide ▲"}</button>
+                    </div>}
+                    {(!goldOptResult.recommendedOnly || !goldOptTableCollapsed) &&
                     <table className="bt" style={{ fontSize: 11 }}>
                       <thead><tr>
                         {[
@@ -3753,6 +3710,7 @@ function App() {
                           { col: "sortino", label: "Sortino", align: "right" },
                           { col: "maxDD", label: "Max DD", align: "right" },
                           { col: "gain", label: "Gain", align: "right" },
+                          { col: "kneeScore", label: "Score", align: "right" },
                         ].map(h => (
                           <th key={h.col} style={{ textAlign: h.align, cursor: "pointer", userSelect: "none" }}
                             onClick={() => setGoldOptSort(prev => prev.col === h.col ? { col: h.col, asc: !prev.asc } : { col: h.col, asc: false })}>
@@ -3831,6 +3789,7 @@ function App() {
                             <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.sortino, 3)}</td>
                             <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
                             <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{r.kneeScore != null && r.kneeScore > -Infinity ? fmtNum(r.kneeScore, 3) : "\u2014"}</td>
                             <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
                               const gPct = r.goldPct;
                               const holdable = ASSETS.filter(a => a.holdable);
@@ -3844,7 +3803,7 @@ function App() {
                                 else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
                               }
                               setUserWeights(w);
-                              setUpperLimits(prev => ({ ...prev, gold: gPct }));
+                              setUpperLimits(prev => { const next = { ...prev }; for (const a of ASSETS.filter(a => a.holdable)) { if (a.id !== 'silver') next[a.id] = gPct; } return next; });
                               setLockedAssets(prev => ({ ...prev, gold: true }));
                               setUserSMA(prev => ({ ...prev, gold: !!r.sma }));
                               // Set equity SMA for all equity assets
@@ -3863,6 +3822,7 @@ function App() {
                       Showing top 30 (plus best of each SMA variant). Gold SMA: ✓ = full (sell always, 42% tax if &lt;12mo), tf = tax-free only (sell only if ≥12mo held). Eq SMA: ✓ = equity sold when below 200-day SMA (26.375% AbgSt on gains, spread cost), cash earns deposit rate.
                       Rebalancing = sell overweight gold only, proceeds buy equity. Equities are only sold via equity SMA, never via rebalancing.
                     </div>
+                    }
                   </div>
                 )}
               </>
@@ -4003,90 +3963,6 @@ function App() {
           </div>
         </div>
 
-      <div className="grid grid-2" style={{ marginTop: 18 }}>
-        <div className="panel">
-          <div className="panel-h"><h2>4 · Costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span></div>
-          <div className="panel-body">
-            <table className="bt">
-              <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th></tr></thead>
-              <tbody>
-                {ASSETS.filter(a => a.holdable || a.id === "msciWorld").map(a =>
-                  <tr key={a.id}>
-                    <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin || a.id}</div></td>
-                    <td>{a.holdable ? <input type="number" step="0.01" value={spreads[a.id]?.buy ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], buy: +e.target.value } }))} style={{ textAlign: "right" }} /> : <span className="dim" style={{ fontSize: 11 }}>—</span>}</td>
-                    <td>{a.holdable ? <input type="number" step="0.01" value={spreads[a.id]?.sell ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], sell: +e.target.value } }))} style={{ textAlign: "right" }} /> : <span className="dim" style={{ fontSize: 11 }}>—</span>}</td>
-                    <td className="num" style={{ textAlign: "right", fontSize: 11.5, color: (a.defaultOngoing ?? 0) > 0 ? "var(--ink)" : "var(--ink-mute)" }}>
-                      {(a.defaultOngoing ?? 0).toFixed(2)}%{a.costCutoff ? " *" : ""}
-                    </td>
-                  </tr>)}
-              </tbody>
-            </table>
-            <div className="grid grid-2" style={{ marginTop: 14 }}>
-              <NumField label="Per-order fixed fee (EUR)" value={orderFee.fixed} step={0.10} onChange={v => setOrderFee(o => ({ ...o, fixed: v }))} />
-              <NumField label="Per-order percent fee (%)" value={orderFee.pct} step={0.01} onChange={v => setOrderFee(o => ({ ...o, pct: v }))} />
-            </div>
-            <div className="small-note">
-              Ongoing cost is applied as monthly drag on assets using index/spot data (TER not embedded in price). Assets at 0.00% use actual fund NAV where costs are already reflected.
-              {ASSETS.some(a => a.costCutoff) && <><br/>* <strong>coIQ</strong>: drag applied through {ASSETS.find(a => a.costCutoff)?.costCutoff} only (Nasdaq-100 proxy period). From 2022 onward, actual fund NAV is used with fees already embedded — no additional drag.</>}
-            </div>
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-h"><h2>5 · Taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span></div>
-          <div className="panel-body">
-            <div className="grid grid-3" style={{ gap: 12 }}>
-              <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />
-              <NumField label="Sparer-Pauschbetrag (EUR/yr)" value={allowance} step={100} onChange={setAllowance} />
-              <div></div>
-              {["coIQ", "momentum", "value", "quality", "minvol", "world", "eqwt"].map(id => {
-                const lbls = { coIQ: "coIQ", momentum: "Momentum (IS3R)", value: "Value (IS3S)", quality: "Quality (IS3Q)", minvol: "MinVol (IQQ0)", world: "Prime ACWI (WEBN)", eqwt: "Equal Weight (MWEQ)" };
-                return (
-                  <NumField key={id} label={`Teilfreistellung — ${lbls[id]} (%)`}
-                            value={teilfreistellung[id] ?? 30} step={1}
-                            onChange={v => setTeilfreistellung(t => ({ ...t, [id]: v }))} />
-                );
-              })}
-            </div>
-            <details className="fold" style={{ marginTop: 14 }} open>
-              <summary>ECB Deposit Facility Rate — backtest window</summary>
-              {(() => {
-                if (!series.ecb || series.ecb.length === 0) return <div className="small-note">No ECB data loaded. Upload in the data panel above.</div>;
-                const wStart = windowDates?.start;
-                const wEnd = windowDates?.end;
-                if (!wStart) return <div className="small-note">No backtest window computed yet.</div>;
-                // Convert month keys to epoch for filtering
-                const tStart = Date.parse(wStart + "-01");
-                const tEnd = Date.parse(wEnd + "-28");
-                // Find rate at window start + all changes within window
-                let startRate = null;
-                const visible = [];
-                for (const pt of series.ecb) {
-                  if (pt.t <= tStart) startRate = pt;
-                  if (pt.t >= tStart && pt.t <= tEnd) visible.push(pt);
-                }
-                const fmt = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
-                const all = startRate && (!visible.length || visible[0].t !== startRate.t)
-                  ? [{ ...startRate, label: fmt(tStart) + " (inherited)" }].concat(visible.map(p => ({ ...p, label: fmt(p.t) })))
-                  : visible.map(p => ({ ...p, label: fmt(p.t) }));
-                return (
-                  <div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: "11.5px", fontFamily: "var(--mono, monospace)" }}>
-                      {all.map((p, i) => (
-                        <span key={i} style={{ color: p.rate < 0 ? "var(--red, #c33)" : "var(--ink-mute)" }}>
-                          <span style={{ color: "var(--ink-mute)", opacity: 0.6 }}>{p.label}</span>{" "}
-                          <strong style={{ color: p.rate < 0 ? "var(--red, #c33)" : "var(--ink)" }}>{p.rate.toFixed(2)}%</strong>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="small-note" style={{ marginTop: 8 }}>Drives both SMA cash-period returns (floored at 0%) and Vorabpauschale Basisertrag (rate at Jan 1 × 0.70; 2018+ overridden by BMF-published Basiszins). Gold is exempt (Inhaberschuldverschreibung, §23 EStG only).</div>
-                  </div>
-                );
-              })()}
-            </details>
-          </div>
-        </div>
-      </div>
 
       {/* --- WINDOW + RESULTS --- */}
       <div style={{ marginTop: 26 }}>
@@ -4252,34 +4128,6 @@ function App() {
             })}
 
 
-            {/* drawdown correlation matrix */}
-            {ddCorrelation && (
-              <div className="panel" style={{ marginBottom: 18 }}>
-                <div className="panel-h"><h2>Drawdown correlation matrix</h2><span className="h-meta">{ddCorrelation.ddMonths} drawdown months of {ddCorrelation.totalMonths} total</span></div>
-                <div className="panel-body">
-                  <table className="bt" style={{ fontSize: 12 }}>
-                    <thead><tr>
-                      <th></th>
-                      {ddCorrelation.basket.map(a => <th key={a} style={{ textAlign: "right", fontWeight: 600 }}>{ddCorrelation.shortName(a)}</th>)}
-                    </tr></thead>
-                    <tbody>
-                      {ddCorrelation.basket.map(a => (
-                        <tr key={a}>
-                          <td style={{ fontWeight: 600 }}>{ddCorrelation.shortName(a)}</td>
-                          {ddCorrelation.basket.map(b => {
-                            const v = ddCorrelation.matrix[a][b];
-                            const bg = a === b ? "transparent" : v > 0.7 ? "oklch(0.92 0.06 25)" : v > 0.4 ? "oklch(0.95 0.03 60)" : v < 0 ? "oklch(0.92 0.06 150)" : "oklch(0.95 0.02 150)";
-                            return <td key={b} className="num" style={{ textAlign: "right", background: bg }}>{a === b ? "—" : fmtNum(v, 2)}</td>;
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="footnote" style={{ marginTop: 10 }}>Pearson correlation of monthly returns during months when the equal-weight basket is below its running peak — the periods that drive UPI. Low or negative values = genuine diversification when it matters. High values (&gt;0.7) = assets fall together, reducing the portfolio's crisis resilience.</div>
-                </div>
-              </div>
-            )}
-
             {/* v3 · Efficient Frontier */}
             <div className="panel" style={{ marginBottom: 18 }}>
               <div className="panel-h">
@@ -4436,7 +4284,7 @@ function App() {
                         </table>
 
                         <div className="small-note" style={{ marginTop: 8 }}>
-                          <strong>\u2b24</strong> marks the portfolio with the highest <strong>Score</strong> — the minimum across all rolling {CV_WINDOW_YEARS}-year windows of the median permutation integral of real portfolio vs real cash (ECB/CPI). Path-independent and regime-independent: a portfolio must beat real cash consistently in every decade, not just overall.
+                          <strong>{"\u2b24"}</strong> marks the portfolio with the highest <strong>Score</strong> — the minimum across all rolling {CV_WINDOW_YEARS}-year windows of the median permutation integral of real portfolio vs real cash (ECB/CPI). Path-independent and regime-independent: a portfolio must beat real cash consistently in every decade, not just overall.
                         </div>
 
                         <div style={{ marginTop: 18 }}>
@@ -4471,8 +4319,122 @@ function App() {
               </div>
             </div>
 
+            {/* drawdown correlation matrix */}
+            {ddCorrelation && (
+              <div className="panel" style={{ marginBottom: 18 }}>
+                <div className="panel-h"><h2>Drawdown correlation matrix</h2><span className="h-meta">{ddCorrelation.ddMonths} drawdown months of {ddCorrelation.totalMonths} total</span></div>
+                <div className="panel-body">
+                  <table className="bt" style={{ fontSize: 12 }}>
+                    <thead><tr>
+                      <th></th>
+                      {ddCorrelation.basket.map(a => <th key={a} style={{ textAlign: "right", fontWeight: 600 }}>{ddCorrelation.shortName(a)}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {ddCorrelation.basket.map(a => (
+                        <tr key={a}>
+                          <td style={{ fontWeight: 600 }}>{ddCorrelation.shortName(a)}</td>
+                          {ddCorrelation.basket.map(b => {
+                            const v = ddCorrelation.matrix[a][b];
+                            const bg = a === b ? "transparent" : v > 0.7 ? "oklch(0.92 0.06 25)" : v > 0.4 ? "oklch(0.95 0.03 60)" : v < 0 ? "oklch(0.92 0.06 150)" : "oklch(0.95 0.02 150)";
+                            return <td key={b} className="num" style={{ textAlign: "right", background: bg }}>{a === b ? "\u2014" : fmtNum(v, 2)}</td>;
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="footnote" style={{ marginTop: 10 }}>Pearson correlation of monthly returns during months when the equal-weight basket is below its running peak — the periods that drive UPI. Low or negative values = genuine diversification when it matters. High values (&gt;0.7) = assets fall together, reducing the portfolio's crisis resilience.</div>
+                </div>
+              </div>
+            )}
+
           </>
         )}
+      </div>
+
+
+      <div className="grid grid-2" style={{ marginTop: 18 }}>
+        <div className="panel">
+          <div className="panel-h"><h2>4 · Assumed costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span></div>
+          <div className="panel-body">
+            <table className="bt">
+              <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th></tr></thead>
+              <tbody>
+                {ASSETS.filter(a => a.holdable || a.id === "msciWorld").map(a =>
+                  <tr key={a.id}>
+                    <td className="name">{a.label}<div className="dim" style={{ fontSize: 10.5 }}>{a.isin || a.id}</div></td>
+                    <td>{a.holdable ? <input type="number" step="0.01" value={spreads[a.id]?.buy ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], buy: +e.target.value } }))} style={{ textAlign: "right" }} /> : <span className="dim" style={{ fontSize: 11 }}>—</span>}</td>
+                    <td>{a.holdable ? <input type="number" step="0.01" value={spreads[a.id]?.sell ?? 0} onChange={e => setSpreads(s => ({ ...s, [a.id]: { ...s[a.id], sell: +e.target.value } }))} style={{ textAlign: "right" }} /> : <span className="dim" style={{ fontSize: 11 }}>—</span>}</td>
+                    <td className="num" style={{ textAlign: "right", fontSize: 11.5, color: (a.defaultOngoing ?? 0) > 0 ? "var(--ink)" : "var(--ink-mute)" }}>
+                      {(a.defaultOngoing ?? 0).toFixed(2)}%{a.costCutoff ? " *" : ""}
+                    </td>
+                  </tr>)}
+              </tbody>
+            </table>
+            <div className="grid grid-2" style={{ marginTop: 14 }}>
+              <NumField label="Per-order fixed fee (EUR)" value={orderFee.fixed} step={0.10} onChange={v => setOrderFee(o => ({ ...o, fixed: v }))} />
+              <NumField label="Per-order percent fee (%)" value={orderFee.pct} step={0.01} onChange={v => setOrderFee(o => ({ ...o, pct: v }))} />
+            </div>
+            <div className="small-note">
+              Ongoing cost is applied as monthly drag on assets using index/spot data (TER not embedded in price). Assets at 0.00% use actual fund NAV where costs are already reflected.
+              {ASSETS.some(a => a.costCutoff) && <><br/>* <strong>coIQ</strong>: drag applied through {ASSETS.find(a => a.costCutoff)?.costCutoff} only (Nasdaq-100 proxy period). From 2022 onward, actual fund NAV is used with fees already embedded — no additional drag.</>}
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><h2>5 · Assumed taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span></div>
+          <div className="panel-body">
+            <div className="grid grid-3" style={{ gap: 12 }}>
+              <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />
+              <NumField label="Sparer-Pauschbetrag (EUR/yr)" value={allowance} step={100} onChange={setAllowance} />
+              <div></div>
+              {["coIQ", "momentum", "value", "quality", "minvol", "world", "eqwt"].map(id => {
+                const lbls = { coIQ: "coIQ", momentum: "Momentum (IS3R)", value: "Value (IS3S)", quality: "Quality (IS3Q)", minvol: "MinVol (IQQ0)", world: "Prime ACWI (WEBN)", eqwt: "Equal Weight (MWEQ)" };
+                return (
+                  <NumField key={id} label={`Teilfreistellung — ${lbls[id]} (%)`}
+                            value={teilfreistellung[id] ?? 30} step={1}
+                            onChange={v => setTeilfreistellung(t => ({ ...t, [id]: v }))} />
+                );
+              })}
+            </div>
+            <details className="fold" style={{ marginTop: 14 }} open>
+              <summary>ECB Deposit Facility Rate — backtest window</summary>
+              {(() => {
+                if (!series.ecb || series.ecb.length === 0) return <div className="small-note">No ECB data loaded. Upload in the data panel above.</div>;
+                const wStart = windowDates?.start;
+                const wEnd = windowDates?.end;
+                if (!wStart) return <div className="small-note">No backtest window computed yet.</div>;
+                // Convert month keys to epoch for filtering
+                const tStart = Date.parse(wStart + "-01");
+                const tEnd = Date.parse(wEnd + "-28");
+                // Find rate at window start + all changes within window
+                let startRate = null;
+                const visible = [];
+                for (const pt of series.ecb) {
+                  if (pt.t <= tStart) startRate = pt;
+                  if (pt.t >= tStart && pt.t <= tEnd) visible.push(pt);
+                }
+                const fmt = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+                const all = startRate && (!visible.length || visible[0].t !== startRate.t)
+                  ? [{ ...startRate, label: fmt(tStart) + " (inherited)" }].concat(visible.map(p => ({ ...p, label: fmt(p.t) })))
+                  : visible.map(p => ({ ...p, label: fmt(p.t) }));
+                return (
+                  <div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: "11.5px", fontFamily: "var(--mono, monospace)" }}>
+                      {all.map((p, i) => (
+                        <span key={i} style={{ color: p.rate < 0 ? "var(--red, #c33)" : "var(--ink-mute)" }}>
+                          <span style={{ color: "var(--ink-mute)", opacity: 0.6 }}>{p.label}</span>{" "}
+                          <strong style={{ color: p.rate < 0 ? "var(--red, #c33)" : "var(--ink)" }}>{p.rate.toFixed(2)}%</strong>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="small-note" style={{ marginTop: 8 }}>Drives both SMA cash-period returns (floored at 0%) and Vorabpauschale Basisertrag (rate at Jan 1 × 0.70; 2018+ overridden by BMF-published Basiszins). Gold is exempt (Inhaberschuldverschreibung, §23 EStG only).</div>
+                  </div>
+                );
+              })()}
+            </details>
+          </div>
+        </div>
       </div>
 
       {/* footnotes */}
@@ -4533,6 +4495,7 @@ function Empty({ msg, kind }) {
 
 function CsvCard({ asset, text, data, error, fetchStatus, manifestEntry, onReload, onText, onFile }) {
   const fileRef = useRef(null);
+  const [expanded, setExpanded] = useState(false);
   const n = data?.length || 0;
   const isEcb = n > 0 && data[0].t != null && data[0].rate != null;
   const fmtDate = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -4543,27 +4506,32 @@ function CsvCard({ asset, text, data, error, fetchStatus, manifestEntry, onReloa
   const lastLabel = isEcb ? "last rate" : "last value";
   const fs = fetchStatus;
   const busy = fs?.kind === "info";
+  const showBody = !n || expanded || error;
   return (
-    <div className={"csv-card" + (n > 0 ? " loaded" : "")}>
-      <div>
-        <h3>{asset.label}</h3>
-        <div className="id">{asset.isin}</div>
-      </div>
-      <div className="ctrl">
-        <button className="btn btn-xs" onClick={() => fileRef.current?.click()}>Upload CSV…</button>
-        {asset.sourceUrl && <a href={asset.sourceUrl} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-ghost" style={{ textDecoration: "none" }}>Source ↗</a>}
-        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
-               onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
-        <button className="btn btn-xs btn-ghost" onClick={() => onText("")}>Clear</button>
+    <div className={"csv-card" + (n > 0 ? " loaded" : "")} style={{ cursor: n > 0 ? "pointer" : "default" }} onClick={() => n > 0 && setExpanded(p => !p)}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <h3>{asset.label}</h3>
+          <div className="id">{asset.isin}</div>
+        </div>
         {n > 0 && <span className="tag ok">{isEcb ? n + " changes" : n + " months"}</span>}
         {!n && !error && <span className="tag idle">no data</span>}
         {error && <span className="tag bad">parse error</span>}
-        {manifestEntry && <span className="tag info mono">as of {manifestEntry.lastDate}</span>}
-        {fs && fs.kind !== "ok" && <span className={"tag " + (fs.kind === "bad" ? "bad" : "idle")}>{fs.msg}</span>}
       </div>
       {n > 0 && <div className="meta">{range} · {lastLabel} {fmtNum(lastVal, isEcb ? 2 : 4)}{isEcb ? "%" : ""}</div>}
+      {showBody && (
+        <div className="ctrl" onClick={e => e.stopPropagation()}>
+          <button className="btn btn-xs" onClick={() => fileRef.current?.click()}>Upload CSV…</button>
+          {asset.sourceUrl && <a href={asset.sourceUrl} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-ghost" style={{ textDecoration: "none" }}>Source ↗</a>}
+          <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+                 onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
+          <button className="btn btn-xs btn-ghost" onClick={() => onText("")}>Clear</button>
+          {manifestEntry && <span className="tag info mono">as of {manifestEntry.lastDate}</span>}
+          {fs && fs.kind !== "ok" && <span className={"tag " + (fs.kind === "bad" ? "bad" : "idle")}>{fs.msg}</span>}
+        </div>
+      )}
       {error && <div className="meta" style={{ color: "var(--neg)" }}>{error}</div>}
-      {manifestEntry?.warnings?.length > 0 && (
+      {showBody && manifestEntry?.warnings?.length > 0 && (
         <div className="meta" style={{ color: "oklch(0.4 0.13 60)" }}>⚠ {manifestEntry.warnings.join(" · ")}</div>
       )}
     </div>

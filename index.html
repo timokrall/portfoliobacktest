@@ -3306,7 +3306,7 @@ function App() {
 
         <div className="panel" style={{ marginTop: 18 }}>
           <div className="panel-h">
-            <h2>1.5 · Long-term gold vs equity split</h2>
+            <h2>2 · Long-term gold vs equity split</h2>
             <span className="h-meta">MSCI World EUR + Gold (extended history)</span>
           </div>
           <div className="panel-body">
@@ -3317,8 +3317,7 @@ function App() {
                 <div style={{ fontSize: 12, marginBottom: 10 }}>
                   MSCI World EUR: {msciWorldEur.length} points · Gold: {series.gold?.length || 0} points.
                   {mergedRates ? `Cash benchmark: merged Bundesbank/ECB rates (${new Date(mergedRates[0].t).getFullYear()}–${new Date(mergedRates[mergedRates.length-1].t).getFullYear()}).` : series.ecb ? "Cash benchmark: ECB rate only (pre-1999 = 0%)." : "No rate data for cash benchmark."}
-                  {" "}Searches gold 0–100% (5% steps) × SMA on/off × rebalancing (never/monthly/yearly/biennial).
-                  SMA and rebalancing apply only to gold — equities are buy-and-hold.
+                  {" "}The <strong>risk optimal</strong> portfolio is the Pareto knee of score vs h*. All metrics except absolute return and max DD are <strong>cross-validated</strong>: computed on every rolling {CV_WINDOW_YEARS}-year window, showing the worst window.
                 </div>
                 <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 11, marginBottom: 8 }}>
                   <span style={{ color: "var(--ink-mute)", fontSize: 10.5 }}>Include:</span>
@@ -3555,69 +3554,61 @@ function App() {
                               const sortino = dsDev > 0 ? (meanR / dsDev) * Math.sqrt(12) : 0;
                               let peak = up[0], maxDD = 0;
                               for (const u of up) { peak = Math.max(peak, u); maxDD = Math.min(maxDD, u / peak - 1); }
-                              results.push({ goldPct: gPct, sma: useGoldSMA, eqSma: useEqSMA, reb: rebFreq, cvScore: cv?.score ?? null, fullScore, sortino, maxDD, gain: up[up.length - 1] / up[0] - 1 });
+                              // h* — smallest horizon where ALL rolling windows preserve real value
+                              let hStar = null;
+                              if (series.cpi) {
+                                const cpMap = new Map(series.cpi.map(x => [x.month, x.value]));
+                                for (let hy = 1; hy * 12 < up.length; hy++) {
+                                  const hm = hy * 12;
+                                  let allOk = true;
+                                  for (let j = 0; j + hm < up.length; j++) {
+                                    const cpiA = cpMap.get(allMonths[j]), cpiB = cpMap.get(allMonths[j + hm]);
+                                    if (cpiA && cpiB && cpiA > 0) {
+                                      if ((up[j + hm] / up[j]) / (cpiB / cpiA) < 1) { allOk = false; break; }
+                                    }
+                                  }
+                                  if (allOk) { hStar = hy; break; }
+                                }
+                              }
+                              results.push({ goldPct: gPct, sma: useGoldSMA, eqSma: useEqSMA, reb: rebFreq, cvScore: cv?.score ?? null, fullScore, sortino, maxDD, gain: up[up.length - 1] / up[0] - 1, hStar });
                             }
                           }
                         }
                         }
                         // Find best by CV score
-                        const valid = results.filter(r => r.cvScore != null && r.fullScore != null);
-                        // Pareto knee: normalize CV and Full Score to [0,1], find point maximizing sum
+                        const valid = results.filter(r => r.cvScore != null);
+                        // Pareto knee: score vs h* — find the point where sacrificing more
+                        // return for a shorter h* becomes disproportionately expensive
                         let best = null;
-                        if (valid.length > 0) {
-                          const cvMin = Math.min(...valid.map(r => r.cvScore));
-                          const cvMax = Math.max(...valid.map(r => r.cvScore));
-                          const fsMin = Math.min(...valid.map(r => r.fullScore));
-                          const fsMax = Math.max(...valid.map(r => r.fullScore));
-                          const cvRange = cvMax - cvMin || 1;
-                          const fsRange = fsMax - fsMin || 1;
+                        const withHStar = valid.filter(r => r.hStar != null);
+                        if (withHStar.length > 0) {
+                          const scoreMin = Math.min(...withHStar.map(r => r.cvScore));
+                          const scoreMax = Math.max(...withHStar.map(r => r.cvScore));
+                          const hMin = Math.min(...withHStar.map(r => r.hStar));
+                          const hMax = Math.max(...withHStar.map(r => r.hStar));
+                          const scoreRange = scoreMax - scoreMin || 1;
+                          const hRange = hMax - hMin || 1;
                           let bestKnee = -Infinity;
-                          for (const r of valid) {
-                            const normCV = (r.cvScore - cvMin) / cvRange;
-                            const normFS = (r.fullScore - fsMin) / fsRange;
-                            const knee = normCV + normFS;
+                          for (const r of withHStar) {
+                            const normScore = (r.cvScore - scoreMin) / scoreRange;
+                            const normH = 1 - (r.hStar - hMin) / hRange; // shorter h* = better
+                            const knee = normScore + normH;
                             if (knee > bestKnee) { bestKnee = knee; best = r; }
                           }
+                        } else if (valid.length > 0) {
+                          // No h* found — fall back to best CV score
+                          best = valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
                         }
-                        // Also track pure-CV and pure-FullScore winners for reference
                         const bestCV = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
-                        const bestFS = valid.length > 0 ? valid.reduce((a, b) => b.fullScore > a.fullScore ? b : a) : null;
-                        setGoldOptResult({ results, best, bestCV, bestFS, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
+                        const bestFS = valid.filter(r => r.fullScore != null).length > 0 ? valid.filter(r => r.fullScore != null).reduce((a, b) => b.fullScore > a.fullScore ? b : a) : null;
+                        const bestHStar = withHStar.length > 0 ? withHStar.reduce((a, b) => a.hStar < b.hStar ? a : (a.hStar === b.hStar && a.cvScore > b.cvScore ? a : b)) : null;
+                        setGoldOptResult({ results, best, bestCV, bestFS, bestHStar, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
                       } catch (e) { setGoldOptResult({ error: e.message }); }
                       setGoldOptRunning(false);
                     }, 50);
                   }}>
                     {goldOptRunning && <span className="spin"></span>} Run optimization
                   </button>
-                  {goldOptResult?.best && (
-                    <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <input type="checkbox" checked={autoApplyGold} onChange={e => {
-                        const checked = e.target.checked;
-                        setAutoApplyGold(checked);
-                        if (checked && goldOptResult?.best) {
-                          const gPct = goldOptResult.best.goldPct;
-                          const holdable = ASSETS.filter(a => a.holdable);
-                          const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
-                          const eqPer = Math.floor((100 - gPct) / nonGold.length);
-                          let rem = (100 - gPct) - eqPer * nonGold.length;
-                          const w = {};
-                          for (const a of holdable) {
-                            if (a.id === "gold") w[a.id] = gPct;
-                            else if (a.id === "silver") w[a.id] = 0;
-                            else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
-                          }
-                          setUserWeights(w);
-                          setUpperLimits(prev => ({ ...prev, gold: gPct }));
-                          // Also set SMA and rebalance to match
-                          if (goldOptResult.best.sma) setUserSMA(prev => ({ ...prev, gold: true }));
-                          else setUserSMA(prev => ({ ...prev, gold: false }));
-                          setUserRebalance(prev => ({ ...prev, gold: goldOptResult.best.reb !== "never" }));
-                          setRebalance(goldOptResult.best.reb);
-                        }
-                      }} />
-                      Apply {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} reb.` : ""}
-                    </label>
-                  )}
                 </div>
                 {goldOptResult?.error && <div style={{ color: "var(--neg)", fontSize: 12, marginTop: 8 }}>{goldOptResult.error}</div>}
                 {goldOptResult?.results && (
@@ -3625,8 +3616,9 @@ function App() {
                     <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
                       {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
                       {goldOptResult.smaDebug && <> SMA: {goldOptResult.smaDebug}.</>}
-                      {goldOptResult.best && <strong> Risk optimal (Pareto knee): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}. </strong>}
+                      {goldOptResult.best && <strong> Risk optimal (Pareto knee score vs h*): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y. </strong>}
                       {goldOptResult.bestCV && <> Best worst-decade (CV): {goldOptResult.bestCV.goldPct}% gold{goldOptResult.bestCV.sma === "full" ? " + SMA" : ""}, CV {fmtPct(goldOptResult.bestCV.cvScore)}.</>}
+                      {goldOptResult.bestHStar && <> Shortest h*: {goldOptResult.bestHStar.hStar}y ({goldOptResult.bestHStar.goldPct}% gold{goldOptResult.bestHStar.sma === "full" ? " + SMA" : ""}).</>}
                       {goldOptResult.bestFS && <> Best full-period: {goldOptResult.bestFS.goldPct}% gold{goldOptResult.bestFS.sma === "full" ? " + SMA" : ""}{goldOptResult.bestFS.reb !== "never" ? ` + ${goldOptResult.bestFS.reb}` : ""}, Full {fmtPct(goldOptResult.bestFS.fullScore)}.</>}
                       {goldOptResult.hasSMA && (() => {
                         const bestSMATF = goldOptResult.results.filter(r => r.sma === "taxfree" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
@@ -3643,27 +3635,40 @@ function App() {
                         <th style={{ textAlign: "center" }}>Gold SMA</th>
                         <th style={{ textAlign: "center" }}>Eq SMA</th>
                         <th>Rebalance</th>
+                        <th style={{ textAlign: "right" }}>h*</th>
                         <th style={{ textAlign: "right" }}>CV Score</th>
                         <th style={{ textAlign: "right" }}>Full Score</th>
                         <th style={{ textAlign: "right" }}>Sortino</th>
                         <th style={{ textAlign: "right" }}>Max DD</th>
                         <th style={{ textAlign: "right" }}>Gain</th>
+                        <th></th>
                       </tr></thead>
                       <tbody>
                         {(() => {
-                          const withScores = goldOptResult.results.filter(r => r.cvScore != null && r.fullScore != null);
-                          // Compute knee score for sorting
-                          const cvMin = Math.min(...withScores.map(r => r.cvScore));
-                          const cvMax = Math.max(...withScores.map(r => r.cvScore));
-                          const fsMin = Math.min(...withScores.map(r => r.fullScore));
-                          const fsMax = Math.max(...withScores.map(r => r.fullScore));
-                          const cvRange = cvMax - cvMin || 1;
-                          const fsRange = fsMax - fsMin || 1;
-                          const scored = withScores.map(r => ({
-                            ...r,
-                            kneeScore: (r.cvScore - cvMin) / cvRange + (r.fullScore - fsMin) / fsRange,
-                          }));
-                          scored.sort((a, b) => b.kneeScore - a.kneeScore);
+                          const withScores = goldOptResult.results.filter(r => r.cvScore != null);
+                          // Sort by Pareto knee: score vs h*
+                          const withH = withScores.filter(r => r.hStar != null);
+                          const noH = withScores.filter(r => r.hStar == null);
+                          let scored;
+                          if (withH.length > 0) {
+                            const scoreMin = Math.min(...withH.map(r => r.cvScore));
+                            const scoreMax = Math.max(...withH.map(r => r.cvScore));
+                            const hMin = Math.min(...withH.map(r => r.hStar));
+                            const hMax = Math.max(...withH.map(r => r.hStar));
+                            const sRange = scoreMax - scoreMin || 1;
+                            const hRange = hMax - hMin || 1;
+                            scored = withH.map(r => ({
+                              ...r,
+                              kneeScore: (r.cvScore - scoreMin) / sRange + (1 - (r.hStar - hMin) / hRange),
+                            }));
+                            scored.sort((a, b) => b.kneeScore - a.kneeScore);
+                            // Append non-h* rows sorted by CV at the bottom
+                            noH.sort((a, b) => (b.cvScore ?? -Infinity) - (a.cvScore ?? -Infinity));
+                            scored = [...scored, ...noH.map(r => ({ ...r, kneeScore: -Infinity }))];
+                          } else {
+                            scored = withScores.map(r => ({ ...r, kneeScore: r.cvScore ?? -Infinity }));
+                            scored.sort((a, b) => b.kneeScore - a.kneeScore);
+                          }
                           const top30 = scored.slice(0, 30);
                           const bestSMAFull = scored.find(r => r.sma === "full");
                           const bestSMATF = scored.find(r => r.sma === "taxfree");
@@ -3681,11 +3686,34 @@ function App() {
                             <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : ""}</td>
                             <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.eqSma ? "\u2713" : ""}</td>
                             <td style={{ fontSize: 10.5 }}>{r.reb === "never" ? "\u2014" : r.reb}</td>
+                            <td className="num" style={{ textAlign: "right", fontWeight: r.hStar ? 400 : 300, color: r.hStar ? "var(--ink)" : "var(--ink-mute)" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
                             <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
                             <td className="num" style={{ textAlign: "right" }}>{r.fullScore != null ? fmtPct(r.fullScore) : "\u2014"}</td>
                             <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.sortino, 3)}</td>
                             <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
                             <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
+                            <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
+                              const gPct = r.goldPct;
+                              const holdable = ASSETS.filter(a => a.holdable);
+                              const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
+                              const eqPer = Math.floor((100 - gPct) / nonGold.length);
+                              let rem = (100 - gPct) - eqPer * nonGold.length;
+                              const w = {};
+                              for (const a of holdable) {
+                                if (a.id === "gold") w[a.id] = gPct;
+                                else if (a.id === "silver") w[a.id] = 0;
+                                else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
+                              }
+                              setUserWeights(w);
+                              setUpperLimits(prev => ({ ...prev, gold: gPct }));
+                              setUserSMA(prev => ({ ...prev, gold: !!r.sma }));
+                              // Set equity SMA for all equity assets
+                              const eqSmaUpdate = {};
+                              for (const a of holdable) { if (a.equity) eqSmaUpdate[a.id] = !!r.eqSma; }
+                              setUserSMA(prev => ({ ...prev, gold: !!r.sma, ...eqSmaUpdate }));
+                              setUserRebalance(prev => ({ ...prev, gold: r.reb !== "never" }));
+                              setRebalance(r.reb !== "never" ? r.reb : rebalance);
+                            }}>Use</button></td>
                           </tr>
                           ));
                         })()}
@@ -3703,7 +3731,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>2 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 8:37 PM</span></div>
+          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 9:04 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3746,8 +3774,7 @@ function App() {
                       <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
                     </div>
                     <input type="number" min="0" max="100" step="1" value={w}
-                           style={{ textAlign: "right", padding: "4px 6px", fontSize: 12, opacity: (autoApplyGold && a.id === "gold") ? 0.5 : 1 }}
-                           disabled={autoApplyGold && a.id === "gold"}
+                           style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
                            onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
                     <div style={{ display: "flex", justifyContent: "center" }}>
                       {canSMA
@@ -3814,7 +3841,7 @@ function App() {
 
       <div className="grid grid-2" style={{ marginTop: 18 }}>
         <div className="panel">
-          <div className="panel-h"><h2>3 · Costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span></div>
+          <div className="panel-h"><h2>4 · Costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span></div>
           <div className="panel-body">
             <table className="bt">
               <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th></tr></thead>
@@ -3842,7 +3869,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>4 · Taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span></div>
+          <div className="panel-h"><h2>5 · Taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span></div>
           <div className="panel-body">
             <div className="grid grid-3" style={{ gap: 12 }}>
               <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />

@@ -3658,99 +3658,79 @@ function App() {
                       </>)}
                     </div>
                     {goldOptResult.recommendedOnly && (goldOptResult.bestBH || goldOptResult.best) && (
-                      <table className="bt" style={{ fontSize: 11.5, marginTop: 8, marginBottom: 14 }}>
-                        <thead><tr>
-                          <th>Recommendation</th>
-                          <th style={{ textAlign: "right" }}>Gold %</th>
-                          <th style={{ textAlign: "center" }}>Gold SMA</th>
-                          <th style={{ textAlign: "right" }}>h*</th>
-                          <th style={{ textAlign: "right" }}>CV Score</th>
-                          <th style={{ textAlign: "right" }}>Max DD</th>
-                          <th style={{ textAlign: "right" }}>Gain</th>
-                          <th></th>
-                        </tr></thead>
-                        <tbody>
-                          {(() => {
-                            const bhGold = goldOptResult.bestBH?.goldPct;
-                            if (bhGold == null) return null;
-                            // Row 1: same gold% as BH optimal, but with best SMA/rebalancing
-                            const activeRows = goldOptResult.results.filter(r => r.goldPct === bhGold && (r.sma || r.eqSma || r.reb !== "never") && r.cvScore != null);
-                            let bestActive = null;
-                            const activeWithH = activeRows.filter(r => r.hStar != null);
-                            if (activeWithH.length > 0) {
-                              const sMin = Math.min(...activeWithH.map(r => r.cvScore)), sMax = Math.max(...activeWithH.map(r => r.cvScore));
-                              const hMin = Math.min(...activeWithH.map(r => r.hStar)), hMax = Math.max(...activeWithH.map(r => r.hStar));
-                              let bestK = -Infinity;
-                              for (const r of activeWithH) {
-                                const k = (r.cvScore - sMin) / (sMax - sMin || 1) + (1 - (r.hStar - hMin) / (hMax - hMin || 1));
-                                if (k > bestK) { bestK = k; bestActive = r; }
+                      <div style={{ marginTop: 8, marginBottom: 14 }}>
+                        {(() => {
+                          const bhGold = goldOptResult.bestBH?.goldPct;
+                          if (bhGold == null) return null;
+                          const activeRows = goldOptResult.results.filter(r => r.goldPct === bhGold && (r.sma || r.eqSma || r.reb !== "never") && r.cvScore != null);
+                          let bestActive = null;
+                          const activeWithH = activeRows.filter(r => r.hStar != null);
+                          if (activeWithH.length > 0) {
+                            const sMin = Math.min(...activeWithH.map(r => r.cvScore)), sMax = Math.max(...activeWithH.map(r => r.cvScore));
+                            const hMin = Math.min(...activeWithH.map(r => r.hStar)), hMax = Math.max(...activeWithH.map(r => r.hStar));
+                            let bestK = -Infinity;
+                            for (const r of activeWithH) {
+                              const k = (r.cvScore - sMin) / (sMax - sMin || 1) + (1 - (r.hStar - hMin) / (hMax - hMin || 1));
+                              if (k > bestK) { bestK = k; bestActive = r; }
+                            }
+                          } else if (activeRows.length > 0) {
+                            bestActive = activeRows.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
+                          }
+                          const makeUseBtn = (r) => (
+                            <button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
+                              const gPct = r.goldPct;
+                              const holdable = ASSETS.filter(a => a.holdable);
+                              const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
+                              const eqPer = Math.floor((100 - gPct) / nonGold.length);
+                              let rem = (100 - gPct) - eqPer * nonGold.length;
+                              const w = {};
+                              for (const a of holdable) {
+                                if (a.id === "gold") w[a.id] = gPct;
+                                else if (a.id === "silver") w[a.id] = 0;
+                                else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
                               }
-                            } else if (activeRows.length > 0) {
-                              bestActive = activeRows.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
-                            }
-                            const makeUseBtn = (r) => (
-                              <button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
-                                const gPct = r.goldPct;
-                                const holdable = ASSETS.filter(a => a.holdable);
-                                const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
-                                const eqPer = Math.floor((100 - gPct) / nonGold.length);
-                                let rem = (100 - gPct) - eqPer * nonGold.length;
-                                const w = {};
-                                for (const a of holdable) {
-                                  if (a.id === "gold") w[a.id] = gPct;
-                                  else if (a.id === "silver") w[a.id] = 0;
-                                  else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
-                                }
-                                setUserWeights(w);
-                                setUpperLimits(prev => ({ ...prev, gold: gPct }));
-                                setUserSMA(prev => {
-                                  const u = { ...prev, gold: !!r.sma };
-                                  for (const a of holdable) { if (a.equity) u[a.id] = !!r.eqSma; }
-                                  return u;
-                                });
-                                setUserRebalance(prev => ({ ...prev, gold: r.reb !== "never" }));
-                                if (r.reb !== "never") setRebalance(r.reb);
-                              }}>Use</button>
-                            );
-                            const makeRow = (r, label, highlight) => (
-                              <tr key={label} style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
-                                <td style={{ fontWeight: highlight ? 600 : 500 }}>{label}</td>
-                                <td className="num" style={{ textAlign: "right" }}>{r.goldPct}%</td>
-                                <td style={{ textAlign: "center" }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : "\u2014"}</td>
-                                <td className="num" style={{ textAlign: "right" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
-                                <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
-                                <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
-                                <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
-                                <td>{makeUseBtn(r)}</td>
-                              </tr>
-                            );
-                            const rows = [];
-                            // Row 1: BH-optimal allocation with best active management
-                            if (bestActive) {
-                              let activeLabel = `${bhGold}% gold`;
-                              if (bestActive.sma === "full") activeLabel += " + SMA";
-                              else if (bestActive.sma === "taxfree") activeLabel += " + SMA (tf)";
-                              if (bestActive.eqSma) activeLabel += " + eq SMA";
-                              if (bestActive.reb !== "never") activeLabel += ` + ${bestActive.reb} reb.`;
-                              rows.push(makeRow(bestActive, activeLabel, false));
-                            }
-                            // Row 2: BH-optimal allocation, pure buy-and-hold
-                            rows.push(makeRow(goldOptResult.bestBH, `${bhGold}% gold buy-and-hold`, true));
-                            // Row 3: Overall risk-optimal (may differ in gold%)
-                            if (goldOptResult.best && goldOptResult.best !== goldOptResult.bestBH) {
-                              let riskLabel = `${goldOptResult.best.goldPct}% gold`;
-                              if (goldOptResult.best.sma === "full") riskLabel += " + SMA";
-                              else if (goldOptResult.best.sma === "taxfree") riskLabel += " + SMA (tf)";
-                              if (goldOptResult.best.eqSma) riskLabel += " + eq SMA";
-                              if (goldOptResult.best.reb !== "never") riskLabel += ` + ${goldOptResult.best.reb} reb.`;
-                              riskLabel += " (risk optimal)";
-                              rows.push(makeRow(goldOptResult.best, riskLabel, false));
-                            }
-                            return rows;
-                          })()}
-                        </tbody>
-                      </table>
+                              setUserWeights(w);
+                              setUpperLimits(prev => ({ ...prev, gold: gPct }));
+                              setUserSMA(prev => {
+                                const u = { ...prev, gold: !!r.sma };
+                                for (const a of holdable) { if (a.equity) u[a.id] = !!r.eqSma; }
+                                return u;
+                              });
+                              setUserRebalance(prev => ({ ...prev, gold: r.reb !== "never" }));
+                              if (r.reb !== "never") setRebalance(r.reb);
+                            }}>Use</button>
+                          );
+                          const headerRow = (th) => <thead><tr><th>{th}</th><th style={{ textAlign: "right" }}>Gold %</th><th style={{ textAlign: "center" }}>Gold SMA</th><th style={{ textAlign: "right" }}>h*</th><th style={{ textAlign: "right" }}>CV Score</th><th style={{ textAlign: "right" }}>Max DD</th><th style={{ textAlign: "right" }}>Gain</th><th></th></tr></thead>;
+                          const dataRow = (r, highlight) => (
+                            <tr style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
+                              <td style={{ fontWeight: 500 }}>
+                                {r.goldPct}% gold{r.sma === "full" ? " + SMA" : r.sma === "taxfree" ? " + SMA (tf)" : ""}{r.eqSma ? " + eq SMA" : ""}{r.reb !== "never" ? ` + ${r.reb} reb.` : r.sma || r.eqSma ? "" : " (pure buy-and-hold)"}
+                              </td>
+                              <td className="num" style={{ textAlign: "right" }}>{r.goldPct}%</td>
+                              <td style={{ textAlign: "center" }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : "\u2014"}</td>
+                              <td className="num" style={{ textAlign: "right" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
+                              <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
+                              <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
+                              <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
+                              <td>{makeUseBtn(r)}</td>
+                            </tr>
+                          );
+                          return <>
+                            {bestActive && (
+                              <table className="bt" style={{ fontSize: 11.5, marginBottom: 12 }}>
+                                {headerRow("Practical recommendation")}
+                                <tbody>{dataRow(bestActive, true)}</tbody>
+                              </table>
+                            )}
+                            <table className="bt" style={{ fontSize: 11.5, marginBottom: 12 }}>
+                              {headerRow("Buy-and-hold recommendation")}
+                              <tbody>{dataRow(goldOptResult.bestBH, false)}</tbody>
+                            </table>
+                          </>;
+                        })()}
+                      </div>
                     )}
+                    {goldOptResult.recommendedOnly && <div className="dim" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Theoretically risk-optimal allocations <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(warning: likely overfitted to backtest duration)</span></div>}
                     <table className="bt" style={{ fontSize: 11 }}>
                       <thead><tr>
                         <th style={{ textAlign: "right" }}>Gold %</th>
@@ -3863,7 +3843,7 @@ function App() {
         </div>
 
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 9:56 PM</span></div>
+          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2><span className="h-meta">Version 2026-05-26, 10:11 PM</span></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />

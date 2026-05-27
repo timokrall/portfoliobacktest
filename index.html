@@ -321,6 +321,43 @@ function parseBbkDiskontsatz(text) {
 }
 
 // Merge Bundesbank Diskontsatz (pre-1999) with ECB DFR (1999+).
+
+// Parse WGC central bank net gold purchases CSV.
+// Format: DD.MM.YYYY;-50,6 or DD.MM.YYYY,-50.6
+// Returns [{month: "YYYY-MM", value: number}] where value = net tonnes.
+function parseWgcCbGold(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const pts = [];
+  for (const line of lines) {
+    const parts = line.includes(";") ? line.split(";") : line.split(",");
+    if (parts.length < 2) continue;
+    const ds = parts[0].trim().replace(/"/g, "");
+    // Handle comma decimal: if split by comma gave >2 parts, rejoin the value
+    let vs;
+    if (line.includes(";")) {
+      vs = parts[1].trim().replace(/"/g, "").replace(",", ".");
+    } else {
+      // CSV with comma separator: value might be in parts[1] or parts[1]+"."+parts[2]
+      vs = parts.slice(1).join("").trim().replace(/"/g, "");
+    }
+    if (!/\d/.test(ds)) continue;
+    // Parse date
+    let month;
+    const deMatch = ds.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (deMatch) {
+      month = `${deMatch[3]}-${deMatch[2].padStart(2, "0")}`;
+    } else if (/^\d{4}-\d{2}/.test(ds)) {
+      month = ds.slice(0, 7);
+    } else continue;
+    const v = parseFloat(vs);
+    if (!isFinite(v)) continue;
+    pts.push({ month, value: v });
+  }
+  if (pts.length === 0) throw new Error("WGC CSV: no rows parsed");
+  pts.sort((a, b) => a.month.localeCompare(b.month));
+  return pts;
+}
+
 // Returns a single step-function array [{t, rate}].
 function mergeRateSeries(bbkChanges, ecbChanges) {
   const cutoff = Date.parse("1999-01-01");
@@ -516,6 +553,7 @@ const CPI_ASSET = { id: "cpi", file: "cpi.csv", manifestKey: "cpi", label: "Germ
 // During SMA cash periods we earn max(rate, 0) on the synthetic risk leg.
 const ECB_ASSET = { id: "ecb", file: "ecb.csv", manifestKey: "ecb", label: "ECB Deposit Facility Rate (changes-only)", isin: "ECB:DFR", note: "Step function: each row is a rate change date. Drives SMA cash-period returns (floored at 0%) and Vorabpauschale Basiszins (pre-2018). If header contains 'lending', rates are auto-converted to estimated DFR (−0.75pp).", sourceUrl: "https://data.ecb.europa.eu/data/datasets/FM/FM.B.U2.EUR.4F.KR.DFR.LEV" };
 const BBK_ASSET = { id: "bbk", file: "", manifestKey: "bbk", label: "Bundesbank Diskontsatz (pre-1999)", isin: "BBK:SU0112", note: "Diskontsatz der Deutschen Bundesbank, monthly end-of-period. Used as cash benchmark pre-1999 (spliced with ECB DFR from 1999).", sourceUrl: "https://www.bundesbank.de/de/statistiken/geld-und-kapitalmaerkte/zinssaetze-und-renditen/diskontsatz-lombardsatz-und-basiszinssatz-650692" };
+const WGC_ASSET = { id: "wgc", file: "", manifestKey: "wgc", label: "Central bank net gold purchases (WGC)", isin: "WGC:CB_NET", note: "Monthly net change in central bank gold holdings (tonnes). Positive = net buying, negative = net selling.", sourceUrl: "https://www.gold.org/goldhub/data/gold-reserves-by-country" };
 
 const PORTFOLIOS = [
   { id: "gold_coIQ",     name: "Gold + coIQ",            assets: ["gold", "coIQ"],     defaultGold: 30, equityId: "coIQ" },
@@ -1925,6 +1963,13 @@ function App() {
   const [goldOptSort, setGoldOptSort] = useState({ col: "kneeScore", asc: false });
   const [goldOptTableCollapsed, setGoldOptTableCollapsed] = useState(true);
 
+  // Conditional SMA state
+  const [condSmaRule, setCondSmaRule] = useState(null); // { realYieldThreshold, realYieldMonths, cbThreshold, cbMonths, label }
+  const [useCondSma, setUseCondSma] = useState(false);
+  const [limitToCondSmaPeriod, setLimitToCondSmaPeriod] = useState(false);
+  const [condSmaResults, setCondSmaResults] = useState(null);
+  const [condSmaRunning, setCondSmaRunning] = useState(false);
+
   // Convert MSCI World USD to EUR using EUR/USD rate
   const msciWorldEur = useMemo(() => {
     const msci = series.msciWorld;
@@ -1954,6 +1999,24 @@ function App() {
   const mergedRates = useMemo(() => {
     return mergeRateSeries(series.bbk, series.ecb);
   }, [series.bbk, series.ecb]);
+
+  // Compute monthly real short-term rate: nominal deposit rate - YoY CPI change
+  const monthlyRealRate = useMemo(() => {
+    if (!mergedRates || !series.cpi || series.cpi.length < 13) return null;
+    const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
+    const result = [];
+    for (let i = 12; i < series.cpi.length; i++) {
+      const m = series.cpi[i].month;
+      const cpiNow = series.cpi[i].value;
+      const cpi12 = series.cpi[i - 12].value;
+      if (!cpiNow || !cpi12 || cpi12 <= 0) continue;
+      const yoyInflation = (cpiNow / cpi12 - 1) * 100;
+      const t = Date.parse(m + "-15");
+      const nomRate = ecbRateAt(mergedRates, t) ?? 0;
+      result.push({ month: m, realRate: nomRate - yoyInflation, nomRate, inflation: yoyInflation });
+    }
+    return result.length > 0 ? result : null;
+  }, [mergedRates, series.cpi]);
 
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
@@ -2128,6 +2191,12 @@ function App() {
         const changes = parseBbkDiskontsatz(text);
         setSeries(prev => ({ ...prev, bbk: changes }));
         setSeriesError(p => ({ ...p, bbk: null }));
+        return;
+      }
+      if (id === "wgc") {
+        const pts = parseWgcCbGold(text);
+        setSeries(prev => ({ ...prev, wgc: pts }));
+        setSeriesError(p => ({ ...p, wgc: null }));
         return;
       }
       const monthly = parseCsvToMonthly(text);
@@ -2453,18 +2522,25 @@ function App() {
   const efCancelRef = useRef(false);
   const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
+  const [ddThreshold, setDdThreshold] = useState(30);
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
   const runEfficientFrontier = () => {
-    if (!commonWindow || !commonWindow.ok || userPortfolio.assets.length < 2) return;
+    if (!commonWindow || !commonWindow.ok) return;
     setEfRunning(true);
     efCancelRef.current = false;
     setEfProgress({ done: 0, total: efSamples + 1 });
 
-    const basket = userPortfolio.assets.slice();
+    // Include all holdable assets with data, except locked-at-0 assets
+    const allHoldableIds = ASSETS.filter(a => a.holdable).map(a => a.id);
+    let basket = allHoldableIds.filter(a => {
+      if (lockedAssets[a] && (userWeights[a] || 0) === 0) return false;
+      if (!series[a] || series[a].length === 0) return false;
+      return true;
+    });
     const months = commonWindow.months;
     const cpiMap = series.cpi ? new Map(series.cpi.map(r => [r.month, r.value])) : null;
     const cpiAligned = cpiMap ? months.map(m => cpiMap.get(m)) : null;
@@ -2543,12 +2619,17 @@ function App() {
     for (const a of basket) seriesMap[a] = efIncludeUserSMA && liveMap[a] ? liveMap[a] : series[a];
     const dataBase = {};
     const monthSet = new Set(months);
+    const validBasket = [];
     for (const a of basket) {
       const arr = seriesMap[a];
-      if (!arr) { setEfRunning(false); return; }
-      dataBase[a] = arr.filter(r => monthSet.has(r.month));
-      if (dataBase[a].length === 0) { setEfRunning(false); return; }
+      if (!arr) continue;
+      const filtered = arr.filter(r => monthSet.has(r.month));
+      if (filtered.length === 0) continue;
+      dataBase[a] = filtered;
+      validBasket.push(a);
     }
+    if (validBasket.length < 2) { setEfRunning(false); return; }
+    basket = validBasket;
     const effSeriesType = { ...seriesType };
     for (const a of basket) if (efIncludeUserSMA && userSMA[a]) effSeriesType[a] = "net";
 
@@ -2566,6 +2647,27 @@ function App() {
       benchmarkDef("coIQ",   "100% coIQ"),
       benchmarkDef("world",  "100% Prime ACWI"),
     ].filter(Boolean);
+    // Gold-blended benchmarks: equity + gold at user's current gold share
+    const userGoldPct = (userWeights.gold || 0) / 100;
+    if (userGoldPct > 0 && series.gold) {
+      const goldFiltered = series.gold.filter(r => monthSet.has(r.month));
+      if (goldFiltered.length > 0) {
+        const goldData = { gold: goldFiltered };
+        for (const eq of [{ id: "world", label: "Prime ACWI" }, { id: "coIQ", label: "coIQ" }]) {
+          const eqArr = series[eq.id];
+          if (!eqArr) continue;
+          const eqFiltered = eqArr.filter(r => monthSet.has(r.month));
+          if (eqFiltered.length === 0) continue;
+          benchmarks.push({
+            assetId: eq.id + "_gold",
+            label: `${eq.label} ${100 - Math.round(userGoldPct * 100)}% + gold ${Math.round(userGoldPct * 100)}%`,
+            data: { [eq.id]: eqFiltered, gold: goldFiltered },
+            assets: [eq.id, "gold"],
+            goldPct: userGoldPct,
+          });
+        }
+      }
+    }
 
     const H_MAX_EF = 30;
     const MC_PATHS_EF = 200;   // light MC — enough for picking winners on h*
@@ -2636,11 +2738,64 @@ function App() {
             if (allOk) { sampleHStar = hy; break; }
           }
         }
+          const calmar = r.metrics.maxDD < -0.001 ? ((cv?.avgCAGR ?? avgCAGR) || 0) / 100 / Math.abs(r.metrics.maxDD) : null;
+        // Count months below DD threshold (full period)
+        const ddThresh = -(ddThreshold / 100);
+        let monthsBelowDD = 0;
+        if (r.ddSeries) for (const d of r.ddSeries) if (d < ddThresh) monthsBelowDD++;
+        const totalMonths = r.ddSeries ? r.ddSeries.length : 1;
+        const gain = r.finalValue / r.totalInvested - 1;
+        const fullCagr = (avgCAGR || 0) / 100; // as decimal
+        // Store raw holdability components — normalized and combined post-grid
+        const rawGainCagr = Math.max(0, gain) * Math.max(0, fullCagr);
+        const rawDdTerm = 1 - Math.abs(r.metrics.maxDD);
+        const rawDurTerm = 1 - monthsBelowDD / totalMonths;
+        // CV holdability: min across rolling 10-year windows
+        let cvHoldability = null;
+        {
+          const wm = CV_WINDOW_YEARS * 12;
+          const ups = r.unitPriceSeries;
+          if (ups && ups.length > wm) {
+            let minH = Infinity;
+            for (let s = 0; s + wm < ups.length; s += 12) {
+              const end = Math.min(s + wm + 1, ups.length);
+              const wUP = ups.slice(s, end);
+              // Window gain → CAGR
+              const wGain = Math.max(0, wUP[wUP.length - 1] / wUP[0] - 1);
+              const wYears = (end - s) / 12;
+              const wCagr = wYears > 0 ? Math.pow(1 + wGain, 1 / wYears) - 1 : 0;
+              const wGainCagr = Math.max(0, wGain) * Math.max(0, wCagr);
+              // Window max DD and months below threshold
+              let wPeak = wUP[0], wMaxDD = 0;
+              let wBelow = 0;
+              for (const u of wUP) {
+                wPeak = Math.max(wPeak, u);
+                const dd = u / wPeak - 1;
+                wMaxDD = Math.min(wMaxDD, dd);
+                if (dd < ddThresh) wBelow++;
+              }
+              const wDdTerm = 1 - Math.abs(wMaxDD);
+              const wDurTerm = 1 - wBelow / wUP.length;
+              const wHold = wGainCagr * wDdTerm * wDurTerm;
+              if (wHold < minH) minH = wHold;
+            }
+            cvHoldability = minH < Infinity ? minH : null;
+          }
+        }
         results.push({
           weights: wv,
           sortino: cv?.sortino ?? r.metrics.sortino,
           upi: cv?.upi ?? r.metrics.upi,
+          fullSortino: r.metrics.sortino,
+          fullUpi: r.metrics.upi,
+          fullAvgCAGR: avgCAGR,
           maxDD: r.metrics.maxDD,
+          calmar,
+          monthsBelowDD, totalMonths,
+          rawGainCagr, rawDdTerm, rawDurTerm,
+          holdability: null, // computed post-grid with normalization
+          cvHoldability,
+          primaryScore: null, // computed post-grid as Pareto knee of cvHoldability vs holdability
           finalRatio: r.finalValue / r.totalInvested,
           finalValue: r.finalValue,
           avgCAGR: cv?.avgCAGR ?? avgCAGR,
@@ -2658,14 +2813,25 @@ function App() {
         // After the grid: run pure-asset benchmarks (independent portfolios).
         const benchResults = [];
         for (const bm of benchmarks) {
-          const benchPf = {
-            id: "ef_bench_" + bm.assetId, name: bm.label, assets: [bm.assetId],
-            weights: { [bm.assetId]: 1 }, equityId: bm.assetId,
-            isMarket: true, fixedWeights: true, dynamic: true,
-          };
+          const isBlended = bm.assets && bm.assets.length > 1;
+          const benchPf = isBlended
+            ? {
+                id: "ef_bench_" + bm.assetId, name: bm.label, assets: bm.assets,
+                weights: Object.fromEntries(bm.assets.map(a => [a, a === "gold" ? bm.goldPct : 1 - bm.goldPct])),
+                equityId: bm.assets.find(a => a !== "gold") || bm.assets[0],
+                isMarket: false, fixedWeights: true, dynamic: true,
+              }
+            : {
+                id: "ef_bench_" + bm.assetId, name: bm.label, assets: [bm.assetId],
+                weights: { [bm.assetId]: 1 }, equityId: bm.assetId,
+                isMarket: true, fixedWeights: true, dynamic: true,
+              };
+          const benchSeriesType = isBlended
+            ? { ...seriesType, [bm.assets.find(a => a !== "gold")]: "net" }
+            : { ...seriesType, [bm.assetId]: "net" };
           const r = runSim({
-            portfolio: benchPf, targetGoldPct: 0, data: bm.data,
-            seriesType: { ...seriesType, [bm.assetId]: "net" },
+            portfolio: benchPf, targetGoldPct: isBlended ? bm.goldPct : 0, data: bm.data,
+            seriesType: benchSeriesType,
             ongoingCost, spreads, orderFee,
             tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
             starting, monthly, rebalance,
@@ -2678,7 +2844,25 @@ function App() {
             label: bm.label, assetId: bm.assetId,
             sortino: bmCV?.sortino ?? r.metrics.sortino,
             upi: bmCV?.upi ?? r.metrics.upi,
+            fullSortino: r.metrics.sortino,
+            fullUpi: r.metrics.upi,
+            fullAvgCAGR: bmAvgCAGR,
             maxDD: r.metrics.maxDD,
+            calmar: r.metrics.maxDD < -0.001 ? ((bmCV?.avgCAGR ?? bmAvgCAGR) || 0) / 100 / Math.abs(r.metrics.maxDD) : null,
+            monthsBelowDD: r.ddSeries ? r.ddSeries.filter(d => d < -(ddThreshold / 100)).length : 0,
+            totalMonths: r.ddSeries ? r.ddSeries.length : 1,
+            holdability: (() => { const g = Math.max(0, r.finalValue / r.totalInvested - 1); const cagr = Math.max(0, (bmAvgCAGR || 0) / 100); const mbd = r.ddSeries ? r.ddSeries.filter(d => d < -(ddThreshold / 100)).length : 0; const tm = r.ddSeries ? r.ddSeries.length : 1; return g * cagr * (1 - Math.abs(r.metrics.maxDD)) * (1 - mbd / tm); })(),
+            cvHoldability: (() => {
+              const wm = CV_WINDOW_YEARS * 12; const ups = r.unitPriceSeries; const ddT = -(ddThreshold / 100);
+              if (!ups || ups.length <= wm) return null; let minH = Infinity;
+              for (let s = 0; s + wm < ups.length; s += 12) {
+                const e = Math.min(s + wm + 1, ups.length); const w = ups.slice(s, e);
+                const wG = Math.max(0, w[w.length-1]/w[0]-1); const wY=(e-s)/12; const wC=wY>0?Math.pow(1+wG,1/wY)-1:0;
+                let pk=w[0],md=0,bl=0;
+                for (const u of w){pk=Math.max(pk,u);const dd=u/pk-1;md=Math.min(md,dd);if(dd<ddT)bl++;}
+                const h=Math.max(0,wC)*(1-Math.abs(md))*(1-bl/w.length); if(h<minH)minH=h;
+              } return minH<Infinity?minH:null;
+            })(),
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
             avgCAGR: bmCV?.avgCAGR ?? bmAvgCAGR,
@@ -2687,6 +2871,43 @@ function App() {
           });
         }
         setEfProgress({ done: samplesWeights.length + benchResults.length, total: samplesWeights.length + benchmarks.length });
+        // Compute normalized holdability: min-max normalize each component to [0,1], then multiply
+        {
+          const gc = results.map(r => r.rawGainCagr ?? 0);
+          const dd = results.map(r => r.rawDdTerm ?? 0);
+          const du = results.map(r => r.rawDurTerm ?? 0);
+          const norm = (arr) => { const mn = Math.min(...arr); const mx = Math.max(...arr); const rng = mx - mn || 1; return arr.map(v => (v - mn) / rng); };
+          const nGC = norm(gc), nDD = norm(dd), nDU = norm(du);
+          results.forEach((r, i) => { r.holdability = nGC[i] * nDD[i] * nDU[i]; });
+        }
+
+        // Compute primaryScore: Pareto knee of cvHoldability vs holdability vs 1/h*, requires h*
+        {
+          const withH = results.filter(r => r.histHStar != null && r.cvHoldability != null && r.holdability != null);
+          if (withH.length > 0) {
+            const cvMin = Math.min(...withH.map(r => r.cvHoldability));
+            const cvMax = Math.max(...withH.map(r => r.cvHoldability));
+            const fMin = Math.min(...withH.map(r => r.holdability));
+            const fMax = Math.max(...withH.map(r => r.holdability));
+            const hVals = withH.map(r => 1 / r.histHStar);
+            const hMin = Math.min(...hVals);
+            const hMax = Math.max(...hVals);
+            const cvR = cvMax - cvMin || 1;
+            const fR = fMax - fMin || 1;
+            const hR = hMax - hMin || 1;
+            for (const r of results) {
+              if (r.histHStar != null && r.cvHoldability != null && r.holdability != null) {
+                r.primaryScore = (r.cvHoldability - cvMin) / cvR
+                  + (r.holdability - fMin) / fR
+                  + ((1 / r.histHStar) - hMin) / hR;
+              } else {
+                r.primaryScore = -Infinity;
+              }
+            }
+          } else {
+            for (const r of results) r.primaryScore = r.holdability ?? -Infinity;
+          }
+        }
         const winners = computeWinners(results);
 
         // Compute h* only for the table rows: winners + user + benchmarks
@@ -3190,7 +3411,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-27, 8:53 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-27, 9:13 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3206,7 +3427,7 @@ function App() {
       <div className="grid grid-2">
         <div className="panel">
           <div className="panel-h">
-            <h2>1 · Data</h2>
+            <h2>Data</h2>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <ManifestPill manifest={manifest} />
               <button className="btn btn-accent btn-xs" onClick={reloadAll}>Reload from /data</button>
@@ -3263,6 +3484,17 @@ function App() {
                 onText={(t) => onUserCsvChange("bbk", t)}
                 onFile={(f) => onFileLoad("bbk", f)}
               />
+              <CsvCard
+                key="wgc"
+                asset={WGC_ASSET}
+                text={csvText.wgc || ""}
+                data={series.wgc}
+                error={seriesError.wgc}
+                fetchStatus={fetchStatus.wgc}
+                onReload={() => {}}
+                onText={(t) => onUserCsvChange("wgc", t)}
+                onFile={(f) => onFileLoad("wgc", f)}
+              />
             </div>
             <div className="small-note" style={{ marginTop: 10 }}>
               CSVs are committed weekly by a GitHub Action (<code>.github/workflows/update-data.yml</code>) into <code>./data/</code> and served same-origin — no CORS, no proxies, no rate limits. Each asset tries <strong>Stooq → yfinance</strong> in turn; coIQ uses ariva (no fallback). Manual upload/paste per asset overrides the committed file if you want fresher numbers.
@@ -3274,7 +3506,7 @@ function App() {
 
         <div className="panel" style={{ marginTop: 18 }}>
           <div className="panel-h">
-            <h2>2 · Long-term gold vs equity split</h2>
+            <h2>Long-term gold vs equity split</h2>
             <span className="h-meta">MSCI World EUR + Gold (extended history)</span>
           </div>
           <div className="panel-body">
@@ -3830,8 +4062,206 @@ function App() {
           </div>
         </div>
 
+        {/* Conditional SMA signal testing */}
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>3 · Portfolio + Cashflow</h2></div>
+          <div className="panel-h">
+            <h2>Conditional gold SMA signals</h2>
+            <span className="h-meta">real yield + central bank buying</span>
+          </div>
+          <div className="panel-body">
+            {(!monthlyRealRate && !series.wgc) ? (
+              <div className="dim" style={{ fontSize: 12 }}>Upload CPI + ECB/Bundesbank rate data (for real yields) and/or WGC central bank data to enable signal testing.</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, marginBottom: 10 }}>
+                  {monthlyRealRate ? `Real yield: ${monthlyRealRate.length} months (${monthlyRealRate[0].month} → ${monthlyRealRate[monthlyRealRate.length-1].month}).` : "Real yield: not available."}
+                  {" "}{series.wgc ? `CB net buying: ${series.wgc.length} months (${series.wgc[0].month} → ${series.wgc[series.wgc.length-1].month}).` : "CB net buying: not available."}
+                  {" "}Tests which combination of real yield threshold and CB buying threshold best predicts gold underperformance. Signal = "exit gold when conditions met for N consecutive months."
+                </div>
+                <button className="btn btn-accent btn-xs" disabled={condSmaRunning} onClick={() => {
+                  setCondSmaRunning(true);
+                  setTimeout(() => {
+                    try {
+                      // Build monthly gold return map
+                      const goldMap = new Map();
+                      for (const r of series.gold || []) goldMap.set(r.month, r.value);
+                      // Build real rate map
+                      const rrMap = new Map();
+                      if (monthlyRealRate) for (const r of monthlyRealRate) rrMap.set(r.month, r.realRate);
+                      // Build CB net buying map (12-month rolling sum)
+                      const cbRawMap = new Map();
+                      if (series.wgc) for (const r of series.wgc) cbRawMap.set(r.month, r.value);
+                      const cbRollingMap = new Map();
+                      if (series.wgc && series.wgc.length >= 12) {
+                        const sorted = [...series.wgc].sort((a, b) => a.month.localeCompare(b.month));
+                        for (let i = 11; i < sorted.length; i++) {
+                          let sum = 0;
+                          for (let j = i - 11; j <= i; j++) sum += sorted[j].value;
+                          cbRollingMap.set(sorted[i].month, sum);
+                        }
+                      }
+                      // Common months: need gold + at least one signal
+                      const allGoldMonths = [...goldMap.keys()].sort();
+                      const startMonth = "2002-01"; // WGC data starts ~2002
+                      const commonMonths = allGoldMonths.filter(m => m >= startMonth && (rrMap.has(m) || cbRollingMap.has(m)));
+                      if (commonMonths.length < 24) { setCondSmaResults({ error: "Not enough overlapping data" }); setCondSmaRunning(false); return; }
+                      // Gold monthly returns
+                      const goldRets = new Map();
+                      for (let i = 1; i < commonMonths.length; i++) {
+                        const prev = goldMap.get(commonMonths[i - 1]);
+                        const cur = goldMap.get(commonMonths[i]);
+                        if (prev && cur && prev > 0) goldRets.set(commonMonths[i], cur / prev - 1);
+                      }
+                      // ECB cash returns
+                      const cashRets = new Map();
+                      const ecbChanges = mergedRates || series.ecb || null;
+                      for (const m of commonMonths) {
+                        const t = Date.parse(m + "-15");
+                        const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                        cashRets.set(m, Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1);
+                      }
+                      // Test grid: real yield thresholds × CB thresholds × duration
+                      const rrThresholds = monthlyRealRate ? [null, 0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0] : [null];
+                      const cbThresholds = series.wgc ? [null, 0, -100, -200, -300, -500] : [null];
+                      const durations = [1, 3, 6, 12];
+                      const results = [];
+                      // Baseline: buy-and-hold gold
+                      let bhGold = 1;
+                      for (const m of commonMonths.slice(1)) { bhGold *= (1 + (goldRets.get(m) || 0)); }
+                      for (const rrTh of rrThresholds) {
+                        for (const cbTh of cbThresholds) {
+                          if (rrTh === null && cbTh === null) continue; // need at least one signal
+                          for (const dur of durations) {
+                            // Build exit signal: exit gold when condition met for 'dur' consecutive months
+                            let consecRR = 0, consecCB = 0;
+                            let inCash = false;
+                            let portfolio = 1;
+                            let exitMonths = 0, totalMonths = 0;
+                            for (let i = 1; i < commonMonths.length; i++) {
+                              const m = commonMonths[i];
+                              const prevM = commonMonths[i - 1];
+                              // Update consecutive counters
+                              if (rrTh !== null) {
+                                const rr = rrMap.get(prevM);
+                                if (rr != null && rr > rrTh) consecRR++; else consecRR = 0;
+                              }
+                              if (cbTh !== null) {
+                                const cb = cbRollingMap.get(prevM);
+                                if (cb != null && cb < cbTh) consecCB++; else consecCB = 0;
+                              }
+                              // Signal: exit if ALL active conditions met for 'dur' months
+                              const rrTriggered = rrTh === null || consecRR >= dur;
+                              const cbTriggered = cbTh === null || consecCB >= dur;
+                              const shouldExit = rrTriggered && cbTriggered;
+                              if (shouldExit && !inCash) inCash = true;
+                              else if (!shouldExit && inCash) inCash = false;
+                              totalMonths++;
+                              if (inCash) {
+                                portfolio *= (1 + (cashRets.get(m) || 0));
+                                exitMonths++;
+                              } else {
+                                portfolio *= (1 + (goldRets.get(m) || 0));
+                              }
+                            }
+                            const gain = portfolio - 1;
+                            const bhGain = bhGold - 1;
+                            const outperf = gain - bhGain;
+                            // Compute max DD
+                            let peak = 1, maxDD = 0, val = 1;
+                            let consecRR2 = 0, consecCB2 = 0, inCash2 = false;
+                            for (let i = 1; i < commonMonths.length; i++) {
+                              const m = commonMonths[i];
+                              const prevM = commonMonths[i - 1];
+                              if (rrTh !== null) { const rr = rrMap.get(prevM); if (rr != null && rr > rrTh) consecRR2++; else consecRR2 = 0; }
+                              if (cbTh !== null) { const cb = cbRollingMap.get(prevM); if (cb != null && cb < cbTh) consecCB2++; else consecCB2 = 0; }
+                              const rrT = rrTh === null || consecRR2 >= dur;
+                              const cbT = cbTh === null || consecCB2 >= dur;
+                              if (rrT && cbT && !inCash2) inCash2 = true;
+                              else if (!(rrT && cbT) && inCash2) inCash2 = false;
+                              val *= (1 + (inCash2 ? (cashRets.get(m) || 0) : (goldRets.get(m) || 0)));
+                              peak = Math.max(peak, val); maxDD = Math.min(maxDD, val / peak - 1);
+                            }
+                            let label = [];
+                            if (rrTh !== null) label.push(`real yield >${rrTh}%`);
+                            if (cbTh !== null) label.push(`CB rolling 12m <${cbTh}t`);
+                            label.push(`${dur}mo duration`);
+                            results.push({
+                              rrThreshold: rrTh, cbThreshold: cbTh, duration: dur,
+                              gain, bhGain, outperf, maxDD, exitPct: totalMonths > 0 ? exitMonths / totalMonths : 0,
+                              label: label.join(" + "),
+                            });
+                          }
+                        }
+                      }
+                      results.sort((a, b) => b.outperf - a.outperf);
+                      setCondSmaResults({
+                        results, commonMonths: commonMonths.length,
+                        range: `${commonMonths[0]} → ${commonMonths[commonMonths.length - 1]}`,
+                        bhGain: bhGold - 1, bhMaxDD: (() => {
+                          let p = 1, v = 1, dd = 0;
+                          for (let i = 1; i < commonMonths.length; i++) { v *= (1 + (goldRets.get(commonMonths[i]) || 0)); p = Math.max(p, v); dd = Math.min(dd, v / p - 1); }
+                          return dd;
+                        })(),
+                      });
+                    } catch (e) { setCondSmaResults({ error: e.message }); }
+                    setCondSmaRunning(false);
+                  }, 50);
+                }}>
+                  {condSmaRunning && <span className="spin"></span>} Test signals
+                </button>
+                {condSmaResults?.error && <div style={{ color: "var(--neg)", fontSize: 12, marginTop: 8 }}>{condSmaResults.error}</div>}
+                {condSmaResults?.results && (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
+                      {condSmaResults.commonMonths} months ({condSmaResults.range}).
+                      Gold buy-and-hold: gain {fmtPct(condSmaResults.bhGain)}, max DD {fmtPct(condSmaResults.bhMaxDD)}.
+                      {condSmaResults.results.filter(r => r.outperf > 0).length} of {condSmaResults.results.length} signals outperformed buy-and-hold.
+                    </div>
+                    <table className="bt" style={{ fontSize: 11 }}>
+                      <thead><tr>
+                        <th>Signal rule</th>
+                        <th style={{ textAlign: "right" }}>Gain</th>
+                        <th style={{ textAlign: "right" }}>vs B&H</th>
+                        <th style={{ textAlign: "right" }}>Max DD</th>
+                        <th style={{ textAlign: "right" }}>Time in cash</th>
+                        <th></th>
+                      </tr></thead>
+                      <tbody>
+                        {condSmaResults.results.slice(0, 30).map((r, i) => (
+                          <tr key={i} style={i === 0 ? { background: "oklch(0.97 0.02 150)" } : r.outperf < 0 ? { color: "var(--ink-mute)" } : {}}>
+                            <td style={{ fontSize: 10.5 }}>{r.label}</td>
+                            <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
+                            <td className={"num " + (r.outperf > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{r.outperf > 0 ? "+" : ""}{fmtPct(r.outperf)}</td>
+                            <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.exitPct)}</td>
+                            <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
+                              setCondSmaRule({
+                                realYieldThreshold: r.rrThreshold,
+                                cbThreshold: r.cbThreshold,
+                                duration: r.duration,
+                                label: r.label,
+                                startMonth: condSmaResults.range.split(" → ")[0],
+                              });
+                              setUseCondSma(true);
+                            }}>Use</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="small-note" style={{ marginTop: 6 }}>
+                      Signals tested: exit gold (hold cash at deposit rate) when ALL active conditions are met for the specified duration.
+                      Real yield = ECB/Bundesbank deposit rate − YoY CPI. CB rolling 12m = 12-month rolling sum of central bank net gold purchases (tonnes).
+                      Sorted by outperformance vs gold buy-and-hold over the test period.
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="panel" style={{ marginTop: 18 }}>
+          <div className="panel-h"><h2>Portfolio + Cashflow</h2></div>
           <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 14 }}>
               <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
@@ -3846,6 +4276,26 @@ function App() {
                   </button>)}
               </div>
             </div>
+
+            <div style={{ marginTop: 14, display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5 }}>
+                <input type="checkbox" checked={useCondSma} disabled={!condSmaRule}
+                       onChange={e => setUseCondSma(e.target.checked)} />
+                <span style={{ opacity: condSmaRule ? 1 : 0.4 }}>Conditional gold SMA</span>
+              </label>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5 }}>
+                <input type="checkbox" checked={limitToCondSmaPeriod}
+                       onChange={e => setLimitToCondSmaPeriod(e.target.checked)} />
+                Limit backtest to signal period
+              </label>
+            </div>
+            {condSmaRule && (
+              <div className="small-note" style={{ marginTop: 4 }}>
+                {useCondSma
+                  ? <>Active rule: <strong>{condSmaRule.label}</strong>. Gold exits to cash when conditions met. Data from {condSmaRule.startMonth}.</>
+                  : <>Selected rule: {condSmaRule.label} (not active — tick "Conditional gold SMA" to apply).</>}
+              </div>
+            )}
 
             <hr style={{ margin: "18px 0" }} />
             <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -4137,6 +4587,12 @@ function App() {
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
                   </label>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
+                    DD threshold
+                    <input type="number" min="1" max="100" step="5" value={ddThreshold}
+                      style={{ width: 40, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
+                      onChange={e => setDdThreshold(clamp(+e.target.value || 30, 1, 100))} />%
+                  </span>
                   {efRunning && (
                     <span className="mono" style={{ fontSize: 11 }}>
                       <span className="spin"></span> {efProgress.done} / {efProgress.total} ({Math.round(100 * efProgress.done / Math.max(1, efProgress.total))}%)
@@ -4144,7 +4600,7 @@ function App() {
                   )}
                   {efRunning
                     ? <button className="btn btn-xs" onClick={cancelEfficientFrontier}>Cancel</button>
-                    : <button className="btn btn-accent" disabled={userPortfolio.assets.length < 2 || userWeightTotal === 0} onClick={runEfficientFrontier}>
+                    : <button className="btn btn-accent" disabled={userWeightTotal === 0} onClick={runEfficientFrontier}>
                         Run frontier
                       </button>}
                 </div>
@@ -4174,12 +4630,17 @@ function App() {
                       <td className="name" style={{ fontWeight: highlight ? 700 : 400 }}>{label}</td>
                       <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
                       <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.sortino, 3)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.upi, 3)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.avgCAGR != null ? fmtPct(row.avgCAGR) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullSortino ?? row.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullUpi ?? row.upi, 3)}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
                       <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{row.irrScore != null ? fmtPct(row.irrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.holdability != null ? fmtNum(row.holdability, 2) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{fmtNum(row.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{fmtNum(row.upi, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{row.avgCAGR != null ? fmtPct(row.avgCAGR) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{row.cvHoldability != null ? fmtNum(row.cvHoldability, 2) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{row.irrScore != null ? fmtPct(row.irrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{row.primaryScore != null && row.primaryScore > -Infinity ? fmtNum(row.primaryScore, 3) : "\u2014"}</td>
                       <td>{showUse ? <button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => applyWeights(row)}>Use</button> : null}</td>
                     </tr>
                   ) : null;
@@ -4188,14 +4649,19 @@ function App() {
                   const renderBench = (key, bm) => bm ? (
                     <tr key={key}>
                       <td className="name">{bm.label}</td>
-                      <td className="mono" style={{ fontSize: 11 }}>{(ASSETS.find(x => x.id === bm.assetId)?.shortName || bm.assetId)} 100%</td>
+                      <td className="mono" style={{ fontSize: 11 }}>{bm.assetId?.includes("_gold") ? bm.label : (ASSETS.find(x => x.id === bm.assetId)?.shortName || bm.assetId) + " 100%"}</td>
                       <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.sortino, 3)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.upi, 3)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.avgCAGR != null ? fmtPct(bm.avgCAGR) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullSortino ?? bm.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullUpi ?? bm.upi, 3)}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
                       <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.holdability != null ? fmtNum(bm.holdability, 2) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{fmtNum(bm.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{fmtNum(bm.upi, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{bm.avgCAGR != null ? fmtPct(bm.avgCAGR) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{bm.cvHoldability != null ? fmtNum(bm.cvHoldability, 2) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{"\u2014"}</td>
                       <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => setUserWeights({ [bm.assetId]: 100 })}>Use</button></td>
                     </tr>
                   ) : null;
@@ -4248,18 +4714,29 @@ function App() {
                       })()}
                       <div style={{ marginBottom: 18 }}>
                         <table className="bt">
-                          <thead><tr>
-                            <th>Portfolio</th>
-                            <th>Composition</th>
-                            <th style={{ textAlign: "right" }}>h*</th>
-                            <th style={{ textAlign: "right" }}>Sortino</th>
-                            <th style={{ textAlign: "right" }}>UPI</th>
-                            <th style={{ textAlign: "right" }}>Avg. CAGR</th>
-                            <th style={{ textAlign: "right" }}>Max DD</th>
-                            <th style={{ textAlign: "right" }}>Gain</th>
-                            <th style={{ textAlign: "right" }}>Score</th>
-                            <th></th>
-                          </tr></thead>
+                          <thead>
+                          <tr>
+                            <th rowSpan="2">Portfolio</th>
+                            <th rowSpan="2">Composition</th>
+                            <th colSpan="6" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
+                            <th colSpan="5" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
+                            <th rowSpan="2" style={{ textAlign: "right" }}>Primary</th>
+                            <th rowSpan="2"></th>
+                          </tr>
+                          <tr>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>h*</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Sortino</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>UPI</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Max DD</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Gain</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Hold.</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Sortino</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>UPI</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Avg. CAGR</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Hold.</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Score</th>
+                          </tr>
+                          </thead>
                           <tbody>
                             {(() => {
                               const rows = [
@@ -4271,7 +4748,7 @@ function App() {
                                 { key: "avgPure", label: "Largest avg. CAGR", row: efResults.winners.avgPure },
                                 { key: "upiPure", label: "Largest UPI", row: efResults.winners.upiPure },
                               ].filter(r => r.row != null);
-                              rows.sort((a, b) => (b.row.irrScore ?? -Infinity) - (a.row.irrScore ?? -Infinity));
+                              rows.sort((a, b) => (b.row.primaryScore ?? -Infinity) - (a.row.primaryScore ?? -Infinity));
                               return rows.map((r, i) => renderRow(
                                 r.key,
                                 i === 0 ? "\u2b24 " + r.label : r.label,
@@ -4290,21 +4767,36 @@ function App() {
                         <div style={{ marginTop: 18 }}>
                           <div className="dim" style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Benchmarks</div>
                           <table className="bt">
-                            <thead><tr>
-                              <th>Portfolio</th><th>Composition</th>
-                              <th style={{ textAlign: "right" }}>h*</th>
-                              <th style={{ textAlign: "right" }}>Sortino</th>
-                              <th style={{ textAlign: "right" }}>UPI</th>
-                              <th style={{ textAlign: "right" }}>Avg. CAGR</th>
-                              <th style={{ textAlign: "right" }}>Max DD</th>
-                              <th style={{ textAlign: "right" }}>Gain</th>
-                              <th style={{ textAlign: "right" }}>Score</th>
-                              <th></th>
-                            </tr></thead>
+                            <thead>
+                            <tr>
+                              <th rowSpan="2">Portfolio</th>
+                              <th rowSpan="2">Composition</th>
+                              <th colSpan="6" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
+                              <th colSpan="5" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
+                              <th rowSpan="2" style={{ textAlign: "right" }}>Primary</th>
+                              <th rowSpan="2"></th>
+                            </tr>
+                            <tr>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>h*</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Sortino</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>UPI</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Max DD</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Gain</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Hold.</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Sortino</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>UPI</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Avg. CAGR</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Hold.</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Score</th>
+                            </tr>
+                            </thead>
                             <tbody>
                               {renderRow("user", "Your current weights", efResults.winners.user, false, false)}
                               {renderBench("acwi", bmACWI)}
                               {renderBench("coiq", bmCoIQ)}
+                              {(efResults.benchmarks || []).filter(b => b.assetId === "world_gold" || b.assetId === "coIQ_gold").map(b =>
+                                renderBench(b.assetId, b)
+                              )}
                             </tbody>
                           </table>
                         </div>
@@ -4354,7 +4846,7 @@ function App() {
 
       <div className="grid grid-2" style={{ marginTop: 18 }}>
         <div className="panel">
-          <div className="panel-h"><h2>4 · Assumed costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span></div>
+          <div className="panel-h"><h2>Assumed costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span></div>
           <div className="panel-body">
             <table className="bt">
               <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th></tr></thead>
@@ -4382,7 +4874,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>5 · Assumed taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span></div>
+          <div className="panel-h"><h2>Assumed taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span></div>
           <div className="panel-body">
             <div className="grid grid-3" style={{ gap: 12 }}>
               <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />

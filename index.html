@@ -3190,7 +3190,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-27, 8:48 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-27, 8:53 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3696,7 +3696,7 @@ function App() {
                       <div className="dim" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Theoretically risk-optimal allocations <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(warning: likely overfitted to backtest duration)</span></div>
                       <button className="btn btn-xs btn-ghost" style={{ fontSize: 10 }} onClick={() => setGoldOptTableCollapsed(p => !p)}>{goldOptTableCollapsed ? "Show ▼" : "Hide ▲"}</button>
                     </div>}
-                    {(!goldOptResult.recommendedOnly || !goldOptTableCollapsed) &&
+                    {(!goldOptResult.recommendedOnly || !goldOptTableCollapsed) && <>
                     <table className="bt" style={{ fontSize: 11 }}>
                       <thead><tr>
                         {[
@@ -3822,7 +3822,7 @@ function App() {
                       Showing top 30 (plus best of each SMA variant). Gold SMA: ✓ = full (sell always, 42% tax if &lt;12mo), tf = tax-free only (sell only if ≥12mo held). Eq SMA: ✓ = equity sold when below 200-day SMA (26.375% AbgSt on gains, spread cost), cash earns deposit rate.
                       Rebalancing = sell overweight gold only, proceeds buy equity. Equities are only sold via equity SMA, never via rebalancing.
                     </div>
-                    }
+                    </>}
                   </div>
                 )}
               </>

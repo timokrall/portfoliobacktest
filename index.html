@@ -1595,7 +1595,7 @@ function minWindowMetrics(unitPriceSeries, months, cpiSeries, ecbChanges) {
   const n = unitPriceSeries.length;
   if (n < wm + 1) return null; // not enough data
   let minScore = Infinity, minSortino = Infinity, minUPI = Infinity;
-  let minAvgCAGR = Infinity, minGainAvgCAGR = Infinity;
+  let minCalmar = Infinity;
   // Step yearly (every 12 months) through possible start points
   for (let s = 0; s + wm < n; s += 12) {
     const end = Math.min(s + wm + 1, n);
@@ -1618,20 +1618,18 @@ function minWindowMetrics(unitPriceSeries, months, cpiSeries, ecbChanges) {
     for (const u of wUP) { peak = Math.max(peak, u); dd.push(u / peak - 1); }
     const upi = computeUPI(dd, wUP, wMonths, ecbChanges);
     if (upi != null && upi < minUPI) minUPI = upi;
-    // avgCAGR
-    const ac = avgYearlyCAGR(wUP);
-    if (ac != null && ac < minAvgCAGR) minAvgCAGR = ac;
-    // gain × avgCAGR
-    const gain = Math.max(0, wUP[wUP.length - 1] / wUP[0] - 1);
-    const gxc = gain * Math.max(0, ac || 0);
-    if (gxc < minGainAvgCAGR) minGainAvgCAGR = gxc;
+    // Calmar = CAGR / |maxDD|
+    const wMaxDD = Math.min(...dd);
+    const wYears = (end - s - 1) / 12;
+    const wCAGR = wYears > 0 ? Math.pow(wUP[wUP.length - 1] / wUP[0], 1 / wYears) - 1 : 0;
+    const calmar = wCAGR > 0 && Math.abs(wMaxDD) > 0.001 ? wCAGR / Math.abs(wMaxDD) : null;
+    if (calmar != null && calmar < minCalmar) minCalmar = calmar;
   }
   return {
     score: minScore < Infinity ? minScore : null,
     sortino: minSortino < Infinity ? minSortino : null,
     upi: minUPI < Infinity ? minUPI : null,
-    avgCAGR: minAvgCAGR < Infinity ? minAvgCAGR : null,
-    gainAvgCAGR: minGainAvgCAGR < Infinity ? minGainAvgCAGR : null,
+    calmar: minCalmar < Infinity ? minCalmar : null,
   };
 }
 
@@ -2522,9 +2520,53 @@ function App() {
   const efCancelRef = useRef(false);
   const [efSamples, setEfSamples] = useState(500);
   const [efIncludeUserSMA, setEfIncludeUserSMA] = useState(true);
+  const [efPrimaryCols, setEfPrimaryCols] = useState({
+    hStar: true, fSortino: true, fUpi: true, fMaxDD: true, fGain: true, fScore: true, fCalmar: true,
+    cvSortino: true, cvUpi: true, cvScore: true, cvCalmar: true,
+  });
+  const togglePrimaryCol = (col) => setEfPrimaryCols(prev => ({ ...prev, [col]: !prev[col] }));
   const [ddThreshold, setDdThreshold] = useState(30);
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
+
+  // Recompute primaryScore dynamically when checkbox selection changes
+  const efPrimaryScores = useMemo(() => {
+    if (!efResults?.samples) return null;
+    const rs = efResults.samples;
+    const cols = efPrimaryCols;
+    const extractors = [];
+    if (cols.hStar) extractors.push(["hStar", r => r.histHStar, false]);
+    if (cols.fSortino) extractors.push(["fSortino", r => r.fullSortino, true]);
+    if (cols.fUpi) extractors.push(["fUpi", r => r.fullUpi, true]);
+    if (cols.fMaxDD) extractors.push(["fMaxDD", r => r.maxDD, false]);
+    if (cols.fGain) extractors.push(["fGain", r => r.finalRatio - 1, true]);
+    if (cols.fScore) extractors.push(["fScore", r => r.fullIrrScore, true]);
+    if (cols.fCalmar) extractors.push(["fCalmar", r => r.fullCalmar, true]);
+    if (cols.cvSortino) extractors.push(["cvSortino", r => r.sortino, true]);
+    if (cols.cvUpi) extractors.push(["cvUpi", r => r.upi, true]);
+    if (cols.cvScore) extractors.push(["cvScore", r => r.irrScore, true]);
+    if (cols.cvCalmar) extractors.push(["cvCalmar", r => r.cvCalmar, true]);
+    if (extractors.length === 0) return { scores: new Map(), primaryWinner: null };
+    const vals = extractors.map(([, get]) => rs.map(get).filter(v => v != null && isFinite(v)));
+    const mins = vals.map(v => v.length > 0 ? Math.min(...v) : 0);
+    const maxs = vals.map(v => v.length > 0 ? Math.max(...v) : 0);
+    const ranges = mins.map((mn, i) => maxs[i] - mn || 1);
+    const scores = new Map();
+    let bestRow = null, bestScore = -Infinity;
+    for (const r of rs) {
+      let score = 0, valid = true;
+      for (let i = 0; i < extractors.length; i++) {
+        const raw = extractors[i][1](r);
+        if (raw == null || !isFinite(raw)) { valid = false; break; }
+        const norm = (raw - mins[i]) / ranges[i];
+        score += extractors[i][2] ? norm : (1 - norm);
+      }
+      const s = valid ? score : -Infinity;
+      scores.set(r, s);
+      if (s > bestScore) { bestScore = s; bestRow = r; }
+    }
+    return { scores, primaryWinner: bestRow };
+  }, [efResults?.samples, efPrimaryCols]);
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
@@ -2715,8 +2757,7 @@ function App() {
           ecbChanges: series.ecb || null,
         });
         if (!r || !r.metrics) continue;
-        const avgCAGR = avgYearlyCAGR(r.unitPriceSeries);
-        let irrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
+        const fullIrrScore = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
         // Cross-validated (min-window) metrics for robust ranking
         const cv = minWindowMetrics(r.unitPriceSeries, r.months, series.cpi, series.ecb);
         // Quick historical h* for Pareto analysis: find smallest horizon where
@@ -2738,69 +2779,24 @@ function App() {
             if (allOk) { sampleHStar = hy; break; }
           }
         }
-          const calmar = r.metrics.maxDD < -0.001 ? ((cv?.avgCAGR ?? avgCAGR) || 0) / 100 / Math.abs(r.metrics.maxDD) : null;
-        // Count months below DD threshold (full period)
-        const ddThresh = -(ddThreshold / 100);
-        let monthsBelowDD = 0;
-        if (r.ddSeries) for (const d of r.ddSeries) if (d < ddThresh) monthsBelowDD++;
-        const totalMonths = r.ddSeries ? r.ddSeries.length : 1;
-        const gain = r.finalValue / r.totalInvested - 1;
-        const fullCagr = (avgCAGR || 0) / 100; // as decimal
-        // Store raw holdability components — normalized and combined post-grid
-        const rawGainCagr = Math.max(0, gain) * Math.max(0, fullCagr);
-        const rawDdTerm = 1 - Math.abs(r.metrics.maxDD);
-        const rawDurTerm = 1 - monthsBelowDD / totalMonths;
-        // CV holdability: min across rolling 10-year windows
-        let cvHoldability = null;
-        {
-          const wm = CV_WINDOW_YEARS * 12;
-          const ups = r.unitPriceSeries;
-          if (ups && ups.length > wm) {
-            let minH = Infinity;
-            for (let s = 0; s + wm < ups.length; s += 12) {
-              const end = Math.min(s + wm + 1, ups.length);
-              const wUP = ups.slice(s, end);
-              // Window gain → CAGR
-              const wGain = Math.max(0, wUP[wUP.length - 1] / wUP[0] - 1);
-              const wYears = (end - s) / 12;
-              const wCagr = wYears > 0 ? Math.pow(1 + wGain, 1 / wYears) - 1 : 0;
-              const wGainCagr = Math.max(0, wGain) * Math.max(0, wCagr);
-              // Window max DD and months below threshold
-              let wPeak = wUP[0], wMaxDD = 0;
-              let wBelow = 0;
-              for (const u of wUP) {
-                wPeak = Math.max(wPeak, u);
-                const dd = u / wPeak - 1;
-                wMaxDD = Math.min(wMaxDD, dd);
-                if (dd < ddThresh) wBelow++;
-              }
-              const wDdTerm = 1 - Math.abs(wMaxDD);
-              const wDurTerm = 1 - wBelow / wUP.length;
-              const wHold = wGainCagr * wDdTerm * wDurTerm;
-              if (wHold < minH) minH = wHold;
-            }
-            cvHoldability = minH < Infinity ? minH : null;
-          }
-        }
+        // Full-period Calmar = CAGR / |maxDD|
+        const nMonths = r.unitPriceSeries.length - 1;
+        const fullCAGR = nMonths >= 12 ? Math.pow(r.finalValue / r.totalInvested, 12 / nMonths) - 1 : null;
+        const fullCalmar = fullCAGR != null && fullCAGR > 0 && Math.abs(r.metrics.maxDD) > 0.001 ? fullCAGR / Math.abs(r.metrics.maxDD) : null;
         results.push({
           weights: wv,
           sortino: cv?.sortino ?? r.metrics.sortino,
           upi: cv?.upi ?? r.metrics.upi,
           fullSortino: r.metrics.sortino,
           fullUpi: r.metrics.upi,
-          fullAvgCAGR: avgCAGR,
           maxDD: r.metrics.maxDD,
-          calmar,
-          monthsBelowDD, totalMonths,
-          rawGainCagr, rawDdTerm, rawDurTerm,
-          holdability: null, // computed post-grid with normalization
-          cvHoldability,
-          primaryScore: null, // computed post-grid as Pareto knee of cvHoldability vs holdability
+          fullIrrScore,
+          fullCalmar,
+          cvCalmar: cv?.calmar ?? null,
+          primaryScore: null, // computed post-grid
           finalRatio: r.finalValue / r.totalInvested,
           finalValue: r.finalValue,
-          avgCAGR: cv?.avgCAGR ?? avgCAGR,
-          irrScore: cv?.score ?? irrScore,
-          gainAvgCAGR: cv?.gainAvgCAGR ?? (Math.max(0, r.finalValue / r.totalInvested - 1) * Math.max(0, avgCAGR || 0)),
+          irrScore: cv?.score ?? fullIrrScore,
           histHStar: sampleHStar,
           hStar: null,
           isUser: isUserSample,
@@ -2839,73 +2835,62 @@ function App() {
           });
           if (!r || !r.metrics) continue;
           const bmCV = minWindowMetrics(r.unitPriceSeries, r.months, series.cpi, series.ecb);
-          const bmAvgCAGR = avgYearlyCAGR(r.unitPriceSeries);
+          const bmFullIrr = integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb);
+          const bmNM = r.unitPriceSeries.length - 1;
+          const bmFullCAGR = bmNM >= 12 ? Math.pow(r.finalValue / r.totalInvested, 12 / bmNM) - 1 : null;
+          const bmFullCalmar = bmFullCAGR != null && bmFullCAGR > 0 && Math.abs(r.metrics.maxDD) > 0.001 ? bmFullCAGR / Math.abs(r.metrics.maxDD) : null;
           benchResults.push({
             label: bm.label, assetId: bm.assetId,
             sortino: bmCV?.sortino ?? r.metrics.sortino,
             upi: bmCV?.upi ?? r.metrics.upi,
             fullSortino: r.metrics.sortino,
             fullUpi: r.metrics.upi,
-            fullAvgCAGR: bmAvgCAGR,
             maxDD: r.metrics.maxDD,
-            calmar: r.metrics.maxDD < -0.001 ? ((bmCV?.avgCAGR ?? bmAvgCAGR) || 0) / 100 / Math.abs(r.metrics.maxDD) : null,
-            monthsBelowDD: r.ddSeries ? r.ddSeries.filter(d => d < -(ddThreshold / 100)).length : 0,
-            totalMonths: r.ddSeries ? r.ddSeries.length : 1,
-            holdability: (() => { const g = Math.max(0, r.finalValue / r.totalInvested - 1); const cagr = Math.max(0, (bmAvgCAGR || 0) / 100); const mbd = r.ddSeries ? r.ddSeries.filter(d => d < -(ddThreshold / 100)).length : 0; const tm = r.ddSeries ? r.ddSeries.length : 1; return g * cagr * (1 - Math.abs(r.metrics.maxDD)) * (1 - mbd / tm); })(),
-            cvHoldability: (() => {
-              const wm = CV_WINDOW_YEARS * 12; const ups = r.unitPriceSeries; const ddT = -(ddThreshold / 100);
-              if (!ups || ups.length <= wm) return null; let minH = Infinity;
-              for (let s = 0; s + wm < ups.length; s += 12) {
-                const e = Math.min(s + wm + 1, ups.length); const w = ups.slice(s, e);
-                const wG = Math.max(0, w[w.length-1]/w[0]-1); const wY=(e-s)/12; const wC=wY>0?Math.pow(1+wG,1/wY)-1:0;
-                let pk=w[0],md=0,bl=0;
-                for (const u of w){pk=Math.max(pk,u);const dd=u/pk-1;md=Math.min(md,dd);if(dd<ddT)bl++;}
-                const h=Math.max(0,wC)*(1-Math.abs(md))*(1-bl/w.length); if(h<minH)minH=h;
-              } return minH<Infinity?minH:null;
-            })(),
+            fullIrrScore: bmFullIrr,
+            fullCalmar: bmFullCalmar,
+            cvCalmar: bmCV?.calmar ?? null,
             finalRatio: r.finalValue / r.totalInvested,
             finalValue: r.finalValue,
-            avgCAGR: bmCV?.avgCAGR ?? bmAvgCAGR,
-            irrScore: bmCV?.score ?? integratedRiskReturn(r.unitPriceSeries, r.ddSeries, r.finalValue / r.totalInvested, r.months, series.cpi, series.ecb),
+            irrScore: bmCV?.score ?? bmFullIrr,
             hStar: null, _unitPrice: r.unitPriceSeries,
           });
         }
         setEfProgress({ done: samplesWeights.length + benchResults.length, total: samplesWeights.length + benchmarks.length });
-        // Compute normalized holdability: min-max normalize each component to [0,1], then multiply
+        // Compute primaryScore: Pareto knee (sum of normalized selected metrics, 1 = best)
+        // For metrics where higher = better, normalize to [0,1]. For h* and maxDD, invert.
         {
-          const gc = results.map(r => r.rawGainCagr ?? 0);
-          const dd = results.map(r => r.rawDdTerm ?? 0);
-          const du = results.map(r => r.rawDurTerm ?? 0);
-          const norm = (arr) => { const mn = Math.min(...arr); const mx = Math.max(...arr); const rng = mx - mn || 1; return arr.map(v => (v - mn) / rng); };
-          const nGC = norm(gc), nDD = norm(dd), nDU = norm(du);
-          results.forEach((r, i) => { r.holdability = nGC[i] * nDD[i] * nDU[i]; });
-        }
-
-        // Compute primaryScore: Pareto knee of cvHoldability vs holdability vs 1/h*, requires h*
-        {
-          const withH = results.filter(r => r.histHStar != null && r.cvHoldability != null && r.holdability != null);
-          if (withH.length > 0) {
-            const cvMin = Math.min(...withH.map(r => r.cvHoldability));
-            const cvMax = Math.max(...withH.map(r => r.cvHoldability));
-            const fMin = Math.min(...withH.map(r => r.holdability));
-            const fMax = Math.max(...withH.map(r => r.holdability));
-            const hVals = withH.map(r => 1 / r.histHStar);
-            const hMin = Math.min(...hVals);
-            const hMax = Math.max(...hVals);
-            const cvR = cvMax - cvMin || 1;
-            const fR = fMax - fMin || 1;
-            const hR = hMax - hMin || 1;
-            for (const r of results) {
-              if (r.histHStar != null && r.cvHoldability != null && r.holdability != null) {
-                r.primaryScore = (r.cvHoldability - cvMin) / cvR
-                  + (r.holdability - fMin) / fR
-                  + ((1 / r.histHStar) - hMin) / hR;
-              } else {
-                r.primaryScore = -Infinity;
-              }
-            }
+          const cols = efPrimaryCols;
+          const extractors = [];
+          // All metrics: [key, getter, higherIsBetter]
+          if (cols.hStar) extractors.push(["hStar", r => r.histHStar, false]);
+          if (cols.fSortino) extractors.push(["fSortino", r => r.fullSortino, true]);
+          if (cols.fUpi) extractors.push(["fUpi", r => r.fullUpi, true]);
+          if (cols.fMaxDD) extractors.push(["fMaxDD", r => r.maxDD, false]); // more negative = worse
+          if (cols.fGain) extractors.push(["fGain", r => r.finalRatio - 1, true]);
+          if (cols.fScore) extractors.push(["fScore", r => r.fullIrrScore, true]);
+          if (cols.fCalmar) extractors.push(["fCalmar", r => r.fullCalmar, true]);
+          if (cols.cvSortino) extractors.push(["cvSortino", r => r.sortino, true]);
+          if (cols.cvUpi) extractors.push(["cvUpi", r => r.upi, true]);
+          if (cols.cvScore) extractors.push(["cvScore", r => r.irrScore, true]);
+          if (cols.cvCalmar) extractors.push(["cvCalmar", r => r.cvCalmar, true]);
+          if (extractors.length === 0) {
+            for (const r of results) r.primaryScore = -Infinity;
           } else {
-            for (const r of results) r.primaryScore = r.holdability ?? -Infinity;
+            // Collect valid values for normalization
+            const vals = extractors.map(([, get]) => results.map(get).filter(v => v != null && isFinite(v)));
+            const mins = vals.map(v => v.length > 0 ? Math.min(...v) : 0);
+            const maxs = vals.map(v => v.length > 0 ? Math.max(...v) : 0);
+            const ranges = mins.map((mn, i) => maxs[i] - mn || 1);
+            for (const r of results) {
+              let score = 0, valid = true;
+              for (let i = 0; i < extractors.length; i++) {
+                const raw = extractors[i][1](r);
+                if (raw == null || !isFinite(raw)) { valid = false; break; }
+                const norm = (raw - mins[i]) / ranges[i];
+                score += extractors[i][2] ? norm : (1 - norm); // invert for lower-is-better
+              }
+              r.primaryScore = valid ? score : -Infinity;
+            }
           }
         }
         const winners = computeWinners(results);
@@ -2929,7 +2914,7 @@ function App() {
           for (let h = 1; h <= H_MAX_EF; h++) { const mcPt = rollingRealReturnsMC(paired, h, MC_PATHS_EF, mc.block, 77777 + h); curve.push(mcPt ? mcPt.worstRealCAGR : null); }
           for (let i = 0; i < curve.length; i++) { let ok = true; for (let j = i; j < curve.length; j++) { if (curve[j] == null || curve[j] < 0) { ok = false; break; } } if (ok) { row.hStar = i + 1; break; } }
         };
-        const allWinnerRows = [winners.riskOptimal, winners.combined, winners.gainAvg, winners.sortino, winners.upiPure, winners.avgPure, winners.finalReturn, winners.user].filter(Boolean);
+        const allWinnerRows = [winners.primary, winners.riskOptimal, winners.combined, winners.fullScore, winners.fullCalmar, winners.cvCalmar, winners.sortino, winners.upiPure, winners.finalReturn, winners.user].filter(Boolean);
         const seen = new Set();
         const keyOf = (row) => row.weights.map(w => w.toFixed(4)).join(",");
         for (const row of allWinnerRows) {
@@ -2962,20 +2947,20 @@ function App() {
     };
 
     const computeWinners = (rs) => {
-      if (rs.length === 0) return { sortino: null, upiPure: null, avgPure: null, combined: null, riskOptimal: null, gainAvg: null, finalReturn: null, hStar: null, user: null };
-      let bs = rs[0], bup = rs[0], bap = rs[0], bc = rs[0], bga = rs[0], br = rs[0], bh = null;
-      let bcScore = -Infinity, bgaScore = -Infinity;
+      if (rs.length === 0) return { sortino: null, upiPure: null, combined: null, riskOptimal: null, finalReturn: null, fullCalmar: null, cvCalmar: null, fullScore: null, primary: null, hStar: null, user: null };
+      let bs = rs[0], bup = rs[0], bc = rs[0], br = rs[0], bfc = rs[0], bcc = rs[0], bfs = rs[0], bp = rs[0], bh = null;
+      let bcScore = -Infinity;
       for (const r of rs) {
         if ((r.sortino ?? -Infinity) > (bs.sortino ?? -Infinity)) bs = r;
         if ((r.upi ?? -Infinity) > (bup.upi ?? -Infinity)) bup = r;
-        if ((r.avgCAGR ?? -Infinity) > (bap.avgCAGR ?? -Infinity)) bap = r;
-        // Combined: net real return over real cash — permutation median
+        // Combined: net real return over real cash — permutation median (CV)
         const cs = r.irrScore ?? -Infinity;
         if (cs > bcScore) { bc = r; bcScore = cs; }
-        // gain × avgCAGR (cross-validated)
-        const ga = r.gainAvgCAGR ?? (Math.max(0, r.finalRatio - 1) * Math.max(0, r.avgCAGR ?? 0));
-        if (ga > bgaScore) { bga = r; bgaScore = ga; }
         if (r.finalRatio > br.finalRatio) br = r;
+        if ((r.fullCalmar ?? -Infinity) > (bfc.fullCalmar ?? -Infinity)) bfc = r;
+        if ((r.cvCalmar ?? -Infinity) > (bcc.cvCalmar ?? -Infinity)) bcc = r;
+        if ((r.fullIrrScore ?? -Infinity) > (bfs.fullIrrScore ?? -Infinity)) bfs = r;
+        if ((r.primaryScore ?? -Infinity) > (bp.primaryScore ?? -Infinity)) bp = r;
         if (r.hStar != null && (bh == null || r.hStar < bh.hStar)) bh = r;
       }
       // Pareto knee: among samples with valid histHStar and positive irrScore,
@@ -2984,32 +2969,23 @@ function App() {
       let riskOpt = null;
       const candidates = rs.filter(r => r.histHStar != null && r.irrScore != null && r.irrScore > 0);
       if (candidates.length >= 2) {
-        // Normalize h* and score to [0,1]
         const minH = Math.min(...candidates.map(c => c.histHStar));
         const maxH = Math.max(...candidates.map(c => c.histHStar));
         const minS = Math.min(...candidates.map(c => c.irrScore));
         const maxS = Math.max(...candidates.map(c => c.irrScore));
         const rangeH = maxH - minH || 1;
         const rangeS = maxS - minS || 1;
-        // Line from worst (maxH, minS) to best (minH, maxS) in normalized space
-        // Point A = (1, 0) [worst risk, worst return], B = (0, 1) [best risk, best return]
-        // Distance from point P = (hNorm, sNorm) to line AB:
-        // AB direction = (-1, 1), normal = (1, 1)/√2
-        // dist = |(hNorm + sNorm - 1)| / √2 — but we want the point ABOVE the line
-        // so dist = (sNorm - hNorm - (1-1)) ... let me use the standard formula
-        // Line: from A(1,0) to B(0,1) → equation: x + y = 1
-        // Signed distance = (hNorm + sNorm - 1) / √2  (positive = above line = good)
         let bestDist = -Infinity;
         for (const c of candidates) {
-          const hNorm = (c.histHStar - minH) / rangeH; // 0 = best (lowest h*), 1 = worst
-          const sNorm = (c.irrScore - minS) / rangeS;   // 0 = worst, 1 = best
-          const dist = (sNorm - hNorm); // maximize: high score, low h*
+          const hNorm = (c.histHStar - minH) / rangeH;
+          const sNorm = (c.irrScore - minS) / rangeS;
+          const dist = (sNorm - hNorm);
           if (dist > bestDist) { riskOpt = c; bestDist = dist; }
         }
       } else if (candidates.length === 1) {
         riskOpt = candidates[0];
       }
-      return { sortino: bs, upiPure: bup, avgPure: bap, combined: bc, riskOptimal: riskOpt, gainAvg: bga, finalReturn: br, hStar: bh, user: rs.find(r => r.isUser) || rs[0] };
+      return { sortino: bs, upiPure: bup, combined: bc, riskOptimal: riskOpt, finalReturn: br, fullCalmar: bfc, cvCalmar: bcc, fullScore: bfs, primary: bp, hStar: bh, user: rs.find(r => r.isUser) || rs[0] };
     };
 
     setTimeout(() => processChunk(0), 30);
@@ -3411,7 +3387,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-27, 9:13 PM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-28, 9:18 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -4607,7 +4583,7 @@ function App() {
               </div>
               <div className="panel-body">
                 <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). The <strong>risk optimal</strong> portfolio is the Pareto knee of score vs h*. The <strong>largest net real return</strong> maximizes the median level-based integral of real portfolio vs real cash across 100 random return orderings. All metrics except absolute return and max DD are <strong>cross-validated</strong>: computed on every rolling {CV_WINDOW_YEARS}-year window, showing the <em>worst</em> window — a portfolio must perform in every decade to score well.
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). <strong>Primary</strong> = sum of min-max normalized selected metrics (toggle checkboxes). Sortino, UPI, Score, and Calmar are shown for both the full period and cross-validated (worst rolling {CV_WINDOW_YEARS}-year window). Calmar = CAGR / |Max DD|. Score = median permutation integral of real portfolio vs real cash (ECB/CPI).
                 </div>
                 {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
                 {efResults && (() => {
@@ -4625,6 +4601,8 @@ function App() {
                     });
                     setUserWeights(w);
                   };
+                  const getPrimary = (row) => efPrimaryScores?.scores?.get(row);
+                  const cvBg = "oklch(0.99 0.01 60)";
                   const renderRow = (key, label, row, highlight, showUse) => row ? (
                     <tr key={key} style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
                       <td className="name" style={{ fontWeight: highlight ? 700 : 400 }}>{label}</td>
@@ -4634,13 +4612,13 @@ function App() {
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullUpi ?? row.upi, 3)}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
                       <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.holdability != null ? fmtNum(row.holdability, 2) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{fmtNum(row.sortino, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{fmtNum(row.upi, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{row.avgCAGR != null ? fmtPct(row.avgCAGR) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{row.cvHoldability != null ? fmtNum(row.cvHoldability, 2) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{row.irrScore != null ? fmtPct(row.irrScore) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{row.primaryScore != null && row.primaryScore > -Infinity ? fmtNum(row.primaryScore, 3) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullIrrScore != null ? fmtPct(row.fullIrrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullCalmar != null ? fmtNum(row.fullCalmar, 3) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(row.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(row.upi, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.irrScore != null ? fmtPct(row.irrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvCalmar != null ? fmtNum(row.cvCalmar, 3) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{(() => { const ps = getPrimary(row); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "\u2014"; })()}</td>
                       <td>{showUse ? <button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => applyWeights(row)}>Use</button> : null}</td>
                     </tr>
                   ) : null;
@@ -4655,12 +4633,12 @@ function App() {
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullUpi ?? bm.upi, 3)}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
                       <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.holdability != null ? fmtNum(bm.holdability, 2) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{fmtNum(bm.sortino, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{fmtNum(bm.upi, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{bm.avgCAGR != null ? fmtPct(bm.avgCAGR) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{bm.cvHoldability != null ? fmtNum(bm.cvHoldability, 2) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: "oklch(0.99 0.01 60)" }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullIrrScore != null ? fmtPct(bm.fullIrrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullCalmar != null ? fmtNum(bm.fullCalmar, 3) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.upi, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvCalmar != null ? fmtNum(bm.cvCalmar, 3) : "\u2014"}</td>
                       <td className="num" style={{ textAlign: "right" }}>{"\u2014"}</td>
                       <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => setUserWeights({ [bm.assetId]: 100 })}>Use</button></td>
                     </tr>
@@ -4716,12 +4694,12 @@ function App() {
                         <table className="bt">
                           <thead>
                           <tr>
-                            <th rowSpan="2">Portfolio</th>
-                            <th rowSpan="2">Composition</th>
-                            <th colSpan="6" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
-                            <th colSpan="5" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
-                            <th rowSpan="2" style={{ textAlign: "right" }}>Primary</th>
-                            <th rowSpan="2"></th>
+                            <th rowSpan="3">Portfolio</th>
+                            <th rowSpan="3">Composition</th>
+                            <th colSpan="7" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
+                            <th colSpan="4" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
+                            <th rowSpan="3" style={{ textAlign: "right" }}>Primary</th>
+                            <th rowSpan="3"></th>
                           </tr>
                           <tr>
                             <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>h*</th>
@@ -4729,27 +4707,48 @@ function App() {
                             <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>UPI</th>
                             <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Max DD</th>
                             <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Gain</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Hold.</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Score</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Calmar</th>
                             <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Sortino</th>
                             <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>UPI</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Avg. CAGR</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Hold.</th>
                             <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Score</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Calmar</th>
+                          </tr>
+                          <tr>
+                            {[
+                              ["hStar","oklch(0.97 0.01 220)"],["fSortino","oklch(0.97 0.01 220)"],["fUpi","oklch(0.97 0.01 220)"],
+                              ["fMaxDD","oklch(0.97 0.01 220)"],["fGain","oklch(0.97 0.01 220)"],["fScore","oklch(0.97 0.01 220)"],["fCalmar","oklch(0.97 0.01 220)"],
+                              ["cvSortino","oklch(0.97 0.02 60)"],["cvUpi","oklch(0.97 0.02 60)"],["cvScore","oklch(0.97 0.02 60)"],["cvCalmar","oklch(0.97 0.02 60)"],
+                            ].map(([col, bg]) => (
+                              <th key={col} style={{ textAlign: "center", background: bg, padding: "2px 4px" }}>
+                                <input type="checkbox" checked={efPrimaryCols[col]} onChange={() => togglePrimaryCol(col)} title={"Include in Primary"} style={{ margin: 0 }} />
+                              </th>
+                            ))}
                           </tr>
                           </thead>
                           <tbody>
                             {(() => {
+                              const dynPrimary = efPrimaryScores?.primaryWinner;
                               const rows = [
+                                dynPrimary ? { key: "primary", label: "Largest Primary", row: dynPrimary } : null,
+                                { key: "combined", label: "Largest Score (CV)", row: efResults.winners.combined },
+                                { key: "riskOptimal", label: "Risk optimal (Score vs h*)", row: efResults.winners.riskOptimal },
+                                { key: "sortino", label: "Largest Sortino (CV)", row: efResults.winners.sortino },
+                                { key: "upiPure", label: "Largest UPI (CV)", row: efResults.winners.upiPure },
+                                { key: "fullScore", label: "Largest Score (full)", row: efResults.winners.fullScore },
+                                { key: "fullCalmar", label: "Largest Calmar (full)", row: efResults.winners.fullCalmar },
+                                { key: "cvCalmar", label: "Largest Calmar (CV)", row: efResults.winners.cvCalmar },
                                 { key: "finalReturn", label: "Largest absolute return", row: efResults.winners.finalReturn },
-                                { key: "combined", label: "Largest net real return", row: efResults.winners.combined },
-                                { key: "riskOptimal", label: "Risk optimal largest net real return", row: efResults.winners.riskOptimal },
-                                { key: "gainAvg", label: "Largest absolute return \u00d7 avg. CAGR", row: efResults.winners.gainAvg },
-                                { key: "sortino", label: "Largest Sortino", row: efResults.winners.sortino },
-                                { key: "avgPure", label: "Largest avg. CAGR", row: efResults.winners.avgPure },
-                                { key: "upiPure", label: "Largest UPI", row: efResults.winners.upiPure },
-                              ].filter(r => r.row != null);
-                              rows.sort((a, b) => (b.row.primaryScore ?? -Infinity) - (a.row.primaryScore ?? -Infinity));
-                              return rows.map((r, i) => renderRow(
+                              ].filter(r => r != null && r.row != null);
+                              // Deduplicate: keep first occurrence of each weight vector
+                              const seen = new Set();
+                              const unique = rows.filter(r => {
+                                const k = r.row.weights.map(w => w.toFixed(4)).join(",");
+                                if (seen.has(k)) return false;
+                                seen.add(k);
+                                return true;
+                              });
+                              return unique.map((r, i) => renderRow(
                                 r.key,
                                 i === 0 ? "\u2b24 " + r.label : r.label,
                                 r.row,
@@ -4761,7 +4760,7 @@ function App() {
                         </table>
 
                         <div className="small-note" style={{ marginTop: 8 }}>
-                          <strong>{"\u2b24"}</strong> marks the portfolio with the highest <strong>Score</strong> — the minimum across all rolling {CV_WINDOW_YEARS}-year windows of the median permutation integral of real portfolio vs real cash (ECB/CPI). Path-independent and regime-independent: a portfolio must beat real cash consistently in every decade, not just overall.
+                          <strong>{"\u2b24"}</strong> marks the portfolio with the highest <strong>Primary</strong> — the Pareto-knee optimum (sum of min-max normalized selected metrics). Toggle checkboxes to choose which metrics feed into Primary. Metrics are computed on the full period and on every rolling {CV_WINDOW_YEARS}-year window (showing the worst decade). Calmar = CAGR / |Max DD|. Score = median permutation integral of real portfolio vs real cash (ECB/CPI).
                         </div>
 
                         <div style={{ marginTop: 18 }}>
@@ -4771,8 +4770,8 @@ function App() {
                             <tr>
                               <th rowSpan="2">Portfolio</th>
                               <th rowSpan="2">Composition</th>
-                              <th colSpan="6" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
-                              <th colSpan="5" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
+                              <th colSpan="7" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
+                              <th colSpan="4" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
                               <th rowSpan="2" style={{ textAlign: "right" }}>Primary</th>
                               <th rowSpan="2"></th>
                             </tr>
@@ -4782,12 +4781,12 @@ function App() {
                               <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>UPI</th>
                               <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Max DD</th>
                               <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Gain</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Hold.</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Score</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Calmar</th>
                               <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Sortino</th>
                               <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>UPI</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Avg. CAGR</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Hold.</th>
                               <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Score</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Calmar</th>
                             </tr>
                             </thead>
                             <tbody>

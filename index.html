@@ -2525,7 +2525,6 @@ function App() {
     cvSortino: true, cvUpi: true, cvScore: true, cvCalmar: true,
   });
   const togglePrimaryCol = (col) => setEfPrimaryCols(prev => ({ ...prev, [col]: !prev[col] }));
-  const [ddThreshold, setDdThreshold] = useState(30);
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
@@ -2533,9 +2532,10 @@ function App() {
   const efPrimaryScores = useMemo(() => {
     if (!efResults?.samples) return null;
     const rs = efResults.samples;
+    const bms = efResults.benchmarks || [];
     const cols = efPrimaryCols;
     const extractors = [];
-    if (cols.hStar) extractors.push(["hStar", r => r.histHStar, false]);
+    if (cols.hStar) extractors.push(["hStar", r => r.histHStar ?? r.hStar, false]);
     if (cols.fSortino) extractors.push(["fSortino", r => r.fullSortino, true]);
     if (cols.fUpi) extractors.push(["fUpi", r => r.fullUpi, true]);
     if (cols.fMaxDD) extractors.push(["fMaxDD", r => r.maxDD, false]);
@@ -2547,13 +2547,12 @@ function App() {
     if (cols.cvScore) extractors.push(["cvScore", r => r.irrScore, true]);
     if (cols.cvCalmar) extractors.push(["cvCalmar", r => r.cvCalmar, true]);
     if (extractors.length === 0) return { scores: new Map(), primaryWinner: null };
+    // Normalization ranges from grid samples only (benchmarks don't shift the scale)
     const vals = extractors.map(([, get]) => rs.map(get).filter(v => v != null && isFinite(v)));
     const mins = vals.map(v => v.length > 0 ? Math.min(...v) : 0);
     const maxs = vals.map(v => v.length > 0 ? Math.max(...v) : 0);
     const ranges = mins.map((mn, i) => maxs[i] - mn || 1);
-    const scores = new Map();
-    let bestRow = null, bestScore = -Infinity;
-    for (const r of rs) {
+    const scoreRow = (r) => {
       let score = 0, valid = true;
       for (let i = 0; i < extractors.length; i++) {
         const raw = extractors[i][1](r);
@@ -2561,12 +2560,19 @@ function App() {
         const norm = (raw - mins[i]) / ranges[i];
         score += extractors[i][2] ? norm : (1 - norm);
       }
-      const s = valid ? score : -Infinity;
+      return valid ? score : -Infinity;
+    };
+    const scores = new Map();
+    let bestRow = null, bestScore = -Infinity;
+    for (const r of rs) {
+      const s = scoreRow(r);
       scores.set(r, s);
       if (s > bestScore) { bestScore = s; bestRow = r; }
     }
+    // Score benchmarks with the same normalization ranges
+    for (const bm of bms) scores.set(bm, scoreRow(bm));
     return { scores, primaryWinner: bestRow };
-  }, [efResults?.samples, efPrimaryCols]);
+  }, [efResults?.samples, efResults?.benchmarks, efPrimaryCols]);
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
@@ -2862,7 +2868,7 @@ function App() {
           const cols = efPrimaryCols;
           const extractors = [];
           // All metrics: [key, getter, higherIsBetter]
-          if (cols.hStar) extractors.push(["hStar", r => r.histHStar, false]);
+          if (cols.hStar) extractors.push(["hStar", r => r.histHStar ?? r.hStar, false]);
           if (cols.fSortino) extractors.push(["fSortino", r => r.fullSortino, true]);
           if (cols.fUpi) extractors.push(["fUpi", r => r.fullUpi, true]);
           if (cols.fMaxDD) extractors.push(["fMaxDD", r => r.maxDD, false]); // more negative = worse
@@ -3387,7 +3393,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-28, 9:18 PM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-28, 10:16 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -4563,12 +4569,6 @@ function App() {
                     <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
                     use my SMA toggles
                   </label>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
-                    DD threshold
-                    <input type="number" min="1" max="100" step="5" value={ddThreshold}
-                      style={{ width: 40, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
-                      onChange={e => setDdThreshold(clamp(+e.target.value || 30, 1, 100))} />%
-                  </span>
                   {efRunning && (
                     <span className="mono" style={{ fontSize: 11 }}>
                       <span className="spin"></span> {efProgress.done} / {efProgress.total} ({Math.round(100 * efProgress.done / Math.max(1, efProgress.total))}%)
@@ -4639,7 +4639,7 @@ function App() {
                       <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.upi, 3)}</td>
                       <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "\u2014"}</td>
                       <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvCalmar != null ? fmtNum(bm.cvCalmar, 3) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{"\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{(() => { const ps = getPrimary(bm); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "\u2014"; })()}</td>
                       <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => setUserWeights({ [bm.assetId]: 100 })}>Use</button></td>
                     </tr>
                   ) : null;

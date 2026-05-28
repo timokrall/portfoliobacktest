@@ -2538,7 +2538,7 @@ function App() {
     if (cols.hStar) extractors.push(["hStar", r => r.histHStar ?? r.hStar, false]);
     if (cols.fSortino) extractors.push(["fSortino", r => r.fullSortino, true]);
     if (cols.fUpi) extractors.push(["fUpi", r => r.fullUpi, true]);
-    if (cols.fMaxDD) extractors.push(["fMaxDD", r => r.maxDD, false]);
+    if (cols.fMaxDD) extractors.push(["fMaxDD", r => r.maxDD, true]);
     if (cols.fGain) extractors.push(["fGain", r => r.finalRatio - 1, true]);
     if (cols.fScore) extractors.push(["fScore", r => r.fullIrrScore, true]);
     if (cols.fCalmar) extractors.push(["fCalmar", r => r.fullCalmar, true]);
@@ -2871,7 +2871,7 @@ function App() {
           if (cols.hStar) extractors.push(["hStar", r => r.histHStar ?? r.hStar, false]);
           if (cols.fSortino) extractors.push(["fSortino", r => r.fullSortino, true]);
           if (cols.fUpi) extractors.push(["fUpi", r => r.fullUpi, true]);
-          if (cols.fMaxDD) extractors.push(["fMaxDD", r => r.maxDD, false]); // more negative = worse
+          if (cols.fMaxDD) extractors.push(["fMaxDD", r => r.maxDD, true]); // less negative = better
           if (cols.fGain) extractors.push(["fGain", r => r.finalRatio - 1, true]);
           if (cols.fScore) extractors.push(["fScore", r => r.fullIrrScore, true]);
           if (cols.fCalmar) extractors.push(["fCalmar", r => r.fullCalmar, true]);
@@ -3393,7 +3393,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-28, 10:16 PM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-28, 10:32 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>

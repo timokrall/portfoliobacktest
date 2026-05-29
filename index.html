@@ -1922,6 +1922,9 @@ function App() {
   };
   const [spreads, setSpreads] = useState(() => _initCosts().sp);
   const [orderFee, setOrderFee] = useState({ fixed: 0, pct: 0 });
+  const [showCosts, setShowCosts] = useState(false);
+  const [showTaxes, setShowTaxes] = useState(false);
+  const [showData, setShowData] = useState(false);
 
   // --- taxes ---
   const [taxRate, setTaxRate] = useState(26.375);
@@ -1957,14 +1960,42 @@ function App() {
   // §23 12-month rule for gold/silver, and Abgeltungsteuer × (1 − Teilfreistellung)
   // for funds). Default: all OFF — no rebalancing between assets.
   const [userRebalance, setUserRebalance] = useState({ gold: true });
-  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, a.id === "silver" ? 0 : 100])));
+  const [upperLimits, setUpperLimits] = useState(() => Object.fromEntries(ASSETS.filter(a => a.holdable).map(a => [a.id, a.id === "silver" ? 0 : a.id === "gold" ? 40 : 100])));
   const [bulkLimit, setBulkLimit] = useState(50);
   const [lockedAssets, setLockedAssets] = useState({ silver: true });
 
   // Gold/equity long-term optimization
   const [goldOptResult, setGoldOptResult] = useState(null);
   const [goldOptRunning, setGoldOptRunning] = useState(false);
+  const [autoOptPending, setAutoOptPending] = useState(false);
+  const goldOptBtnRef = useRef(null);
   const [autoApplyGold, setAutoApplyGold] = useState(false);
+  // Auto-optimize chain: when gold opt finishes and autoOptPending, apply gold split → run frontier
+  useEffect(() => {
+    if (!autoOptPending || goldOptRunning) return;
+    if (goldOptResult?.bestBH) {
+      const goldPct = goldOptResult.bestBH.goldPct;
+      setUserWeights(prev => {
+        const nonGold = Object.entries(prev).filter(([k]) => k !== "gold" && k !== "silver");
+        const eqTotal = 100 - goldPct;
+        const oldEqTotal = nonGold.reduce((s, [, v]) => s + v, 0) || 100;
+        const next = {};
+        for (const [k, v] of nonGold) next[k] = Math.round(v / oldEqTotal * eqTotal);
+        next.gold = goldPct;
+        // Fix rounding: adjust largest equity position
+        const total = Object.values(next).reduce((s, v) => s + v, 0);
+        if (total !== 100) {
+          const largest = Object.entries(next).filter(([k]) => k !== "gold").sort((a, b) => b[1] - a[1])[0];
+          if (largest) next[largest[0]] += 100 - total;
+        }
+        return next;
+      });
+      setUpperLimits(prev => ({ ...prev, gold: goldOptResult.bestBH.goldPct }));
+    }
+    setAutoOptPending(false);
+    // Small delay to let state settle, then run frontier
+    setTimeout(() => runEfficientFrontier(), 100);
+  }, [autoOptPending, goldOptRunning, goldOptResult]);
   const [optIncludeGoldSmaFull, setOptIncludeGoldSmaFull] = useState(true);
   const [optIncludeGoldSmaTF, setOptIncludeGoldSmaTF] = useState(true);
   const [optIncludeEqSma, setOptIncludeEqSma] = useState(true);
@@ -1972,13 +2003,6 @@ function App() {
   const [optRecommendedOnly, setOptRecommendedOnly] = useState(true);
   const [goldOptSort, setGoldOptSort] = useState({ col: "kneeScore", asc: false });
   const [goldOptTableCollapsed, setGoldOptTableCollapsed] = useState(true);
-
-  // Conditional SMA state
-  const [condSmaRule, setCondSmaRule] = useState(null); // { realYieldThreshold, realYieldMonths, cbThreshold, cbMonths, label }
-  const [useCondSma, setUseCondSma] = useState(false);
-  const [limitToCondSmaPeriod, setLimitToCondSmaPeriod] = useState(false);
-  const [condSmaResults, setCondSmaResults] = useState(null);
-  const [condSmaRunning, setCondSmaRunning] = useState(false);
 
   // Convert MSCI World USD to EUR using EUR/USD rate
   const msciWorldEur = useMemo(() => {
@@ -2009,24 +2033,6 @@ function App() {
   const mergedRates = useMemo(() => {
     return mergeRateSeries(series.bbk, series.ecb);
   }, [series.bbk, series.ecb]);
-
-  // Compute monthly real short-term rate: nominal deposit rate - YoY CPI change
-  const monthlyRealRate = useMemo(() => {
-    if (!mergedRates || !series.cpi || series.cpi.length < 13) return null;
-    const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
-    const result = [];
-    for (let i = 12; i < series.cpi.length; i++) {
-      const m = series.cpi[i].month;
-      const cpiNow = series.cpi[i].value;
-      const cpi12 = series.cpi[i - 12].value;
-      if (!cpiNow || !cpi12 || cpi12 <= 0) continue;
-      const yoyInflation = (cpiNow / cpi12 - 1) * 100;
-      const t = Date.parse(m + "-15");
-      const nomRate = ecbRateAt(mergedRates, t) ?? 0;
-      result.push({ month: m, realRate: nomRate - yoyInflation, nomRate, inflation: yoyInflation });
-    }
-    return result.length > 0 ? result : null;
-  }, [mergedRates, series.cpi]);
 
   const [selectedPortfolios, setSelectedPortfolios] = useState(["user", "bench_coIQ", "bench_market"]);
   const [goldWeights, setGoldWeights] = useState({ gold_coIQ: 30, gold_momentum: 30 });
@@ -2537,7 +2543,8 @@ function App() {
     cvSortino: true, cvUpi: true, cvScore: true, cvCalmar: true, cvMwCAGR: true, cvMwCalmar: true,
   });
   const togglePrimaryCol = (col) => setEfPrimaryCols(prev => ({ ...prev, [col]: !prev[col] }));
-  const [birthYear, setBirthYear] = useState(null);
+  const [birthYear, setBirthYear] = useState(2000);
+  const [investAmount, setInvestAmount] = useState(10000);
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
@@ -2638,6 +2645,45 @@ function App() {
       ["cvCalmar", r => r.cvCalmar, true],
     ]);
   }, [efResults?.samples]);
+
+  // Simulate DCA and Preserve winner portfolios for charting
+  const lifecycleSims = useMemo(() => {
+    if (!efResults?.basket || !commonWindow?.ok || (!efDcaWinner && !efPreserveWinner)) return null;
+    const basket = efResults.basket;
+    const months = commonWindow.months;
+    const monthSet = new Set(months);
+    // Build data map (same as EF uses)
+    const liveMap = pfAssetSeries.user || {};
+    const dataBase = {};
+    for (const a of basket) {
+      const arr = (efResults.includesUserSMA && liveMap[a]) ? liveMap[a] : series[a];
+      if (!arr) continue;
+      dataBase[a] = arr.filter(r => monthSet.has(r.month));
+    }
+    // Build seriesType (same as EF uses)
+    const est = { ...seriesType };
+    for (const a of basket) if (efResults.includesUserSMA && userSMA[a]) est[a] = "net";
+    const runFor = (winner, id, name) => {
+      if (!winner) return null;
+      const wmap = {};
+      basket.forEach((a, i) => { wmap[a] = winner.weights[i]; });
+      const pf = {
+        id, name, assets: basket.filter((_, i) => winner.weights[i] > 0.001),
+        weights: wmap, equityId: basket.find((a, i) => a !== "gold" && wmap[a] > 0.001) || basket[0],
+        fixedWeights: true, dynamic: true,
+      };
+      return runSim({
+        portfolio: pf, targetGoldPct: wmap.gold || 0, data: dataBase,
+        seriesType: est, ongoingCost, spreads, orderFee,
+        tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
+        starting, monthly, rebalance, rebalanceFlags: userRebalance, ecbChanges: series.ecb || null,
+      });
+    };
+    return {
+      lc_dca: runFor(efDcaWinner, "lc_dca", "DCA / Accumulate"),
+      lc_preserve: runFor(efPreserveWinner, "lc_preserve", "Preserve / Conservative"),
+    };
+  }, [efDcaWinner, efPreserveWinner, efResults?.basket, efResults?.includesUserSMA, commonWindow, pfAssetSeries, series, seriesType, userSMA, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, userRebalance]);
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
@@ -3286,18 +3332,42 @@ function App() {
   };
 
   // ---- aggregated chart data (overlay unit prices) ----
+  // Determine the 5 chart lines: user, market, best benchmark, DCA, preserve
+  const chartPortfolios = useMemo(() => {
+    if (!simResults) return [];
+    const lines = [];
+    // 1. Current custom portfolio
+    if (simResults.user) lines.push({ pid: "user", name: "My Portfolio", src: "sim" });
+    // 2. Market (Prime ACWI)
+    if (simResults.bench_market) lines.push({ pid: "bench_market", name: "Market (Prime ACWI)", src: "sim" });
+    // 3. Best benchmark by gain (excluding market if already shown)
+    const benchEntries = Object.entries(simResults).filter(([k, v]) => k.startsWith("bench_") && k !== "bench_market" && v);
+    if (benchEntries.length > 0) {
+      const best = benchEntries.reduce((a, b) => (b[1].finalValue / b[1].totalInvested) > (a[1].finalValue / a[1].totalInvested) ? b : a);
+      const bestPf = getPF(best[0]);
+      lines.push({ pid: best[0], name: bestPf?.name || best[0], src: "sim" });
+    }
+    // 4. DCA / Accumulate (from lifecycle sims)
+    if (lifecycleSims?.lc_dca) lines.push({ pid: "lc_dca", name: "DCA / Accumulate", src: "lc" });
+    // 5. Preserve / Conservative (from lifecycle sims)
+    if (lifecycleSims?.lc_preserve) lines.push({ pid: "lc_preserve", name: "Preserve / Conservative", src: "lc" });
+    return lines;
+  }, [simResults, lifecycleSims]);
+
   const chartData = useMemo(() => {
     if (!simResults || !commonWindow || !commonWindow.ok) return null;
     const months = commonWindow.months;
-    // Per-portfolio map: month -> {unit, dd}. Handles ownNativeHistory where
-    // each portfolio's series can span a different range of months.
+    // Merge simResults + lifecycle sims into one map
+    const allSims = { ...simResults };
+    if (lifecycleSims?.lc_dca) allSims.lc_dca = lifecycleSims.lc_dca;
+    if (lifecycleSims?.lc_preserve) allSims.lc_preserve = lifecycleSims.lc_preserve;
     const pfMaps = {};
-    for (const pid of Object.keys(simResults)) {
-      const r = simResults[pid];
+    for (const pid of Object.keys(allSims)) {
+      const r = allSims[pid];
       if (!r || !r.months) continue;
       const m = new Map();
       for (let i = 0; i < r.months.length; i++) {
-        m.set(r.months[i], { unit: r.unitPriceSeries[i], dd: r.ddSeries[i] * 100 });
+        m.set(r.months[i], { unit: r.unitPriceSeries[i], dd: r.ddSeries[i] * 100, val: r.valueSeries ? r.valueSeries[i] : null });
       }
       pfMaps[pid] = m;
     }
@@ -3305,14 +3375,14 @@ function App() {
       const row = { month: m, label: m };
       for (const pid of Object.keys(pfMaps)) {
         const pt = pfMaps[pid].get(m);
-        if (pt) { row[pid] = pt.unit; row[pid + "_dd"] = pt.dd; }
+        if (pt) { row[pid] = pt.unit; row[pid + "_dd"] = pt.dd; row[pid + "_val"] = pt.val; }
       }
       return row;
     });
     return rows;
-  }, [simResults, commonWindow]);
+  }, [simResults, lifecycleSims, commonWindow]);
 
-  const [chartMode, setChartMode] = useState("unit");   // "unit" | "dd"
+  const [chartMode, setChartMode] = useState("value");   // "value" | "unit" | "dd"
 
   // ---- winners ----
   const winners = useMemo(() => {
@@ -3479,7 +3549,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 7:04 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 8:45 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3491,17 +3561,26 @@ function App() {
         </div>
       </div>
 
-      
+      <div style={{ background: "oklch(0.95 0.03 60)", border: "1px solid oklch(0.85 0.06 60)", borderRadius: 8, padding: "8px 14px", margin: "12px 0", fontSize: 11, color: "oklch(0.35 0.05 60)", lineHeight: 1.5 }}>
+        <strong>Disclaimer:</strong> This tool is for entertainment and educational purposes only, not investment advice. Data sources, calculations, and results may contain errors. All investment decisions are made at your own risk. Past performance does not predict future results.
+      </div>
+
       <div className="grid grid-2">
         <div className="panel">
-          <div className="panel-h">
-            <h2>Data</h2>
+          <div className="panel-h" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setShowData(v => !v)}>
+            <h2>{(() => {
+              const missing = ASSETS.filter(a => !a.synthetic).some(a => !series[a.id]) || !series.cpi || !series.ecb;
+              const open = showData || missing;
+              return (open ? "\u25BC" : "\u25B6") + " Data";
+            })()}</h2>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <ManifestPill manifest={manifest} />
-              <button className="btn btn-accent btn-xs" onClick={reloadAll}>Reload from /data</button>
+              <button className="btn btn-accent btn-xs" onClick={e => { e.stopPropagation(); reloadAll(); }}>Reload from /data</button>
             </div>
           </div>
-          <div className="panel-body">
+          {(() => {
+            const missing = ASSETS.filter(a => !a.synthetic).some(a => !series[a.id]) || !series.cpi || !series.ecb;
+            return (showData || missing) && <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 12 }}>
               {ASSETS.filter(a => !a.synthetic).map(a =>
                 <CsvCard
@@ -3568,7 +3647,8 @@ function App() {
               CSVs are committed weekly by a GitHub Action (<code>.github/workflows/update-data.yml</code>) into <code>./data/</code> and served same-origin — no CORS, no proxies, no rate limits. Each asset tries <strong>Stooq → yfinance</strong> in turn; coIQ uses ariva (no fallback). Manual upload/paste per asset overrides the committed file if you want fresher numbers.
               See <code>README.md</code> for setup (including how to add the optional <code>STOOQ_COOKIE</code> repo secret).
             </div>
-          </div>
+          </div>;
+          })()}
         </div>
       </div>
 
@@ -3607,7 +3687,7 @@ function App() {
                   </label>
                 </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <button className="btn btn-accent btn-xs" disabled={goldOptRunning} onClick={() => {
+                  <button ref={goldOptBtnRef} className="btn btn-accent btn-xs" disabled={goldOptRunning} onClick={() => {
                     setGoldOptRunning(true);
                     setTimeout(() => {
                       try {
@@ -4130,212 +4210,44 @@ function App() {
           </div>
         </div>
 
-        {/* Conditional SMA signal testing */}
         <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h">
-            <h2>Conditional gold SMA signals</h2>
-            <span className="h-meta">real yield + central bank buying</span>
-          </div>
+          <div className="panel-h"><h2>Portfolio</h2></div>
           <div className="panel-body">
-            {(!monthlyRealRate && !series.wgc) ? (
-              <div className="dim" style={{ fontSize: 12 }}>Upload CPI + ECB/Bundesbank rate data (for real yields) and/or WGC central bank data to enable signal testing.</div>
-            ) : (
-              <>
-                <div style={{ fontSize: 12, marginBottom: 10 }}>
-                  {monthlyRealRate ? `Real yield: ${monthlyRealRate.length} months (${monthlyRealRate[0].month} → ${monthlyRealRate[monthlyRealRate.length-1].month}).` : "Real yield: not available."}
-                  {" "}{series.wgc ? `CB net buying: ${series.wgc.length} months (${series.wgc[0].month} → ${series.wgc[series.wgc.length-1].month}).` : "CB net buying: not available."}
-                  {" "}Tests which combination of real yield threshold and CB buying threshold best predicts gold underperformance. Signal = "exit gold when conditions met for N consecutive months."
-                </div>
-                <button className="btn btn-accent btn-xs" disabled={condSmaRunning} onClick={() => {
-                  setCondSmaRunning(true);
-                  setTimeout(() => {
-                    try {
-                      // Build monthly gold return map
-                      const goldMap = new Map();
-                      for (const r of series.gold || []) goldMap.set(r.month, r.value);
-                      // Build real rate map
-                      const rrMap = new Map();
-                      if (monthlyRealRate) for (const r of monthlyRealRate) rrMap.set(r.month, r.realRate);
-                      // Build CB net buying map (12-month rolling sum)
-                      const cbRawMap = new Map();
-                      if (series.wgc) for (const r of series.wgc) cbRawMap.set(r.month, r.value);
-                      const cbRollingMap = new Map();
-                      if (series.wgc && series.wgc.length >= 12) {
-                        const sorted = [...series.wgc].sort((a, b) => a.month.localeCompare(b.month));
-                        for (let i = 11; i < sorted.length; i++) {
-                          let sum = 0;
-                          for (let j = i - 11; j <= i; j++) sum += sorted[j].value;
-                          cbRollingMap.set(sorted[i].month, sum);
-                        }
-                      }
-                      // Common months: need gold + at least one signal
-                      const allGoldMonths = [...goldMap.keys()].sort();
-                      const startMonth = "2002-01"; // WGC data starts ~2002
-                      const commonMonths = allGoldMonths.filter(m => m >= startMonth && (rrMap.has(m) || cbRollingMap.has(m)));
-                      if (commonMonths.length < 24) { setCondSmaResults({ error: "Not enough overlapping data" }); setCondSmaRunning(false); return; }
-                      // Gold monthly returns
-                      const goldRets = new Map();
-                      for (let i = 1; i < commonMonths.length; i++) {
-                        const prev = goldMap.get(commonMonths[i - 1]);
-                        const cur = goldMap.get(commonMonths[i]);
-                        if (prev && cur && prev > 0) goldRets.set(commonMonths[i], cur / prev - 1);
-                      }
-                      // ECB cash returns
-                      const cashRets = new Map();
-                      const ecbChanges = mergedRates || series.ecb || null;
-                      for (const m of commonMonths) {
-                        const t = Date.parse(m + "-15");
-                        const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-                        cashRets.set(m, Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1);
-                      }
-                      // Test grid: real yield thresholds × CB thresholds × duration
-                      const rrThresholds = monthlyRealRate ? [null, 0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0] : [null];
-                      const cbThresholds = series.wgc ? [null, 0, -100, -200, -300, -500] : [null];
-                      const durations = [1, 3, 6, 12];
-                      const results = [];
-                      // Baseline: buy-and-hold gold
-                      let bhGold = 1;
-                      for (const m of commonMonths.slice(1)) { bhGold *= (1 + (goldRets.get(m) || 0)); }
-                      for (const rrTh of rrThresholds) {
-                        for (const cbTh of cbThresholds) {
-                          if (rrTh === null && cbTh === null) continue; // need at least one signal
-                          for (const dur of durations) {
-                            // Build exit signal: exit gold when condition met for 'dur' consecutive months
-                            let consecRR = 0, consecCB = 0;
-                            let inCash = false;
-                            let portfolio = 1;
-                            let exitMonths = 0, totalMonths = 0;
-                            for (let i = 1; i < commonMonths.length; i++) {
-                              const m = commonMonths[i];
-                              const prevM = commonMonths[i - 1];
-                              // Update consecutive counters
-                              if (rrTh !== null) {
-                                const rr = rrMap.get(prevM);
-                                if (rr != null && rr > rrTh) consecRR++; else consecRR = 0;
-                              }
-                              if (cbTh !== null) {
-                                const cb = cbRollingMap.get(prevM);
-                                if (cb != null && cb < cbTh) consecCB++; else consecCB = 0;
-                              }
-                              // Signal: exit if ALL active conditions met for 'dur' months
-                              const rrTriggered = rrTh === null || consecRR >= dur;
-                              const cbTriggered = cbTh === null || consecCB >= dur;
-                              const shouldExit = rrTriggered && cbTriggered;
-                              if (shouldExit && !inCash) inCash = true;
-                              else if (!shouldExit && inCash) inCash = false;
-                              totalMonths++;
-                              if (inCash) {
-                                portfolio *= (1 + (cashRets.get(m) || 0));
-                                exitMonths++;
-                              } else {
-                                portfolio *= (1 + (goldRets.get(m) || 0));
-                              }
-                            }
-                            const gain = portfolio - 1;
-                            const bhGain = bhGold - 1;
-                            const outperf = gain - bhGain;
-                            // Compute max DD
-                            let peak = 1, maxDD = 0, val = 1;
-                            let consecRR2 = 0, consecCB2 = 0, inCash2 = false;
-                            for (let i = 1; i < commonMonths.length; i++) {
-                              const m = commonMonths[i];
-                              const prevM = commonMonths[i - 1];
-                              if (rrTh !== null) { const rr = rrMap.get(prevM); if (rr != null && rr > rrTh) consecRR2++; else consecRR2 = 0; }
-                              if (cbTh !== null) { const cb = cbRollingMap.get(prevM); if (cb != null && cb < cbTh) consecCB2++; else consecCB2 = 0; }
-                              const rrT = rrTh === null || consecRR2 >= dur;
-                              const cbT = cbTh === null || consecCB2 >= dur;
-                              if (rrT && cbT && !inCash2) inCash2 = true;
-                              else if (!(rrT && cbT) && inCash2) inCash2 = false;
-                              val *= (1 + (inCash2 ? (cashRets.get(m) || 0) : (goldRets.get(m) || 0)));
-                              peak = Math.max(peak, val); maxDD = Math.min(maxDD, val / peak - 1);
-                            }
-                            let label = [];
-                            if (rrTh !== null) label.push(`real yield >${rrTh}%`);
-                            if (cbTh !== null) label.push(`CB rolling 12m <${cbTh}t`);
-                            label.push(`${dur}mo duration`);
-                            results.push({
-                              rrThreshold: rrTh, cbThreshold: cbTh, duration: dur,
-                              gain, bhGain, outperf, maxDD, exitPct: totalMonths > 0 ? exitMonths / totalMonths : 0,
-                              label: label.join(" + "),
-                            });
-                          }
-                        }
-                      }
-                      results.sort((a, b) => b.outperf - a.outperf);
-                      setCondSmaResults({
-                        results, commonMonths: commonMonths.length,
-                        range: `${commonMonths[0]} → ${commonMonths[commonMonths.length - 1]}`,
-                        bhGain: bhGold - 1, bhMaxDD: (() => {
-                          let p = 1, v = 1, dd = 0;
-                          for (let i = 1; i < commonMonths.length; i++) { v *= (1 + (goldRets.get(commonMonths[i]) || 0)); p = Math.max(p, v); dd = Math.min(dd, v / p - 1); }
-                          return dd;
-                        })(),
-                      });
-                    } catch (e) { setCondSmaResults({ error: e.message }); }
-                    setCondSmaRunning(false);
-                  }, 50);
+            <div style={{ marginBottom: 16 }}>
+              <button className="btn btn-accent" style={{ width: "100%", padding: "12px 20px", fontSize: 14, fontWeight: 600 }}
+                disabled={efRunning || goldOptRunning || !commonWindow?.ok}
+                onClick={() => {
+                  // If gold optimizer data is available, run it first to find optimal gold split
+                  if (msciWorldEur && series.gold && goldOptBtnRef.current) {
+                    setAutoOptPending(true);
+                    goldOptBtnRef.current.click();
+                  } else {
+                    // No gold data — just run the frontier with current weights
+                    runEfficientFrontier();
+                  }
                 }}>
-                  {condSmaRunning && <span className="spin"></span>} Test signals
-                </button>
-                {condSmaResults?.error && <div style={{ color: "var(--neg)", fontSize: 12, marginTop: 8 }}>{condSmaResults.error}</div>}
-                {condSmaResults?.results && (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
-                      {condSmaResults.commonMonths} months ({condSmaResults.range}).
-                      Gold buy-and-hold: gain {fmtPct(condSmaResults.bhGain)}, max DD {fmtPct(condSmaResults.bhMaxDD)}.
-                      {condSmaResults.results.filter(r => r.outperf > 0).length} of {condSmaResults.results.length} signals outperformed buy-and-hold.
-                    </div>
-                    <table className="bt" style={{ fontSize: 11 }}>
-                      <thead><tr>
-                        <th>Signal rule</th>
-                        <th style={{ textAlign: "right" }}>Gain</th>
-                        <th style={{ textAlign: "right" }}>vs B&H</th>
-                        <th style={{ textAlign: "right" }}>Max DD</th>
-                        <th style={{ textAlign: "right" }}>Time in cash</th>
-                        <th></th>
-                      </tr></thead>
-                      <tbody>
-                        {condSmaResults.results.slice(0, 30).map((r, i) => (
-                          <tr key={i} style={i === 0 ? { background: "oklch(0.97 0.02 150)" } : r.outperf < 0 ? { color: "var(--ink-mute)" } : {}}>
-                            <td style={{ fontSize: 10.5 }}>{r.label}</td>
-                            <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
-                            <td className={"num " + (r.outperf > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{r.outperf > 0 ? "+" : ""}{fmtPct(r.outperf)}</td>
-                            <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.exitPct)}</td>
-                            <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
-                              setCondSmaRule({
-                                realYieldThreshold: r.rrThreshold,
-                                cbThreshold: r.cbThreshold,
-                                duration: r.duration,
-                                label: r.label,
-                                startMonth: condSmaResults.range.split(" → ")[0],
-                              });
-                              setUseCondSma(true);
-                            }}>Use</button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div className="small-note" style={{ marginTop: 6 }}>
-                      Signals tested: exit gold (hold cash at deposit rate) when ALL active conditions are met for the specified duration.
-                      Real yield = ECB/Bundesbank deposit rate − YoY CPI. CB rolling 12m = 12-month rolling sum of central bank net gold purchases (tonnes).
-                      Sorted by outperformance vs gold buy-and-hold over the test period.
-                    </div>
+                {efRunning || goldOptRunning ? "Running…" : "\u2728 Suggest optimum portfolio allocation"}
+              </button>
+              {(goldOptRunning || efRunning) && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>
+                    <span className="spin"></span>
+                    {goldOptRunning
+                      ? "Step 1/2 \u2014 Optimizing gold/equity split\u2026"
+                      : `Step 2/2 \u2014 Frontier grid search\u2026 ${efProgress.done} / ${efProgress.total}`}
                   </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>Portfolio + Cashflow</h2></div>
-          <div className="panel-body">
-            <div className="grid grid-2" style={{ gap: 14 }}>
-              <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
-              <NumField label="Monthly contribution (EUR)" value={monthly} onChange={setMonthly} step={50} />
+                  <div style={{ height: 6, borderRadius: 3, background: "var(--line)", overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%", borderRadius: 3, transition: "width 0.3s ease",
+                      background: "oklch(0.55 0.15 220)",
+                      width: goldOptRunning ? "15%" : (efProgress.total > 0 ? (15 + 85 * efProgress.done / efProgress.total) + "%" : "15%"),
+                    }} />
+                  </div>
+                </div>
+              )}
+              {!efResults && !(goldOptRunning || efRunning) && <div className="small-note" style={{ marginTop: 4, textAlign: "center" }}>Runs the gold optimizer to find optimal gold/equity split, then searches the efficient frontier for the best equity mix.</div>}
             </div>
-            <div style={{ marginTop: 14 }}>
+            <div style={{ marginTop: 0 }}>
               <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
               <div className="seg">
                 {["never", "monthly", "yearly", "biennial"].map(r =>
@@ -4344,26 +4256,6 @@ function App() {
                   </button>)}
               </div>
             </div>
-
-            <div style={{ marginTop: 14, display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5 }}>
-                <input type="checkbox" checked={useCondSma} disabled={!condSmaRule}
-                       onChange={e => setUseCondSma(e.target.checked)} />
-                <span style={{ opacity: condSmaRule ? 1 : 0.4 }}>Conditional gold SMA</span>
-              </label>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5 }}>
-                <input type="checkbox" checked={limitToCondSmaPeriod}
-                       onChange={e => setLimitToCondSmaPeriod(e.target.checked)} />
-                Limit backtest to signal period
-              </label>
-            </div>
-            {condSmaRule && (
-              <div className="small-note" style={{ marginTop: 4 }}>
-                {useCondSma
-                  ? <>Active rule: <strong>{condSmaRule.label}</strong>. Gold exits to cash when conditions met. Data from {condSmaRule.startMonth}.</>
-                  : <>Selected rule: {condSmaRule.label} (not active — tick "Conditional gold SMA" to apply).</>}
-              </div>
-            )}
 
             <hr style={{ margin: "18px 0" }} />
             <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -4500,6 +4392,160 @@ function App() {
             </div>
 
 
+            {/* Lifecycle recommendation */}
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h"><h2>Lifecycle recommendation</h2><span className="h-meta">accumulation → preservation glide path</span></div>
+              <div className="panel-body">
+                {(() => {
+                  const LIFE_EXP = 80.9;
+                  const RETIRE_AGE = 67;
+                  const now = new Date();
+                  const age = birthYear ? now.getFullYear() - birthYear : null;
+                  const remaining = age != null ? Math.max(0, LIFE_EXP - age) : null;
+                  const accumYears = age != null ? Math.max(0, RETIRE_AGE - age) : null;
+                  const preserveYears = remaining != null && accumYears != null ? remaining - accumYears : null;
+                  const dcaPct = remaining > 0 && accumYears != null ? Math.round(100 * accumYears / remaining) : null;
+                  const preservePct = dcaPct != null ? 100 - dcaPct : null;
+                  return <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12 }}>Born in</span>
+                        <input type="number" min="1940" max="2010" step="1" placeholder="year"
+                          value={birthYear || ""}
+                          style={{ width: 64, textAlign: "center", fontSize: 12, padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 4 }}
+                          onChange={e => { const v = +e.target.value; setBirthYear(v >= 1940 && v <= 2010 ? v : null); }} />
+                      </div>
+                      <NumField label="Starting investment (EUR)" value={starting} onChange={setStarting} step={500} />
+                      <NumField label="Monthly contribution (EUR)" value={monthly} onChange={setMonthly} step={50} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12 }}>Invest now</span>
+                        <input type="number" min="0" step="1000" placeholder="EUR"
+                          value={investAmount || ""}
+                          style={{ width: 90, textAlign: "right", fontSize: 12, padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 4 }}
+                          onChange={e => setInvestAmount(Math.max(0, +e.target.value || 0))} />
+                        <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>EUR</span>
+                      </div>
+                      {age != null && remaining > 0 && (
+                        <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>
+                          Age {age} · ~{remaining.toFixed(0)}yr remaining · accumulate ~{accumYears}yr until {RETIRE_AGE}, preserve ~{Math.max(0, preserveYears).toFixed(0)}yr
+                        </span>
+                      )}
+                    </div>
+                    {age != null && remaining > 0 && dcaPct != null && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ display: "flex", height: 28, borderRadius: 6, overflow: "hidden", fontSize: 11, fontWeight: 600 }}>
+                          {dcaPct > 0 && <div style={{ width: dcaPct + "%", background: "oklch(0.80 0.10 220)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 220)" }}>
+                            {dcaPct}% DCA
+                          </div>}
+                          {preservePct > 0 && <div style={{ width: preservePct + "%", background: "oklch(0.82 0.10 150)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 150)" }}>
+                            {preservePct}% Preserve
+                          </div>}
+                        </div>
+                      </div>
+                    )}
+                    {efResults && efDcaWinner && efPreserveWinner && (() => {
+                      const basket = efResults.basket;
+                      const fmtW = (sample) => basket.map((a, i) => {
+                        const pct = Math.round(sample.weights[i] * 100);
+                        return pct > 0 ? (ASSETS.find(x => x.id === a)?.shortName || a) + " " + pct + "%" : null;
+                      }).filter(Boolean).join(" \u00b7 ");
+                      // Per-asset EUR allocation
+                      const dcaEur = investAmount > 0 && dcaPct != null ? investAmount * dcaPct / 100 : 0;
+                      const presEur = investAmount > 0 && preservePct != null ? investAmount * preservePct / 100 : 0;
+                      const assetAlloc = {};
+                      basket.forEach((a, i) => {
+                        const d = dcaEur * (efDcaWinner.weights[i] || 0);
+                        const p = presEur * (efPreserveWinner.weights[i] || 0);
+                        if (d + p > 0.5) assetAlloc[a] = { dca: d, preserve: p, total: d + p };
+                      });
+                      const allocEntries = Object.entries(assetAlloc).sort((a, b) => b[1].total - a[1].total);
+                      return (<>
+                        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: investAmount > 0 && allocEntries.length > 0 ? 16 : 0 }}>
+                          <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 220)" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>DCA / Accumulation{dcaEur > 0 ? ` \u2014 ${Math.round(dcaEur).toLocaleString()} \u20ac` : ""}</div>
+                            <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for money-weighted CAGR (full period + worst decade)</div>
+                            <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efDcaWinner)}</div>
+                            <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
+                              mwCAGR {fmtPct(efDcaWinner.fullMwCAGR)} · Max DD {fmtPct(efDcaWinner.maxDD)} · Gain {fmtPct(efDcaWinner.finalRatio - 1)}
+                            </div>
+                          </div>
+                          <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 150)" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Preserve / Conservative{presEur > 0 ? ` \u2014 ${Math.round(presEur).toLocaleString()} \u20ac` : ""}</div>
+                            <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for risk-adjusted unit-price metrics (all except mwCAGR/mwCalmar)</div>
+                            <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efPreserveWinner)}</div>
+                            <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
+                              Sortino {fmtNum(efPreserveWinner.fullSortino, 3)} · UPI {fmtNum(efPreserveWinner.fullUpi, 3)} · Max DD {fmtPct(efPreserveWinner.maxDD)} · Calmar {fmtNum(efPreserveWinner.fullCalmar, 3)}
+                            </div>
+                          </div>
+                        </div>
+                        {investAmount > 0 && allocEntries.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, color: "var(--ink-soft)" }}>
+                              Suggested allocation of {investAmount.toLocaleString()} \u20ac
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                              {allocEntries.map(([a, v]) => (
+                                <div key={a} style={{ flex: "0 0 auto", padding: "8px 14px", borderRadius: 6, background: "var(--panel)", border: "1px solid var(--line)", minWidth: 120 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 600 }}>{ASSETS.find(x => x.id === a)?.shortName || a}</div>
+                                  <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{Math.round(v.total).toLocaleString()} \u20ac</div>
+                                  <div style={{ fontSize: 10, color: "var(--ink-soft)", marginTop: 2 }}>
+                                    {v.dca > 0.5 ? `${Math.round(v.dca).toLocaleString()} DCA` : ""}{v.dca > 0.5 && v.preserve > 0.5 ? " + " : ""}{v.preserve > 0.5 ? `${Math.round(v.preserve).toLocaleString()} Pres.` : ""}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>);
+                    })()}
+                    {!efResults && <div className="dim" style={{ fontSize: 12 }}>Run the efficient frontier to see DCA and Preserve portfolio recommendations.</div>}
+                  </>;
+                })()}
+              </div>
+            </div>
+
+            {/* chart */}
+
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h">
+                <h2>Chart</h2>
+                <div className="seg">
+                  <button className={chartMode === "value" ? "on" : ""} onClick={() => setChartMode("value")}>EUR value</button>
+                  <button className={chartMode === "unit" ? "on" : ""} onClick={() => setChartMode("unit")}>Unit price</button>
+                  <button className={chartMode === "dd" ? "on" : ""} onClick={() => setChartMode("dd")}>Drawdown %</button>
+                </div>
+              </div>
+              <div className="panel-body" style={{ height: 380 }}>
+                {chartData && <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
+                    <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tickMargin={10} minTickGap={40} stroke="oklch(0.7 0.008 240)" />
+                    <YAxis tickFormatter={v => chartMode === "dd" ? v.toFixed(0) + "%" : chartMode === "value" ? (v >= 1000 ? (v / 1000).toFixed(0) + "k" : v.toFixed(0)) + " €" : v.toFixed(0)} stroke="oklch(0.7 0.008 240)" width={56} domain={chartMode === "dd" ? [-60, 5] : ["auto", "auto"]} />
+                    <Tooltip
+                      contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                      formatter={(v, name) => {
+                        const cleanPid = name.replace("_dd", "").replace("_val", "");
+                        const cp = chartPortfolios.find(c => c.pid === cleanPid);
+                        const label = cp?.name || getPF(cleanPid)?.name || cleanPid;
+                        return [chartMode === "dd" ? fmtNum(+v, 2) + "%" : chartMode === "value" ? fmtNum(+v, 0) + " €" : fmtNum(+v, 2), label];
+                      }}
+                    />
+                    <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => {
+                      const cleanPid = v.replace("_dd", "").replace("_val", "");
+                      const cp = chartPortfolios.find(c => c.pid === cleanPid);
+                      return cp?.name || getPF(cleanPid)?.name || cleanPid;
+                    }} />
+                    {chartPortfolios.map((cp, i) => {
+                      const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.09 155)", "oklch(0.55 0.13 60)", "oklch(0.50 0.10 260)", "oklch(0.50 0.13 320)"];
+                      const dk = chartMode === "unit" ? cp.pid : chartMode === "dd" ? cp.pid + "_dd" : cp.pid + "_val";
+                      return <Line key={cp.pid} type="monotone" dataKey={dk}
+                                   stroke={colors[i % colors.length]} dot={false} strokeWidth={i === 0 ? 2 : 1.4} isAnimationActive={false} />;
+                    })}
+                  </LineChart>
+                </ResponsiveContainer>}
+              </div>
+            </div>
+
             {/* comparison table */}
             <div className="panel" style={{ marginBottom: 18 }}>
               <div className="panel-h"><h2>Comparison</h2><span className="h-meta">money-weighted gain · unit-price risk metrics</span></div>
@@ -4544,36 +4590,6 @@ function App() {
                   })}
                 </tbody>
               </table>
-            </div>
-
-            {/* chart */}
-            <div className="panel" style={{ marginBottom: 18 }}>
-              <div className="panel-h">
-                <h2>Chart</h2>
-                <div className="seg">
-                  <button className={chartMode === "unit" ? "on" : ""} onClick={() => setChartMode("unit")}>Unit price</button>
-                  <button className={chartMode === "dd" ? "on" : ""} onClick={() => setChartMode("dd")}>Drawdown %</button>
-                </div>
-              </div>
-              <div className="panel-body" style={{ height: 380 }}>
-                {chartData && <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
-                    <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" tickMargin={10} minTickGap={40} stroke="oklch(0.7 0.008 240)" />
-                    <YAxis tickFormatter={v => chartMode === "unit" ? v.toFixed(0) : v.toFixed(0) + "%"} stroke="oklch(0.7 0.008 240)" width={56} domain={chartMode === "dd" ? [-60, 5] : ["auto", "auto"]} />
-                    <Tooltip
-                      contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                      formatter={(v, name) => [chartMode === "unit" ? fmtNum(+v, 2) : fmtNum(+v, 2) + "%", getPF(name.replace("_dd", ""))?.name || name]}
-                    />
-                    <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => getPF(v.replace("_dd", ""))?.name || v} />
-                    {selectedPortfolios.map((pid, i) => {
-                      const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.13 60)", "oklch(0.55 0.09 155)", "oklch(0.50 0.13 320)"];
-                      return <Line key={pid} type="monotone" dataKey={chartMode === "unit" ? pid : pid + "_dd"}
-                                   stroke={colors[i % colors.length]} dot={false} strokeWidth={1.6} isAnimationActive={false} />;
-                    })}
-                  </LineChart>
-                </ResponsiveContainer>}
-              </div>
             </div>
 
             {/* V2 · Gold-share optimizer charts (one panel per two-asset portfolio) */}
@@ -4914,78 +4930,6 @@ function App() {
               </div>
             </div>
 
-            {/* Lifecycle recommendation */}
-            {efResults && efDcaWinner && efPreserveWinner && (() => {
-              const fmtW = (sample) => efResults.basket.map((a, i) => {
-                const pct = Math.round(sample.weights[i] * 100);
-                return pct > 0 ? (ASSETS.find(x => x.id === a)?.shortName || a) + " " + pct + "%" : null;
-              }).filter(Boolean).join(" \u00b7 ");
-              const LIFE_EXP = 80.9; // Germany, both sexes, approximate
-              const RETIRE_AGE = 67; // German Regelrentenalter
-              const now = new Date();
-              const age = birthYear ? now.getFullYear() - birthYear : null;
-              const remaining = age != null ? Math.max(0, LIFE_EXP - age) : null;
-              const accumYears = age != null ? Math.max(0, RETIRE_AGE - age) : null;
-              const preserveYears = remaining != null && accumYears != null ? remaining - accumYears : null;
-              const dcaPct = remaining > 0 && accumYears != null ? Math.round(100 * accumYears / remaining) : null;
-              const preservePct = dcaPct != null ? 100 - dcaPct : null;
-              return (
-                <div className="panel" style={{ marginBottom: 18 }}>
-                  <div className="panel-h"><h2>Lifecycle recommendation</h2><span className="h-meta">accumulation → preservation glide path</span></div>
-                  <div className="panel-body">
-                    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 16 }}>
-                      <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 220)" }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>DCA / Accumulation</div>
-                        <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for money-weighted CAGR (full period + worst decade)</div>
-                        <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efDcaWinner)}</div>
-                        <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
-                          mwCAGR {fmtPct(efDcaWinner.fullMwCAGR)} · Max DD {fmtPct(efDcaWinner.maxDD)} · Gain {fmtPct(efDcaWinner.finalRatio - 1)}
-                        </div>
-                      </div>
-                      <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 150)" }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Preserve / Conservative</div>
-                        <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for risk-adjusted unit-price metrics (all except mwCAGR/mwCalmar)</div>
-                        <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efPreserveWinner)}</div>
-                        <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
-                          Sortino {fmtNum(efPreserveWinner.fullSortino, 3)} · UPI {fmtNum(efPreserveWinner.fullUpi, 3)} · Max DD {fmtPct(efPreserveWinner.maxDD)} · Calmar {fmtNum(efPreserveWinner.fullCalmar, 3)}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12 }}>Born in</span>
-                      <input type="number" min="1940" max="2010" step="1" placeholder="year"
-                        value={birthYear || ""}
-                        style={{ width: 64, textAlign: "center", fontSize: 12, padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 4 }}
-                        onChange={e => { const v = +e.target.value; setBirthYear(v >= 1940 && v <= 2010 ? v : null); }} />
-                      {age != null && remaining > 0 && (
-                        <span style={{ fontSize: 12 }}>
-                          — age {age}, ~{remaining.toFixed(0)} years remaining (German life expectancy {LIFE_EXP}).
-                          {accumYears > 0 && <>
-                            {" "}Accumulate for ~{accumYears} years until {RETIRE_AGE}, then preserve for ~{Math.max(0, preserveYears).toFixed(0)} years.
-                          </>}
-                        </span>
-                      )}
-                    </div>
-                    {age != null && remaining > 0 && dcaPct != null && (
-                      <div style={{ marginTop: 14 }}>
-                        <div style={{ display: "flex", height: 28, borderRadius: 6, overflow: "hidden", fontSize: 11, fontWeight: 600 }}>
-                          {dcaPct > 0 && <div style={{ width: dcaPct + "%", background: "oklch(0.80 0.10 220)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 220)" }}>
-                            {dcaPct}% DCA
-                          </div>}
-                          {preservePct > 0 && <div style={{ width: preservePct + "%", background: "oklch(0.82 0.10 150)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 150)" }}>
-                            {preservePct}% Preserve
-                          </div>}
-                        </div>
-                        <div className="footnote" style={{ marginTop: 6 }}>
-                          Suggested blend: allocate {dcaPct}% to the DCA portfolio during accumulation (until age {RETIRE_AGE}) and {preservePct}% to the Preserve portfolio for the drawdown phase. Transition gradually — not a cliff.
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
             {/* drawdown correlation matrix */}
             {ddCorrelation && (
               <div className="panel" style={{ marginBottom: 18 }}>
@@ -5021,8 +4965,10 @@ function App() {
 
       <div className="grid grid-2" style={{ marginTop: 18 }}>
         <div className="panel">
-          <div className="panel-h"><h2>Assumed costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span></div>
-          <div className="panel-body">
+          <div className="panel-h" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setShowCosts(v => !v)}>
+            <h2>{showCosts ? "\u25BC" : "\u25B6"} Assumed costs</h2><span className="h-meta">spreads per trade · ongoing drag per year</span>
+          </div>
+          {showCosts && <div className="panel-body">
             <table className="bt">
               <thead><tr><th>Asset</th><th style={{ textAlign: "right" }}>Buy spread %</th><th style={{ textAlign: "right" }}>Sell spread %</th><th style={{ textAlign: "right" }}>Ongoing %/yr</th></tr></thead>
               <tbody>
@@ -5045,12 +4991,14 @@ function App() {
               Ongoing cost is applied as monthly drag on assets using index/spot data (TER not embedded in price). Assets at 0.00% use actual fund NAV where costs are already reflected.
               {ASSETS.some(a => a.costCutoff) && <><br/>* <strong>coIQ</strong>: drag applied through {ASSETS.find(a => a.costCutoff)?.costCutoff} only (Nasdaq-100 proxy period). From 2022 onward, actual fund NAV is used with fees already embedded — no additional drag.</>}
             </div>
-          </div>
+          </div>}
         </div>
 
         <div className="panel">
-          <div className="panel-h"><h2>Assumed taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span></div>
-          <div className="panel-body">
+          <div className="panel-h" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setShowTaxes(v => !v)}>
+            <h2>{showTaxes ? "\u25BC" : "\u25B6"} Assumed taxes</h2><span className="h-meta">German CGT · Vorabpauschale</span>
+          </div>
+          {showTaxes && <div className="panel-body">
             <div className="grid grid-3" style={{ gap: 12 }}>
               <NumField label="Capital-gains rate (%)" value={taxRate} step={0.001} onChange={setTaxRate} />
               <NumField label="Sparer-Pauschbetrag (EUR/yr)" value={allowance} step={100} onChange={setAllowance} />
@@ -5100,7 +5048,7 @@ function App() {
                 );
               })()}
             </details>
-          </div>
+          </div>}
         </div>
       </div>
 
@@ -5175,10 +5123,10 @@ function CsvCard({ asset, text, data, error, fetchStatus, manifestEntry, onReloa
   const busy = fs?.kind === "info";
   const showBody = !n || expanded || error;
   return (
-    <div className={"csv-card" + (n > 0 ? " loaded" : "")} style={{ cursor: n > 0 ? "pointer" : "default" }} onClick={() => n > 0 && setExpanded(p => !p)}>
+    <div className={"csv-card" + (n > 0 ? " loaded" : "")} style={{ cursor: n > 0 ? "pointer" : "default", userSelect: n > 0 ? "none" : "auto" }} onClick={() => n > 0 && setExpanded(p => !p)}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <div style={{ flex: 1 }}>
-          <h3>{asset.label}</h3>
+          <h3>{n > 0 ? (showBody ? "\u25BC " : "\u25B6 ") : ""}{asset.label}</h3>
           <div className="id">{asset.isin}</div>
         </div>
         {n > 0 && <span className="tag ok">{isEcb ? n + " changes" : n + " months"}</span>}

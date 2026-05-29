@@ -1862,7 +1862,7 @@ function App() {
   // is available on the very first render. Without this, the autosave effect
   // would fire with the empty defaults and overwrite the persisted data
   // before the bootstrap restore could read it.
-  const _ASSET_DEFAULTS_TEXT = { coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", eqwt: "", em: "", gold: "", silver: "", cpi: "", ecb: "" };
+  const _ASSET_DEFAULTS_TEXT = { coIQ: "", momentum: "", value: "", quality: "", minvol: "", world: "", eqwt: "", em: "", gold: "", silver: "", cpi: "", ecb: "", bbk: "", wgc: "" };
   const _readUploadedCsvs = () => {
     try {
       const raw = localStorage.getItem("backtester-uploaded-csvs.json");
@@ -1881,13 +1881,15 @@ function App() {
     return defaults;
   });
   const [series, setSeries] = useState(() => {
-    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, eqwt: null, em: null, gold: null, silver: null, cpi: null, ecb: null };
+    const defaults = { coIQ: null, momentum: null, value: null, quality: null, minvol: null, world: null, eqwt: null, em: null, gold: null, silver: null, cpi: null, ecb: null, bbk: null, wgc: null };
     const uploaded = _readUploadedCsvs();
     for (const id of Object.keys(uploaded)) {
       const txt = uploaded[id];
       if (typeof txt === "string" && txt.length > 0 && id in defaults) {
         try {
           if (id === "ecb") defaults[id] = parseEcbRateChanges(txt);
+          else if (id === "bbk") defaults[id] = parseBbkDiskontsatz(txt);
+          else if (id === "wgc") defaults[id] = parseWgcCbGold(txt);
           else defaults[id] = parseCsvToMonthly(txt);
         } catch {}
       }
@@ -1935,8 +1937,12 @@ function App() {
   const [basiszins, setBasiszins] = useState({ ...DEFAULT_BASISZINS });
 
   // --- inputs ---
-  const [starting, setStarting] = useState(20000);
-  const [monthly, setMonthly] = useState(200);
+  const [starting, setStarting] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem("bt:lifecycle") || "{}"); return s.starting ?? 20000; } catch { return 20000; }
+  });
+  const [monthly, setMonthly] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem("bt:lifecycle") || "{}"); return s.monthly ?? 200; } catch { return 200; }
+  });
   const [rebalance, setRebalance] = useState("yearly");
   // v3.4: free-form composer default = roughly-equal across the 8 broad
   // assets (coIQ, momentum, value, quality, minvol, prime/PRAW, gold, BTC).
@@ -2119,7 +2125,8 @@ function App() {
     taxRate, allowance, teilfreistellung, basiszins,
     starting, monthly, rebalance, selectedPortfolios, goldWeights,
     portfolioTiming, ownNativeHistory, mc,
-  }), [csvText, series, seriesDaily, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, portfolioTiming, ownNativeHistory, mc]);
+    birthYear, investAmount, userWeights, upperLimits,
+  }), [csvText, series, seriesDaily, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, portfolioTiming, ownNativeHistory, mc, birthYear, investAmount, userWeights, upperLimits]);
 
   const applyState = (s) => {
     if (!s) return;
@@ -2160,6 +2167,10 @@ function App() {
     if (s.basiszins) setBasiszins(s.basiszins);
     if (s.starting != null) setStarting(s.starting);
     if (s.monthly != null) setMonthly(s.monthly);
+    if (s.birthYear != null) setBirthYear(s.birthYear);
+    if (s.investAmount != null) setInvestAmount(s.investAmount);
+    if (s.userWeights) setUserWeights(s.userWeights);
+    if (s.upperLimits) setUpperLimits(s.upperLimits);
     if (s.rebalance) setRebalance(s.rebalance);
     if (s.selectedPortfolios) {
       // Union with defaults — any newly-added portfolio IDs (new app version)
@@ -2573,8 +2584,17 @@ function App() {
     cvSortino: true, cvUpi: true, cvScore: true, cvCalmar: true, cvMwCAGR: true, cvMwCalmar: true,
   });
   const togglePrimaryCol = (col) => setEfPrimaryCols(prev => ({ ...prev, [col]: !prev[col] }));
-  const [birthYear, setBirthYear] = useState(2000);
-  const [investAmount, setInvestAmount] = useState(10000);
+  const [birthYear, setBirthYear] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem("bt:lifecycle") || "{}"); return s.birthYear ?? 2000; } catch { return 2000; }
+  });
+  const [investAmount, setInvestAmount] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem("bt:lifecycle") || "{}"); return s.investAmount ?? 10000; } catch { return 10000; }
+  });
+
+  // Auto-persist lifecycle fields to localStorage
+  useEffect(() => {
+    try { localStorage.setItem("bt:lifecycle", JSON.stringify({ birthYear, investAmount, starting, monthly })); } catch {}
+  }, [birthYear, investAmount, starting, monthly]);
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
@@ -3580,7 +3600,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 10:47 PM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 10:53 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>

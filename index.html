@@ -2537,6 +2537,7 @@ function App() {
     cvSortino: true, cvUpi: true, cvScore: true, cvCalmar: true, cvMwCAGR: true, cvMwCalmar: true,
   });
   const togglePrimaryCol = (col) => setEfPrimaryCols(prev => ({ ...prev, [col]: !prev[col] }));
+  const [birthYear, setBirthYear] = useState(null);
   // v3.5: single 5%-step grid + pure-asset benchmarks (ACWI, coIQ).
   const [efResults, setEfResults] = useState(null);   // {samples, benchmarks, winners, includesUserSMA, basket}
 
@@ -2589,6 +2590,54 @@ function App() {
     for (const bm of bms) scores.set(bm, scoreRow(bm));
     return { scores, primaryWinner: bestRow };
   }, [efResults?.samples, efResults?.benchmarks, efPrimaryCols]);
+
+  // Helper: find best portfolio for a fixed set of extractors
+  const findBestForProfile = (rs, extractorDefs) => {
+    if (!rs || rs.length === 0 || extractorDefs.length === 0) return null;
+    const vals = extractorDefs.map(([, get]) => rs.map(get).filter(v => v != null && isFinite(v)));
+    const mins = vals.map(v => v.length > 0 ? Math.min(...v) : 0);
+    const maxs = vals.map(v => v.length > 0 ? Math.max(...v) : 0);
+    const ranges = mins.map((mn, i) => maxs[i] - mn || 1);
+    let best = null, bestS = -Infinity;
+    for (const r of rs) {
+      let score = 0, valid = true;
+      for (let i = 0; i < extractorDefs.length; i++) {
+        const raw = extractorDefs[i][1](r);
+        if (raw == null || !isFinite(raw)) { valid = false; break; }
+        const norm = (raw - mins[i]) / ranges[i];
+        score += extractorDefs[i][2] ? norm : (1 - norm);
+      }
+      if (valid && score > bestS) { bestS = score; best = r; }
+    }
+    return best;
+  };
+
+  // DCA / aggressive: optimizes only mwCAGR (full + CV)
+  const efDcaWinner = useMemo(() => {
+    if (!efResults?.samples) return null;
+    return findBestForProfile(efResults.samples, [
+      ["fMwCAGR", r => r.fullMwCAGR, true],
+      ["cvMwCAGR", r => r.cvMwCAGR, true],
+    ]);
+  }, [efResults?.samples]);
+
+  // Preserve / conservative: all metrics except mwCAGR/mwCalmar
+  const efPreserveWinner = useMemo(() => {
+    if (!efResults?.samples) return null;
+    return findBestForProfile(efResults.samples, [
+      ["hStar", r => r.histHStar ?? r.hStar, false],
+      ["fSortino", r => r.fullSortino, true],
+      ["fUpi", r => r.fullUpi, true],
+      ["fMaxDD", r => r.maxDD, true],
+      ["fGain", r => r.finalRatio - 1, true],
+      ["fScore", r => r.fullIrrScore, true],
+      ["fCalmar", r => r.fullCalmar, true],
+      ["cvSortino", r => r.sortino, true],
+      ["cvUpi", r => r.upi, true],
+      ["cvScore", r => r.irrScore, true],
+      ["cvCalmar", r => r.cvCalmar, true],
+    ]);
+  }, [efResults?.samples]);
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
@@ -2701,7 +2750,7 @@ function App() {
     // of the named asset over the common window. They need their own data
     // map because the named asset may not be in basket.
     const benchmarkDef = (assetId, label) => {
-      const arr = series[assetId];
+      const arr = seriesMap[assetId] || series[assetId];
       if (!arr) return null;
       const data = { [assetId]: arr.filter(r => monthSet.has(r.month)) };
       if (data[assetId].length === 0) return null;
@@ -2713,12 +2762,12 @@ function App() {
     ].filter(Boolean);
     // Gold-blended benchmarks: equity + gold at user's current gold share
     const userGoldPct = (userWeights.gold || 0) / 100;
-    if (userGoldPct > 0 && series.gold) {
-      const goldFiltered = series.gold.filter(r => monthSet.has(r.month));
+    if (userGoldPct > 0 && (seriesMap.gold || series.gold)) {
+      const goldArr = seriesMap.gold || series.gold;
+      const goldFiltered = goldArr.filter(r => monthSet.has(r.month));
       if (goldFiltered.length > 0) {
-        const goldData = { gold: goldFiltered };
         for (const eq of [{ id: "world", label: "Prime ACWI" }, { id: "coIQ", label: "coIQ" }]) {
-          const eqArr = series[eq.id];
+          const eqArr = seriesMap[eq.id] || series[eq.id];
           if (!eqArr) continue;
           const eqFiltered = eqArr.filter(r => monthSet.has(r.month));
           if (eqFiltered.length === 0) continue;
@@ -2851,15 +2900,19 @@ function App() {
                 weights: { [bm.assetId]: 1 }, equityId: bm.assetId,
                 isMarket: true, fixedWeights: true, dynamic: true,
               };
-          const benchSeriesType = isBlended
-            ? { ...seriesType, [bm.assets.find(a => a !== "gold")]: "net" }
-            : { ...seriesType, [bm.assetId]: "net" };
+          const benchSeriesType = { ...effSeriesType };
+          // Ensure benchmark assets have a series type (fall back to user SMA logic)
+          for (const a of (isBlended ? bm.assets : [bm.assetId])) {
+            if (!(a in benchSeriesType)) {
+              benchSeriesType[a] = (efIncludeUserSMA && userSMA[a]) ? "net" : (seriesType[a] || "raw");
+            }
+          }
           const r = runSim({
             portfolio: benchPf, targetGoldPct: isBlended ? bm.goldPct : 0, data: bm.data,
             seriesType: benchSeriesType,
             ongoingCost, spreads, orderFee,
             tax: { rate: taxRate, teilfreistellung, allowance, basiszins },
-            starting, monthly, rebalance,
+            starting, monthly, rebalance, rebalanceFlags: userRebalance,
             ecbChanges: series.ecb || null,
           });
           if (!r || !r.metrics) continue;
@@ -3426,7 +3479,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-28, 11:20 PM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 7:04 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -4860,6 +4913,78 @@ function App() {
                 })()}
               </div>
             </div>
+
+            {/* Lifecycle recommendation */}
+            {efResults && efDcaWinner && efPreserveWinner && (() => {
+              const fmtW = (sample) => efResults.basket.map((a, i) => {
+                const pct = Math.round(sample.weights[i] * 100);
+                return pct > 0 ? (ASSETS.find(x => x.id === a)?.shortName || a) + " " + pct + "%" : null;
+              }).filter(Boolean).join(" \u00b7 ");
+              const LIFE_EXP = 80.9; // Germany, both sexes, approximate
+              const RETIRE_AGE = 67; // German Regelrentenalter
+              const now = new Date();
+              const age = birthYear ? now.getFullYear() - birthYear : null;
+              const remaining = age != null ? Math.max(0, LIFE_EXP - age) : null;
+              const accumYears = age != null ? Math.max(0, RETIRE_AGE - age) : null;
+              const preserveYears = remaining != null && accumYears != null ? remaining - accumYears : null;
+              const dcaPct = remaining > 0 && accumYears != null ? Math.round(100 * accumYears / remaining) : null;
+              const preservePct = dcaPct != null ? 100 - dcaPct : null;
+              return (
+                <div className="panel" style={{ marginBottom: 18 }}>
+                  <div className="panel-h"><h2>Lifecycle recommendation</h2><span className="h-meta">accumulation → preservation glide path</span></div>
+                  <div className="panel-body">
+                    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 16 }}>
+                      <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 220)" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>DCA / Accumulation</div>
+                        <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for money-weighted CAGR (full period + worst decade)</div>
+                        <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efDcaWinner)}</div>
+                        <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
+                          mwCAGR {fmtPct(efDcaWinner.fullMwCAGR)} · Max DD {fmtPct(efDcaWinner.maxDD)} · Gain {fmtPct(efDcaWinner.finalRatio - 1)}
+                        </div>
+                      </div>
+                      <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 150)" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Preserve / Conservative</div>
+                        <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for risk-adjusted unit-price metrics (all except mwCAGR/mwCalmar)</div>
+                        <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efPreserveWinner)}</div>
+                        <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
+                          Sortino {fmtNum(efPreserveWinner.fullSortino, 3)} · UPI {fmtNum(efPreserveWinner.fullUpi, 3)} · Max DD {fmtPct(efPreserveWinner.maxDD)} · Calmar {fmtNum(efPreserveWinner.fullCalmar, 3)}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12 }}>Born in</span>
+                      <input type="number" min="1940" max="2010" step="1" placeholder="year"
+                        value={birthYear || ""}
+                        style={{ width: 64, textAlign: "center", fontSize: 12, padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 4 }}
+                        onChange={e => { const v = +e.target.value; setBirthYear(v >= 1940 && v <= 2010 ? v : null); }} />
+                      {age != null && remaining > 0 && (
+                        <span style={{ fontSize: 12 }}>
+                          — age {age}, ~{remaining.toFixed(0)} years remaining (German life expectancy {LIFE_EXP}).
+                          {accumYears > 0 && <>
+                            {" "}Accumulate for ~{accumYears} years until {RETIRE_AGE}, then preserve for ~{Math.max(0, preserveYears).toFixed(0)} years.
+                          </>}
+                        </span>
+                      )}
+                    </div>
+                    {age != null && remaining > 0 && dcaPct != null && (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={{ display: "flex", height: 28, borderRadius: 6, overflow: "hidden", fontSize: 11, fontWeight: 600 }}>
+                          {dcaPct > 0 && <div style={{ width: dcaPct + "%", background: "oklch(0.80 0.10 220)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 220)" }}>
+                            {dcaPct}% DCA
+                          </div>}
+                          {preservePct > 0 && <div style={{ width: preservePct + "%", background: "oklch(0.82 0.10 150)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 150)" }}>
+                            {preservePct}% Preserve
+                          </div>}
+                        </div>
+                        <div className="footnote" style={{ marginTop: 6 }}>
+                          Suggested blend: allocate {dcaPct}% to the DCA portfolio during accumulation (until age {RETIRE_AGE}) and {preservePct}% to the Preserve portfolio for the drawdown phase. Transition gradually — not a cliff.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* drawdown correlation matrix */}
             {ddCorrelation && (

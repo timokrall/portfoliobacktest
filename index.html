@@ -1925,6 +1925,8 @@ function App() {
   const [showCosts, setShowCosts] = useState(false);
   const [showTaxes, setShowTaxes] = useState(false);
   const [showData, setShowData] = useState(false);
+  const [showPortfolio, setShowPortfolio] = useState(false);
+  const [showGoldSplit, setShowGoldSplit] = useState(false);
 
   // --- taxes ---
   const [taxRate, setTaxRate] = useState(26.375);
@@ -2620,7 +2622,7 @@ function App() {
   };
 
   // DCA / aggressive: optimizes only mwCAGR (full + CV)
-  const efDcaWinner = useMemo(() => {
+  const efAggrWinner = useMemo(() => {
     if (!efResults?.samples) return null;
     return findBestForProfile(efResults.samples, [
       ["fMwCAGR", r => r.fullMwCAGR, true],
@@ -2648,7 +2650,7 @@ function App() {
 
   // Simulate DCA and Preserve winner portfolios for charting
   const lifecycleSims = useMemo(() => {
-    if (!efResults?.basket || !commonWindow?.ok || (!efDcaWinner && !efPreserveWinner)) return null;
+    if (!efResults?.basket || !commonWindow?.ok || (!efAggrWinner && !efPreserveWinner)) return null;
     const basket = efResults.basket;
     const months = commonWindow.months;
     const monthSet = new Set(months);
@@ -2680,10 +2682,10 @@ function App() {
       });
     };
     return {
-      lc_dca: runFor(efDcaWinner, "lc_dca", "DCA / Accumulate"),
-      lc_preserve: runFor(efPreserveWinner, "lc_preserve", "Preserve / Conservative"),
+      lc_aggr: runFor(efAggrWinner, "lc_aggr", "Aggressive / Accumulate"),
+      lc_preserve: runFor(efPreserveWinner, "lc_preserve", "Conservative / Preservation"),
     };
-  }, [efDcaWinner, efPreserveWinner, efResults?.basket, efResults?.includesUserSMA, commonWindow, pfAssetSeries, series, seriesType, userSMA, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, userRebalance]);
+  }, [efAggrWinner, efPreserveWinner, efResults?.basket, efResults?.includesUserSMA, commonWindow, pfAssetSeries, series, seriesType, userSMA, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, userRebalance]);
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
@@ -3347,10 +3349,10 @@ function App() {
       const bestPf = getPF(best[0]);
       lines.push({ pid: best[0], name: bestPf?.name || best[0], src: "sim" });
     }
-    // 4. DCA / Accumulate (from lifecycle sims)
-    if (lifecycleSims?.lc_dca) lines.push({ pid: "lc_dca", name: "DCA / Accumulate", src: "lc" });
-    // 5. Preserve / Conservative (from lifecycle sims)
-    if (lifecycleSims?.lc_preserve) lines.push({ pid: "lc_preserve", name: "Preserve / Conservative", src: "lc" });
+    // 4. Aggressive / Accumulate (from lifecycle sims)
+    if (lifecycleSims?.lc_aggr) lines.push({ pid: "lc_aggr", name: "Aggressive / Accumulate", src: "lc" });
+    // 5. Conservative / Preservation (from lifecycle sims)
+    if (lifecycleSims?.lc_preserve) lines.push({ pid: "lc_preserve", name: "Conservative / Preservation", src: "lc" });
     return lines;
   }, [simResults, lifecycleSims]);
 
@@ -3359,7 +3361,7 @@ function App() {
     const months = commonWindow.months;
     // Merge simResults + lifecycle sims into one map
     const allSims = { ...simResults };
-    if (lifecycleSims?.lc_dca) allSims.lc_dca = lifecycleSims.lc_dca;
+    if (lifecycleSims?.lc_aggr) allSims.lc_aggr = lifecycleSims.lc_aggr;
     if (lifecycleSims?.lc_preserve) allSims.lc_preserve = lifecycleSims.lc_preserve;
     const pfMaps = {};
     for (const pid of Object.keys(allSims)) {
@@ -3549,7 +3551,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 8:45 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 8:57 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3569,7 +3571,7 @@ function App() {
         <div className="panel">
           <div className="panel-h" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setShowData(v => !v)}>
             <h2>{(() => {
-              const missing = ASSETS.filter(a => !a.synthetic).some(a => !series[a.id]) || !series.cpi || !series.ecb;
+              const missing = ASSETS.filter(a => !a.synthetic).some(a => !series[a.id]) || !series.cpi || !series.ecb || !series.bbk || !series.wgc;
               const open = showData || missing;
               return (open ? "\u25BC" : "\u25B6") + " Data";
             })()}</h2>
@@ -3579,7 +3581,7 @@ function App() {
             </div>
           </div>
           {(() => {
-            const missing = ASSETS.filter(a => !a.synthetic).some(a => !series[a.id]) || !series.cpi || !series.ecb;
+            const missing = ASSETS.filter(a => !a.synthetic).some(a => !series[a.id]) || !series.cpi || !series.ecb || !series.bbk || !series.wgc;
             return (showData || missing) && <div className="panel-body">
             <div className="grid grid-2" style={{ gap: 12 }}>
               {ASSETS.filter(a => !a.synthetic).map(a =>
@@ -3652,728 +3654,6 @@ function App() {
         </div>
       </div>
 
-        <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h">
-            <h2>Long-term gold vs equity split</h2>
-            <span className="h-meta">MSCI World EUR + Gold (extended history)</span>
-          </div>
-          <div className="panel-body">
-            {(!msciWorldEur || !series.gold) ? (
-              <div className="dim" style={{ fontSize: 12 }}>Upload MSCI World (USD) and EUR/USD exchange rate in section 1 to enable. Gold data also required.</div>
-            ) : (
-              <>
-                <div style={{ fontSize: 12, marginBottom: 10 }}>
-                  MSCI World EUR: {msciWorldEur.length} points · Gold: {series.gold?.length || 0} points.
-                  {mergedRates ? `Cash benchmark: merged Bundesbank/ECB rates (${new Date(mergedRates[0].t).getFullYear()}–${new Date(mergedRates[mergedRates.length-1].t).getFullYear()}).` : series.ecb ? "Cash benchmark: ECB rate only (pre-1999 = 0%)." : "No rate data for cash benchmark."}
-                  {" "}The <strong>risk optimal</strong> portfolio is the Pareto knee of score vs h*. All metrics except absolute return and max DD are <strong>cross-validated</strong>: computed on every rolling {CV_WINDOW_YEARS}-year window, showing the worst window.
-                </div>
-                <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 11, marginBottom: 8 }}>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 500 }}>
-                    <input type="checkbox" checked={optRecommendedOnly} onChange={e => setOptRecommendedOnly(e.target.checked)} /> Show recommended only
-                  </label>
-                  <span style={{ color: "var(--ink-mute)", fontSize: 10 }}>|</span>
-                  <span style={{ color: "var(--ink-mute)", fontSize: 10.5 }}>Include:</span>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
-                    <input type="checkbox" checked={optRecommendedOnly || optIncludeGoldSmaFull} disabled={optRecommendedOnly} onChange={e => setOptIncludeGoldSmaFull(e.target.checked)} /> Gold SMA (full)
-                  </label>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
-                    <input type="checkbox" checked={optRecommendedOnly || optIncludeGoldSmaTF} disabled={optRecommendedOnly} onChange={e => setOptIncludeGoldSmaTF(e.target.checked)} /> Gold SMA (tax-free)
-                  </label>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
-                    <input type="checkbox" checked={optRecommendedOnly || optIncludeEqSma} disabled={optRecommendedOnly} onChange={e => setOptIncludeEqSma(e.target.checked)} /> Equity SMA
-                  </label>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
-                    <input type="checkbox" checked={optRecommendedOnly || optIncludeReb} disabled={optRecommendedOnly} onChange={e => setOptIncludeReb(e.target.checked)} /> Rebalancing
-                  </label>
-                </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <button ref={goldOptBtnRef} className="btn btn-accent btn-xs" disabled={goldOptRunning} onClick={() => {
-                    setGoldOptRunning(true);
-                    setTimeout(() => {
-                      try {
-                        // Build monthly gold + equity maps
-                        const goldMap = new Map();
-                        for (const r of series.gold) goldMap.set(r.month, r.value);
-                        const equityMap = new Map();
-                        for (const r of msciWorldEur) equityMap.set(r.month, r.value);
-                        const allMonthsRaw = [...goldMap.keys()].filter(m => equityMap.has(m)).sort();
-                        // Start analysis from 1974-12 (gold market liberalized 1974-11-19)
-                        const allMonths = allMonthsRaw.filter(m => m >= "1974-12");
-                        if (allMonths.length < 121) { setGoldOptResult({ error: "Need \u226510 years of overlapping data" }); setGoldOptRunning(false); return; }
-                        const goldArr = allMonths.map(m => goldMap.get(m));
-                        const equityArr = allMonths.map(m => equityMap.get(m));
-
-                        // Use daily gold series for 200-SMA signal
-                        const dailyGold = seriesDaily.gold || null;
-                        // Build monthly SMA signal: for each month, was gold above 200-SMA at month-end?
-                        const smaSignal = {};
-                        let smaDebug = dailyGold ? `daily: ${dailyGold.length} rows` : "no daily data";
-                        if (dailyGold && dailyGold.length > 200) {
-                          // Compute 200-day SMA for each day
-                          const closes = dailyGold.map(d => d.value);
-                          const dates = dailyGold.map(d => d.date);
-                          const sma200 = new Array(closes.length).fill(null);
-                          let sum = 0;
-                          for (let i = 0; i < closes.length; i++) {
-                            sum += closes[i];
-                            if (i >= 200) sum -= closes[i - 200];
-                            if (i >= 199) sma200[i] = sum / 200;
-                          }
-                          // For each month, find the last trading day and check signal
-                          const monthLastDay = new Map();
-                          for (let i = 0; i < dates.length; i++) {
-                            const m = dates[i].slice(0, 7);
-                            monthLastDay.set(m, i);
-                          }
-                          for (const m of allMonths) {
-                            const idx = monthLastDay.get(m);
-                            if (idx != null && sma200[idx] != null) {
-                              smaSignal[m] = closes[idx] >= sma200[idx];
-                            }
-                          }
-                        }
-                        smaDebug += `, signals: ${Object.keys(smaSignal).length}/${allMonths.length}`;
-
-                        // Compute equity (MSCI World) SMA signal from daily data
-                        const eqSmaSignal = {};
-                        const dailyEq = seriesDaily.msciWorld || null;
-                        if (dailyEq && dailyEq.length > 200) {
-                          const eqCloses = dailyEq.map(d => d.value);
-                          const eqDates = dailyEq.map(d => d.date);
-                          const eqSma200 = new Array(eqCloses.length).fill(null);
-                          let eqSum = 0;
-                          for (let i = 0; i < eqCloses.length; i++) {
-                            eqSum += eqCloses[i];
-                            if (i >= 200) eqSum -= eqCloses[i - 200];
-                            if (i >= 199) eqSma200[i] = eqSum / 200;
-                          }
-                          const eqMonthLastDay = new Map();
-                          for (let i = 0; i < eqDates.length; i++) {
-                            const m = eqDates[i].slice(0, 7);
-                            eqMonthLastDay.set(m, i);
-                          }
-                          for (const m of allMonths) {
-                            const idx = eqMonthLastDay.get(m);
-                            if (idx != null && eqSma200[idx] != null) {
-                              eqSmaSignal[m] = eqCloses[idx] >= eqSma200[idx];
-                            }
-                          }
-                        }
-                        smaDebug += `, eq signals: ${Object.keys(eqSmaSignal).length}/${allMonths.length}`;
-
-                        const msciOngoing = (ASSETS.find(a => a.id === "msciWorld")?.defaultOngoing ?? 0.20) / 100;
-                        const mDrag = Math.pow(1 - msciOngoing, 1 / 12);
-                        const goldSellSpread = (ASSETS.find(a => a.id === "gold")?.defaultSellSpread ?? 0.20) / 100;
-                        const eqSpread = (ASSETS.find(a => a.id === "msciWorld")?.defaultBuySpread ?? 0.05) / 100;
-                        const ecbChanges = mergedRates || series.ecb || null;
-
-                        const results = [];
-                        const rebOptions = (optRecommendedOnly || optIncludeReb) ? ["never", "monthly", "yearly", "biennial"] : ["never"];
-                        const goldSmaOptions = [false];
-                        if (optRecommendedOnly || optIncludeGoldSmaFull) goldSmaOptions.push("full");
-                        if (optRecommendedOnly || optIncludeGoldSmaTF) goldSmaOptions.push("taxfree");
-                        const eqSmaOptions = ((optRecommendedOnly || optIncludeEqSma) && Object.keys(eqSmaSignal).length > 0) ? [false, true] : [false];
-
-                        const SPEKFRIST_TAX = 0.42;
-                        const EQ_CGT = 0.26375; // AbgSt on equity fund gains
-
-                        for (const useGoldSMA of goldSmaOptions) {
-                          if (useGoldSMA && Object.keys(smaSignal).length === 0) continue;
-                          for (const useEqSMA of eqSmaOptions) {
-                            for (const rebFreq of rebOptions) {
-                              for (let gPct = 0; gPct <= 100; gPct += 5) {
-                              const tgtG = gPct / 100;
-                              // Simulate with position tracking
-                              let goldVal = 100 * tgtG, eqVal = 100 * (1 - tgtG);
-                              let goldInCash = false;
-                              let goldHeldMonths = 0;
-                              let goldEntryVal = goldVal;
-                              let eqInCash = false;
-                              let eqHeldMonths = 0;
-                              let eqEntryVal = eqVal;
-                              const up = [goldVal + eqVal];
-                              for (let i = 1; i < allMonths.length; i++) {
-                                const m = allMonths[i];
-                                const prevM = allMonths[i - 1];
-                                const goldSmaOut = smaSignal[prevM] === false;
-                                const eqSmaOut = eqSmaSignal[prevM] === false;
-
-                                // --- Gold return ---
-                                let gRet;
-                                if (useGoldSMA && goldVal > 0) {
-                                  if (goldInCash) {
-                                    if (!goldSmaOut) {
-                                      goldVal *= (1 - goldSellSpread);
-                                      goldInCash = false;
-                                      goldHeldMonths = 0;
-                                      goldEntryVal = goldVal;
-                                    }
-                                    const t = Date.parse(m + "-15");
-                                    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-                                    gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-                                  } else {
-                                    if (goldSmaOut) {
-                                      const canSellTaxFree = goldHeldMonths >= 12;
-                                      const shouldSell = useGoldSMA === "full" || (useGoldSMA === "taxfree" && canSellTaxFree);
-                                      if (shouldSell) {
-                                        goldVal *= (1 - goldSellSpread);
-                                        if (!canSellTaxFree && goldVal > goldEntryVal) {
-                                          const gain = goldVal - goldEntryVal;
-                                          goldVal -= gain * SPEKFRIST_TAX;
-                                        }
-                                        goldInCash = true;
-                                        const t = Date.parse(m + "-15");
-                                        const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-                                        gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-                                      } else {
-                                        gRet = goldArr[i] / goldArr[i - 1] - 1;
-                                        goldHeldMonths++;
-                                      }
-                                    } else {
-                                      gRet = goldArr[i] / goldArr[i - 1] - 1;
-                                      goldHeldMonths++;
-                                    }
-                                  }
-                                } else {
-                                  gRet = goldArr[i] / goldArr[i - 1] - 1;
-                                  goldHeldMonths++;
-                                }
-
-                                // --- Equity return ---
-                                let eRet;
-                                if (useEqSMA && eqVal > 0) {
-                                  if (eqInCash) {
-                                    if (!eqSmaOut) {
-                                      eqVal *= (1 - eqSpread); // buy spread
-                                      eqInCash = false;
-                                      eqHeldMonths = 0;
-                                      eqEntryVal = eqVal;
-                                    }
-                                    const t = Date.parse(m + "-15");
-                                    const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-                                    eRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-                                  } else {
-                                    if (eqSmaOut) {
-                                      // Sell equity — always pay AbgSt on gains
-                                      eqVal *= (1 - eqSpread); // sell spread
-                                      if (eqVal > eqEntryVal) {
-                                        const gain = eqVal - eqEntryVal;
-                                        eqVal -= gain * EQ_CGT;
-                                      }
-                                      eqInCash = true;
-                                      const t = Date.parse(m + "-15");
-                                      const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
-                                      eRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-                                    } else {
-                                      eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
-                                      eqHeldMonths++;
-                                    }
-                                  }
-                                } else {
-                                  eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
-                                  eqHeldMonths++;
-                                }
-                                // Apply returns
-                                goldVal *= (1 + gRet);
-                                eqVal *= (1 + eRet);
-                                // Rebalancing: sell overweight gold only
-                                const curMonth = parseInt(m.slice(5, 7));
-                                const curYear = parseInt(m.slice(0, 4));
-                                const rebDue = rebFreq === "never" ? false :
-                                  rebFreq === "monthly" ? true :
-                                  rebFreq === "yearly" ? (curMonth === 1 && i > 0) :
-                                  rebFreq === "biennial" ? (curMonth === 1 && curYear % 2 === 0 && i > 0) :
-                                  false;
-                                if (rebDue && tgtG > 0 && tgtG < 1) {
-                                  const total = goldVal + eqVal;
-                                  const goldShare = goldVal / total;
-                                  if (goldShare > tgtG + 0.005) {
-                                    const excess = goldVal - tgtG * total;
-                                    const proceeds = excess * (1 - goldSellSpread); // sell spread on gold
-                                    goldVal -= excess;
-                                    eqVal += proceeds;
-                                  }
-                                }
-                                up.push(goldVal + eqVal);
-                              }
-                              // Compute metrics
-                              const cv = minWindowMetrics(up, allMonths, series.cpi, ecbChanges);
-                              const fullScore = integratedRiskReturn(up, null, null, allMonths, series.cpi, ecbChanges);
-                              const rets = [];
-                              for (let i = 1; i < up.length; i++) rets.push(up[i] / up[i - 1] - 1);
-                              const meanR = rets.reduce((s, r) => s + r, 0) / rets.length;
-                              const dsDev = Math.sqrt(rets.reduce((s, r) => s + Math.pow(Math.min(0, r), 2), 0) / rets.length);
-                              const sortino = dsDev > 0 ? (meanR / dsDev) * Math.sqrt(12) : 0;
-                              let peak = up[0], maxDD = 0;
-                              for (const u of up) { peak = Math.max(peak, u); maxDD = Math.min(maxDD, u / peak - 1); }
-                              // h* — smallest horizon where ALL rolling windows preserve real value
-                              let hStar = null;
-                              if (series.cpi) {
-                                const cpMap = new Map(series.cpi.map(x => [x.month, x.value]));
-                                for (let hy = 1; hy * 12 < up.length; hy++) {
-                                  const hm = hy * 12;
-                                  let allOk = true;
-                                  for (let j = 0; j + hm < up.length; j++) {
-                                    const cpiA = cpMap.get(allMonths[j]), cpiB = cpMap.get(allMonths[j + hm]);
-                                    if (cpiA && cpiB && cpiA > 0) {
-                                      if ((up[j + hm] / up[j]) / (cpiB / cpiA) < 1) { allOk = false; break; }
-                                    }
-                                  }
-                                  if (allOk) { hStar = hy; break; }
-                                }
-                              }
-                              results.push({ goldPct: gPct, sma: useGoldSMA, eqSma: useEqSMA, reb: rebFreq, cvScore: cv?.score ?? null, fullScore, sortino, maxDD, gain: up[up.length - 1] / up[0] - 1, hStar });
-                            }
-                          }
-                        }
-                        }
-                        // Find best by CV score
-                        const valid = results.filter(r => r.cvScore != null);
-                        // Pareto knee: score vs h* — find the point where sacrificing more
-                        // return for a shorter h* becomes disproportionately expensive
-                        let best = null;
-                        const withHStar = valid.filter(r => r.hStar != null);
-                        if (withHStar.length > 0) {
-                          const scoreMin = Math.min(...withHStar.map(r => r.cvScore));
-                          const scoreMax = Math.max(...withHStar.map(r => r.cvScore));
-                          const hMin = Math.min(...withHStar.map(r => r.hStar));
-                          const hMax = Math.max(...withHStar.map(r => r.hStar));
-                          const scoreRange = scoreMax - scoreMin || 1;
-                          const hRange = hMax - hMin || 1;
-                          let bestKnee = -Infinity;
-                          for (const r of withHStar) {
-                            const normScore = (r.cvScore - scoreMin) / scoreRange;
-                            const normH = 1 - (r.hStar - hMin) / hRange; // shorter h* = better
-                            const knee = normScore + normH;
-                            if (knee > bestKnee) { bestKnee = knee; best = r; }
-                          }
-                        } else if (valid.length > 0) {
-                          // No h* found — fall back to best CV score
-                          best = valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
-                        }
-                        const bestCV = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
-                        const bestFS = valid.filter(r => r.fullScore != null).length > 0 ? valid.filter(r => r.fullScore != null).reduce((a, b) => b.fullScore > a.fullScore ? b : a) : null;
-                        const bestHStar = withHStar.length > 0 ? withHStar.reduce((a, b) => a.hStar < b.hStar ? a : (a.hStar === b.hStar && a.cvScore > b.cvScore ? a : b)) : null;
-                        // Buy-and-hold optimal: Pareto knee among no-SMA, no-rebalancing rows
-                        const bhRows = valid.filter(r => !r.sma && !r.eqSma && r.reb === "never");
-                        let bestBH = null;
-                        const bhWithH = bhRows.filter(r => r.hStar != null);
-                        if (bhWithH.length > 0) {
-                          const sMin = Math.min(...bhWithH.map(r => r.cvScore));
-                          const sMax = Math.max(...bhWithH.map(r => r.cvScore));
-                          const hMin2 = Math.min(...bhWithH.map(r => r.hStar));
-                          const hMax2 = Math.max(...bhWithH.map(r => r.hStar));
-                          const sR = sMax - sMin || 1, hR = hMax2 - hMin2 || 1;
-                          let bestK = -Infinity;
-                          for (const r of bhWithH) {
-                            const k = (r.cvScore - sMin) / sR + (1 - (r.hStar - hMin2) / hR);
-                            if (k > bestK) { bestK = k; bestBH = r; }
-                          }
-                        } else if (bhRows.length > 0) {
-                          bestBH = bhRows.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
-                        }
-                        setGoldOptResult({ results, best, bestCV, bestFS, bestHStar, bestBH, recommendedOnly: optRecommendedOnly, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
-                      } catch (e) { setGoldOptResult({ error: e.message }); }
-                      setGoldOptRunning(false);
-                    }, 50);
-                  }}>
-                    {goldOptRunning && <span className="spin"></span>} Run optimization
-                  </button>
-                </div>
-                {goldOptResult?.error && <div style={{ color: "var(--neg)", fontSize: 12, marginTop: 8 }}>{goldOptResult.error}</div>}
-                {goldOptResult?.results && (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
-                      {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
-                      {goldOptResult.smaDebug && !goldOptResult.recommendedOnly && <> SMA: {goldOptResult.smaDebug}.</>}
-                      {goldOptResult.recommendedOnly ? (<>
-                        {goldOptResult.bestBH && <><strong> Buy-and-hold optimal: {goldOptResult.bestBH.goldPct}% gold, h*={goldOptResult.bestBH.hStar || "\u2014"}y.</strong></>}
-                        {goldOptResult.best && (goldOptResult.best.sma || goldOptResult.best.eqSma || goldOptResult.best.reb !== "never") && <><strong> Risk optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y.</strong></>}
-                      </>) : (<>
-                        {goldOptResult.best && <strong> Risk optimal (Pareto knee score vs h*): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y. </strong>}
-                        {goldOptResult.bestCV && <> Best worst-decade (CV): {goldOptResult.bestCV.goldPct}% gold{goldOptResult.bestCV.sma === "full" ? " + SMA" : ""}, CV {fmtPct(goldOptResult.bestCV.cvScore)}.</>}
-                        {goldOptResult.bestHStar && <> Shortest h*: {goldOptResult.bestHStar.hStar}y ({goldOptResult.bestHStar.goldPct}% gold{goldOptResult.bestHStar.sma === "full" ? " + SMA" : ""}).</>}
-                        {goldOptResult.bestFS && <> Best full-period: {goldOptResult.bestFS.goldPct}% gold{goldOptResult.bestFS.sma === "full" ? " + SMA" : ""}{goldOptResult.bestFS.reb !== "never" ? ` + ${goldOptResult.bestFS.reb}` : ""}, Full {fmtPct(goldOptResult.bestFS.fullScore)}.</>}
-                        {goldOptResult.hasSMA && (() => {
-                          const bestSMATF = goldOptResult.results.filter(r => r.sma === "taxfree" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
-                          const bestNoSMA = goldOptResult.results.filter(r => !r.sma && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
-                          return <>
-                            {bestSMATF && <> Best SMA (tax-free): {bestSMATF.goldPct}% gold, CV {fmtPct(bestSMATF.cvScore)}.</>}
-                            {bestNoSMA && <> Best no SMA: {bestNoSMA.goldPct}% gold, CV {fmtPct(bestNoSMA.cvScore)}.</>}
-                          </>;
-                        })()}
-                      </>)}
-                    </div>
-                    {goldOptResult.recommendedOnly && (goldOptResult.bestBH || goldOptResult.best) && (
-                      <div style={{ marginTop: 8, marginBottom: 14 }}>
-                        {(() => {
-                          const bhGold = goldOptResult.bestBH?.goldPct;
-                          if (bhGold == null) return null;
-                          const activeRows = goldOptResult.results.filter(r => r.goldPct === bhGold && (r.sma || r.eqSma || r.reb !== "never") && r.cvScore != null);
-                          let bestActive = null;
-                          const activeWithH = activeRows.filter(r => r.hStar != null);
-                          if (activeWithH.length > 0) {
-                            const sMin = Math.min(...activeWithH.map(r => r.cvScore)), sMax = Math.max(...activeWithH.map(r => r.cvScore));
-                            const hMin = Math.min(...activeWithH.map(r => r.hStar)), hMax = Math.max(...activeWithH.map(r => r.hStar));
-                            let bestK = -Infinity;
-                            for (const r of activeWithH) {
-                              const k = (r.cvScore - sMin) / (sMax - sMin || 1) + (1 - (r.hStar - hMin) / (hMax - hMin || 1));
-                              if (k > bestK) { bestK = k; bestActive = r; }
-                            }
-                          } else if (activeRows.length > 0) {
-                            bestActive = activeRows.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
-                          }
-                          const makeUseBtn = (r) => (
-                            <button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
-                              const gPct = r.goldPct;
-                              const holdable = ASSETS.filter(a => a.holdable);
-                              const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
-                              const eqPer = Math.floor((100 - gPct) / nonGold.length);
-                              let rem = (100 - gPct) - eqPer * nonGold.length;
-                              const w = {};
-                              for (const a of holdable) {
-                                if (a.id === "gold") w[a.id] = gPct;
-                                else if (a.id === "silver") w[a.id] = 0;
-                                else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
-                              }
-                              setUserWeights(w);
-                              setUpperLimits(prev => { const next = { ...prev }; for (const a of ASSETS.filter(a => a.holdable)) { if (a.id !== 'silver') next[a.id] = gPct; } return next; });
-                              setLockedAssets(prev => ({ ...prev, gold: true }));
-                              setUserSMA(prev => {
-                                const u = { ...prev, gold: !!r.sma };
-                                for (const a of holdable) { if (a.equity) u[a.id] = !!r.eqSma; }
-                                return u;
-                              });
-                              setUserRebalance(prev => ({ ...prev, gold: r.reb !== "never" }));
-                              if (r.reb !== "never") setRebalance(r.reb);
-                            }}>Use</button>
-                          );
-                          const headerRow = (th) => <thead><tr><th>{th}</th><th style={{ textAlign: "right" }}>Gold %</th><th style={{ textAlign: "center" }}>Gold SMA</th><th style={{ textAlign: "right" }}>h*</th><th style={{ textAlign: "right" }}>CV Score</th><th style={{ textAlign: "right" }}>Max DD</th><th style={{ textAlign: "right" }}>Gain</th><th></th></tr></thead>;
-                          const dataRow = (r, highlight) => (
-                            <tr style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
-                              <td style={{ fontWeight: 500 }}>
-                                {r.goldPct}% gold{r.sma === "full" ? " + SMA" : r.sma === "taxfree" ? " + SMA (tf)" : ""}{r.eqSma ? " + eq SMA" : ""}{r.reb !== "never" ? ` + ${r.reb} reb.` : r.sma || r.eqSma ? "" : " (pure buy-and-hold)"}
-                              </td>
-                              <td className="num" style={{ textAlign: "right" }}>{r.goldPct}%</td>
-                              <td style={{ textAlign: "center" }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : "\u2014"}</td>
-                              <td className="num" style={{ textAlign: "right" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
-                              <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
-                              <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
-                              <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
-                              <td>{makeUseBtn(r)}</td>
-                            </tr>
-                          );
-                          return <>
-                            <table className="bt" style={{ fontSize: 11.5, marginBottom: 12 }}>
-                              {headerRow("Buy-and-hold recommendation")}
-                              <tbody>{dataRow(goldOptResult.bestBH, true)}</tbody>
-                            </table>
-                          </>;
-                        })()}
-                      </div>
-                    )}
-                    {goldOptResult.recommendedOnly && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                      <div className="dim" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Theoretically risk-optimal allocations <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(warning: likely overfitted to backtest duration)</span></div>
-                      <button className="btn btn-xs btn-ghost" style={{ fontSize: 10 }} onClick={() => setGoldOptTableCollapsed(p => !p)}>{goldOptTableCollapsed ? "Show ▼" : "Hide ▲"}</button>
-                    </div>}
-                    {(!goldOptResult.recommendedOnly || !goldOptTableCollapsed) && <>
-                    <table className="bt" style={{ fontSize: 11 }}>
-                      <thead><tr>
-                        {[
-                          { col: "goldPct", label: "Gold %", align: "right" },
-                          { col: "sma", label: "Gold SMA", align: "center" },
-                          { col: "eqSma", label: "Eq SMA", align: "center" },
-                          { col: "reb", label: "Rebalance", align: "left" },
-                          { col: "hStar", label: "h*", align: "right" },
-                          { col: "cvScore", label: "CV Score", align: "right" },
-                          { col: "fullScore", label: "Full Score", align: "right" },
-                          { col: "sortino", label: "Sortino", align: "right" },
-                          { col: "maxDD", label: "Max DD", align: "right" },
-                          { col: "gain", label: "Gain", align: "right" },
-                          { col: "kneeScore", label: "Score", align: "right" },
-                        ].map(h => (
-                          <th key={h.col} style={{ textAlign: h.align, cursor: "pointer", userSelect: "none" }}
-                            onClick={() => setGoldOptSort(prev => prev.col === h.col ? { col: h.col, asc: !prev.asc } : { col: h.col, asc: false })}>
-                            {h.label}{goldOptSort.col === h.col ? (goldOptSort.asc ? " \u25B2" : " \u25BC") : ""}
-                          </th>
-                        ))}
-                        <th></th>
-                      </tr></thead>
-                      <tbody>
-                        {(() => {
-                          let withScores = goldOptResult.results.filter(r => r.cvScore != null);
-                          // In recommended mode: show only buy-and-hold rows + risk optimal
-                          if (goldOptResult.recommendedOnly) {
-                            const bhOnly = withScores.filter(r => !r.sma && !r.eqSma && r.reb === "never");
-                            // Add risk-optimal row if it uses SMA/rebalancing
-                            const riskOpt = goldOptResult.best;
-                            if (riskOpt && (riskOpt.sma || riskOpt.eqSma || riskOpt.reb !== "never")) {
-                              bhOnly.push(riskOpt);
-                            }
-                            withScores = bhOnly;
-                          }
-                          // Compute knee scores for default sort
-                          const withH = withScores.filter(r => r.hStar != null);
-                          const noH = withScores.filter(r => r.hStar == null);
-                          let scored;
-                          if (withH.length > 0) {
-                            const scoreMin = Math.min(...withH.map(r => r.cvScore));
-                            const scoreMax = Math.max(...withH.map(r => r.cvScore));
-                            const hMin = Math.min(...withH.map(r => r.hStar));
-                            const hMax = Math.max(...withH.map(r => r.hStar));
-                            const sRange = scoreMax - scoreMin || 1;
-                            const hRange = hMax - hMin || 1;
-                            scored = withH.map(r => ({
-                              ...r,
-                              kneeScore: (r.cvScore - scoreMin) / sRange + (1 - (r.hStar - hMin) / hRange),
-                            }));
-                            noH.forEach(r => scored.push({ ...r, kneeScore: -Infinity }));
-                          } else {
-                            scored = withScores.map(r => ({ ...r, kneeScore: r.cvScore ?? -Infinity }));
-                          }
-                          // Apply user sort
-                          const sc = goldOptSort.col;
-                          const dir = goldOptSort.asc ? 1 : -1;
-                          if (sc === "kneeScore") {
-                            scored.sort((a, b) => dir * ((b.kneeScore ?? -Infinity) - (a.kneeScore ?? -Infinity)));
-                          } else {
-                            scored.sort((a, b) => {
-                              let av = a[sc], bv = b[sc];
-                              if (av == null) av = sc === "hStar" ? 999 : -Infinity;
-                              if (bv == null) bv = sc === "hStar" ? 999 : -Infinity;
-                              if (typeof av === "boolean") { av = av ? 1 : 0; bv = bv ? 1 : 0; }
-                              if (typeof av === "string") return dir * av.localeCompare(bv);
-                              return dir * (bv - av);
-                            });
-                          }
-                          const top30 = scored.slice(0, 30);
-                          const bestSMAFull = scored.find(r => r.sma === "full");
-                          const bestSMATF = scored.find(r => r.sma === "taxfree");
-                          const bestNoSMA = scored.find(r => !r.sma && !r.eqSma);
-                          const bestEqSMA = scored.find(r => r.eqSma && !r.sma);
-                          const bestReb = scored.find(r => r.reb !== "never");
-                          const shown = new Set(top30.map(r => `${r.goldPct}-${r.sma}-${r.eqSma}-${r.reb}`));
-                          const extras = [];
-                          for (const x of [bestSMAFull, bestSMATF, bestNoSMA, bestEqSMA, bestReb]) {
-                            if (x && !shown.has(`${x.goldPct}-${x.sma}-${x.eqSma}-${x.reb}`)) { extras.push(x); shown.add(`${x.goldPct}-${x.sma}-${x.eqSma}-${x.reb}`); }
-                          }
-                          return [...top30, ...extras].map((r, i) => (
-                          <tr key={`${r.goldPct}-${r.sma}-${r.eqSma}-${r.reb}`} style={goldOptResult.best && r.goldPct === goldOptResult.best.goldPct && r.sma === goldOptResult.best.sma && r.eqSma === goldOptResult.best.eqSma && r.reb === goldOptResult.best.reb ? { background: "oklch(0.97 0.02 150)" } : {}}>
-                            <td className="num" style={{ textAlign: "right", fontWeight: i === 0 ? 700 : 400 }}>{r.goldPct}%</td>
-                            <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : ""}</td>
-                            <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.eqSma ? "\u2713" : ""}</td>
-                            <td style={{ fontSize: 10.5 }}>{r.reb === "never" ? "\u2014" : r.reb}</td>
-                            <td className="num" style={{ textAlign: "right", fontWeight: r.hStar ? 400 : 300, color: r.hStar ? "var(--ink)" : "var(--ink-mute)" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{r.fullScore != null ? fmtPct(r.fullScore) : "\u2014"}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.sortino, 3)}</td>
-                            <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
-                            <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{r.kneeScore != null && r.kneeScore > -Infinity ? fmtNum(r.kneeScore, 3) : "\u2014"}</td>
-                            <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
-                              const gPct = r.goldPct;
-                              const holdable = ASSETS.filter(a => a.holdable);
-                              const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
-                              const eqPer = Math.floor((100 - gPct) / nonGold.length);
-                              let rem = (100 - gPct) - eqPer * nonGold.length;
-                              const w = {};
-                              for (const a of holdable) {
-                                if (a.id === "gold") w[a.id] = gPct;
-                                else if (a.id === "silver") w[a.id] = 0;
-                                else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
-                              }
-                              setUserWeights(w);
-                              setUpperLimits(prev => { const next = { ...prev }; for (const a of ASSETS.filter(a => a.holdable)) { if (a.id !== 'silver') next[a.id] = gPct; } return next; });
-                              setLockedAssets(prev => ({ ...prev, gold: true }));
-                              setUserSMA(prev => ({ ...prev, gold: !!r.sma }));
-                              // Set equity SMA for all equity assets
-                              const eqSmaUpdate = {};
-                              for (const a of holdable) { if (a.equity) eqSmaUpdate[a.id] = !!r.eqSma; }
-                              setUserSMA(prev => ({ ...prev, gold: !!r.sma, ...eqSmaUpdate }));
-                              setUserRebalance(prev => ({ ...prev, gold: r.reb !== "never" }));
-                              setRebalance(r.reb !== "never" ? r.reb : rebalance);
-                            }}>Use</button></td>
-                          </tr>
-                          ));
-                        })()}
-                      </tbody>
-                    </table>
-                    <div className="small-note" style={{ marginTop: 6 }}>
-                      Showing top 30 (plus best of each SMA variant). Gold SMA: ✓ = full (sell always, 42% tax if &lt;12mo), tf = tax-free only (sell only if ≥12mo held). Eq SMA: ✓ = equity sold when below 200-day SMA (26.375% AbgSt on gains, spread cost), cash earns deposit rate.
-                      Rebalancing = sell overweight gold only, proceeds buy equity. Equities are only sold via equity SMA, never via rebalancing.
-                    </div>
-                    </>}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-h"><h2>Portfolio</h2></div>
-          <div className="panel-body">
-            <div style={{ marginBottom: 16 }}>
-              <button className="btn btn-accent" style={{ width: "100%", padding: "12px 20px", fontSize: 14, fontWeight: 600 }}
-                disabled={efRunning || goldOptRunning || !commonWindow?.ok}
-                onClick={() => {
-                  // If gold optimizer data is available, run it first to find optimal gold split
-                  if (msciWorldEur && series.gold && goldOptBtnRef.current) {
-                    setAutoOptPending(true);
-                    goldOptBtnRef.current.click();
-                  } else {
-                    // No gold data — just run the frontier with current weights
-                    runEfficientFrontier();
-                  }
-                }}>
-                {efRunning || goldOptRunning ? "Running…" : "\u2728 Suggest optimum portfolio allocation"}
-              </button>
-              {(goldOptRunning || efRunning) && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>
-                    <span className="spin"></span>
-                    {goldOptRunning
-                      ? "Step 1/2 \u2014 Optimizing gold/equity split\u2026"
-                      : `Step 2/2 \u2014 Frontier grid search\u2026 ${efProgress.done} / ${efProgress.total}`}
-                  </div>
-                  <div style={{ height: 6, borderRadius: 3, background: "var(--line)", overflow: "hidden" }}>
-                    <div style={{
-                      height: "100%", borderRadius: 3, transition: "width 0.3s ease",
-                      background: "oklch(0.55 0.15 220)",
-                      width: goldOptRunning ? "15%" : (efProgress.total > 0 ? (15 + 85 * efProgress.done / efProgress.total) + "%" : "15%"),
-                    }} />
-                  </div>
-                </div>
-              )}
-              {!efResults && !(goldOptRunning || efRunning) && <div className="small-note" style={{ marginTop: 4, textAlign: "center" }}>Runs the gold optimizer to find optimal gold/equity split, then searches the efficient frontier for the best equity mix.</div>}
-            </div>
-            <div style={{ marginTop: 0 }}>
-              <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
-              <div className="seg">
-                {["never", "monthly", "yearly", "biennial"].map(r =>
-                  <button key={r} className={rebalance === r ? "on" : ""} onClick={() => setRebalance(r)}>
-                    {r === "biennial" ? "every 2 years" : r}
-                  </button>)}
-              </div>
-            </div>
-
-            <hr style={{ margin: "18px 0" }} />
-            <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>My portfolio &middot; set a % share per asset &middot; total must = 100 &middot; SMA = daily 200-SMA timing of that leg</span>
-              <span className="mono" style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 4, background: userWeightTotal === 100 ? "oklch(0.94 0.04 155)" : userWeightTotal === 0 ? "var(--hover)" : "oklch(0.95 0.06 60)", color: userWeightTotal === 100 ? "oklch(0.32 0.07 155)" : userWeightTotal === 0 ? "var(--ink-mute)" : "oklch(0.40 0.13 60)" }}>
-                Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
-              </span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px 36px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
-              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
-              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
-              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
-              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
-              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }} title="Maximum weight % allowed in the efficient frontier grid search">MAX</div>
-              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Lock this asset — weight and MAX won't change with bulk buttons, frontier won't vary it">🔒</div>
-              {ASSETS.filter(a => a.holdable).map(a => {
-                const w = userWeights[a.id] ?? 0;
-                const canSMA = true;   // gold + silver SMA now supported
-                const sma = !!userSMA[a.id];
-                const reb = !!userRebalance[a.id];
-                return (
-                  <React.Fragment key={a.id}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: w > 0 ? 500 : 400, color: w > 0 ? "var(--ink)" : "var(--ink-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {a.label}
-                      </div>
-                      <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
-                    </div>
-                    <input type="number" min="0" max="100" step="1" value={w}
-                           style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
-                           onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
-                    <div style={{ display: "flex", justifyContent: "center" }}>
-                      {canSMA
-                        ? <input type="checkbox" checked={sma} disabled={w === 0}
-                                 onChange={e => setUserSMA(s => ({ ...s, [a.id]: e.target.checked }))} />
-                        : <span className="dim" style={{ fontSize: 10 }}>—</span>}
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "center" }}>
-                      <input type="checkbox" checked={reb} disabled={w === 0}
-                             onChange={e => setUserRebalance(s => ({ ...s, [a.id]: e.target.checked }))} />
-                    </div>
-                    <input type="number" min="0" max="100" step="5" value={upperLimits[a.id] ?? 100}
-                           style={{ textAlign: "right", padding: "4px 6px", fontSize: 11, width: "100%" }}
-                           onChange={e => setUpperLimits(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
-                    <div style={{ display: "flex", justifyContent: "center" }}>
-                      <input type="checkbox" checked={!!lockedAssets[a.id]}
-                             onChange={e => setLockedAssets(s => ({ ...s, [a.id]: e.target.checked }))} />
-                    </div>
-                  </React.Fragment>
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-              <button className="btn btn-xs" onClick={() => {
-                const total = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
-                if (total <= 0) return;
-                const lockedTotal = Object.entries(userWeights).filter(([k]) => lockedAssets[k]).reduce((s, [, v]) => s + (v || 0), 0);
-                const unlocked = Object.keys(userWeights).filter(k => !lockedAssets[k]);
-                const unlockedTotal = total - lockedTotal;
-                const target = 100 - lockedTotal;
-                if (unlockedTotal <= 0 || target <= 0) return;
-                const scaled = { ...userWeights };
-                let acc = 0;
-                unlocked.forEach((k, i) => {
-                  if (i < unlocked.length - 1) { const v = Math.round((userWeights[k] || 0) * target / unlockedTotal); scaled[k] = v; acc += v; }
-                  else { scaled[k] = target - acc; }
-                });
-                setUserWeights(scaled);
-              }}>Normalize to 100</button>
-              <button className="btn btn-xs" onClick={() => {
-                const holdable = ASSETS.filter(a => a.holdable);
-                const lockedTotal = holdable.filter(a => lockedAssets[a.id]).reduce((s, a) => s + (userWeights[a.id] || 0), 0);
-                const unlocked = holdable.filter(a => !lockedAssets[a.id]);
-                const remaining = Math.max(0, 100 - lockedTotal);
-                const n = unlocked.length;
-                if (n === 0) return;
-                const base = Math.floor(remaining / n);
-                let remainder = remaining - base * n;
-                const eq = { ...userWeights };
-                for (const a of unlocked) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
-                setUserWeights(eq);
-              }}>Equal weight all</button>
-              <button className="btn btn-xs btn-ghost" onClick={() => {
-                const kept = {};
-                for (const [k, v] of Object.entries(userWeights)) { if (lockedAssets[k]) kept[k] = v; }
-                setUserWeights(kept);
-                const keptSMA = {};
-                for (const [k, v] of Object.entries(userSMA)) { if (lockedAssets[k]) keptSMA[k] = v; }
-                setUserSMA(keptSMA);
-              }}>Clear</button>
-              <button className="btn btn-xs btn-ghost"
-                disabled={userWeightTotal >= 100}
-                style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
-                onClick={fillMinCorrelation}
-                title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
-              <span style={{ flex: 1 }}></span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
-                Set all MAX to
-                <input type="number" min="0" max="100" step="5" value={bulkLimit}
-                  style={{ width: 44, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
-                  onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
-                <button className="btn btn-xs" onClick={() => setUpperLimits(prev => {
-                  const next = { ...prev };
-                  for (const a of ASSETS.filter(a => a.holdable)) { if (!lockedAssets[a.id]) next[a.id] = bulkLimit; }
-                  return next;
-                })}>Apply</button>
-              </span>
-            </div>
-            <div className="small-note" style={{ marginTop: 8 }}>
-              <strong>SMA</strong> — 200-day simple moving average timing. When ticked, this leg sells to cash when the daily price falls below the 200-day SMA and re-enters when it crosses back above. Reduces drawdowns at the cost of whipsaw losses in trendless markets.<br/>
-              <strong>REB</strong> — yearly rebalancing. When ticked, if this asset is overweight vs its target at each rebalancing date, the excess is sold (gold: only matured lots, tax-free under Spekulationsfrist; funds: subject to CGT) and proceeds are redistributed to underweight assets.<br/>
-              <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".<br/>
-              <strong>🔒</strong> — lock this asset. Locked assets keep their weight and MAX when using Normalize, Equal weight, Clear, or Set all MAX. The frontier fixes locked assets at their current weight instead of varying them.
-            </div>
-          </div>
-        </div>
-
-
       {/* --- WINDOW + RESULTS --- */}
       <div style={{ marginTop: 26 }}>
         {!commonWindow && <Empty msg="Select at least one portfolio." />}
@@ -4394,7 +3674,7 @@ function App() {
 
             {/* Lifecycle recommendation */}
             <div className="panel" style={{ marginBottom: 18 }}>
-              <div className="panel-h"><h2>Lifecycle recommendation</h2><span className="h-meta">accumulation → preservation glide path</span></div>
+              <div className="panel-h"><h2>Lifecycle recommendation</h2><span className="h-meta">aggressive → conservative glide path</span></div>
               <div className="panel-body">
                 {(() => {
                   const LIFE_EXP = 80.9;
@@ -4404,8 +3684,8 @@ function App() {
                   const remaining = age != null ? Math.max(0, LIFE_EXP - age) : null;
                   const accumYears = age != null ? Math.max(0, RETIRE_AGE - age) : null;
                   const preserveYears = remaining != null && accumYears != null ? remaining - accumYears : null;
-                  const dcaPct = remaining > 0 && accumYears != null ? Math.round(100 * accumYears / remaining) : null;
-                  const preservePct = dcaPct != null ? 100 - dcaPct : null;
+                  const aggrPct = remaining > 0 && accumYears != null ? Math.round(100 * accumYears / remaining) : null;
+                  const preservePct = aggrPct != null ? 100 - aggrPct : null;
                   return <>
                     <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -4431,30 +3711,62 @@ function App() {
                         </span>
                       )}
                     </div>
-                    {age != null && remaining > 0 && dcaPct != null && (
+                    <div style={{ marginBottom: 16 }}>
+                      <button className="btn btn-accent" style={{ width: "100%", padding: "12px 20px", fontSize: 14, fontWeight: 600 }}
+                        disabled={efRunning || goldOptRunning || !commonWindow?.ok}
+                        onClick={() => {
+                          if (msciWorldEur && series.gold && goldOptBtnRef.current) {
+                            setAutoOptPending(true);
+                            goldOptBtnRef.current.click();
+                          } else {
+                            runEfficientFrontier();
+                          }
+                        }}>
+                        {efRunning || goldOptRunning ? "Running…" : "\u2728 Suggest optimum portfolio allocation"}
+                      </button>
+                      {(goldOptRunning || efRunning) && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>
+                            <span className="spin"></span>
+                            {goldOptRunning
+                              ? "Step 1/2 \u2014 Optimizing gold/equity split\u2026"
+                              : `Step 2/2 \u2014 Frontier grid search\u2026 ${efProgress.done} / ${efProgress.total}`}
+                          </div>
+                          <div style={{ height: 6, borderRadius: 3, background: "var(--line)", overflow: "hidden" }}>
+                            <div style={{
+                              height: "100%", borderRadius: 3, transition: "width 0.3s ease",
+                              background: "oklch(0.55 0.15 220)",
+                              width: goldOptRunning ? "15%" : (efProgress.total > 0 ? (15 + 85 * efProgress.done / efProgress.total) + "%" : "15%"),
+                            }} />
+                          </div>
+                        </div>
+                      )}
+                      {!efResults && !(goldOptRunning || efRunning) && <div className="small-note" style={{ marginTop: 4, textAlign: "center" }}>Finds optimal gold/equity split, then searches the efficient frontier for the best equity mix.</div>}
+                    </div>
+                    {age != null && remaining > 0 && aggrPct != null && (
                       <div style={{ marginBottom: 16 }}>
                         <div style={{ display: "flex", height: 28, borderRadius: 6, overflow: "hidden", fontSize: 11, fontWeight: 600 }}>
-                          {dcaPct > 0 && <div style={{ width: dcaPct + "%", background: "oklch(0.80 0.10 220)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 220)" }}>
-                            {dcaPct}% DCA
+                          {aggrPct > 0 && <div style={{ width: aggrPct + "%", background: "oklch(0.80 0.10 220)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 220)" }}>
+                            {aggrPct}% Aggressive
                           </div>}
                           {preservePct > 0 && <div style={{ width: preservePct + "%", background: "oklch(0.82 0.10 150)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(0.25 0.05 150)" }}>
-                            {preservePct}% Preserve
+                            {preservePct}% Conservative
                           </div>}
                         </div>
                       </div>
                     )}
-                    {efResults && efDcaWinner && efPreserveWinner && (() => {
+                    {efResults && efAggrWinner && efPreserveWinner && (() => {
                       const basket = efResults.basket;
                       const fmtW = (sample) => basket.map((a, i) => {
                         const pct = Math.round(sample.weights[i] * 100);
                         return pct > 0 ? (ASSETS.find(x => x.id === a)?.shortName || a) + " " + pct + "%" : null;
                       }).filter(Boolean).join(" \u00b7 ");
                       // Per-asset EUR allocation
-                      const dcaEur = investAmount > 0 && dcaPct != null ? investAmount * dcaPct / 100 : 0;
+                      const aggrEur = investAmount > 0 && aggrPct != null ? investAmount * aggrPct / 100 : 0;
                       const presEur = investAmount > 0 && preservePct != null ? investAmount * preservePct / 100 : 0;
                       const assetAlloc = {};
                       basket.forEach((a, i) => {
-                        const d = dcaEur * (efDcaWinner.weights[i] || 0);
+                        const d = aggrEur * (efAggrWinner.weights[i] || 0);
                         const p = presEur * (efPreserveWinner.weights[i] || 0);
                         if (d + p > 0.5) assetAlloc[a] = { dca: d, preserve: p, total: d + p };
                       });
@@ -4462,15 +3774,15 @@ function App() {
                       return (<>
                         <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: investAmount > 0 && allocEntries.length > 0 ? 16 : 0 }}>
                           <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 220)" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>DCA / Accumulation{dcaEur > 0 ? ` \u2014 ${Math.round(dcaEur).toLocaleString()} \u20ac` : ""}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>Aggressive / Accumulation{aggrEur > 0 ? ` \u2014 ${Math.round(aggrEur).toLocaleString()} \u20ac` : ""}</div>
                             <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for money-weighted CAGR (full period + worst decade)</div>
-                            <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efDcaWinner)}</div>
+                            <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efAggrWinner)}</div>
                             <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
-                              mwCAGR {fmtPct(efDcaWinner.fullMwCAGR)} · Max DD {fmtPct(efDcaWinner.maxDD)} · Gain {fmtPct(efDcaWinner.finalRatio - 1)}
+                              mwCAGR {fmtPct(efAggrWinner.fullMwCAGR)} · Max DD {fmtPct(efAggrWinner.maxDD)} · Gain {fmtPct(efAggrWinner.finalRatio - 1)}
                             </div>
                           </div>
                           <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 150)" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Preserve / Conservative{presEur > 0 ? ` \u2014 ${Math.round(presEur).toLocaleString()} \u20ac` : ""}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Conservative / Preservation{presEur > 0 ? ` \u2014 ${Math.round(presEur).toLocaleString()} \u20ac` : ""}</div>
                             <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for risk-adjusted unit-price metrics (all except mwCAGR/mwCalmar)</div>
                             <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efPreserveWinner)}</div>
                             <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
@@ -4489,7 +3801,7 @@ function App() {
                                   <div style={{ fontSize: 12, fontWeight: 600 }}>{ASSETS.find(x => x.id === a)?.shortName || a}</div>
                                   <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{Math.round(v.total).toLocaleString()} \u20ac</div>
                                   <div style={{ fontSize: 10, color: "var(--ink-soft)", marginTop: 2 }}>
-                                    {v.dca > 0.5 ? `${Math.round(v.dca).toLocaleString()} DCA` : ""}{v.dca > 0.5 && v.preserve > 0.5 ? " + " : ""}{v.preserve > 0.5 ? `${Math.round(v.preserve).toLocaleString()} Pres.` : ""}
+                                    {v.dca > 0.5 ? `${Math.round(v.dca).toLocaleString()} DCA` : ""}{v.dca > 0.5 && v.preserve > 0.5 ? " + " : ""}{v.preserve > 0.5 ? `${Math.round(v.preserve).toLocaleString()} Cons.` : ""}
                                   </div>
                                 </div>
                               ))}
@@ -4498,11 +3810,703 @@ function App() {
                         )}
                       </>);
                     })()}
-                    {!efResults && <div className="dim" style={{ fontSize: 12 }}>Run the efficient frontier to see DCA and Preserve portfolio recommendations.</div>}
+                    {!efResults && <div className="dim" style={{ fontSize: 12 }}>Run the efficient frontier to see DCA and Conservative portfolio recommendations.</div>}
                   </>;
                 })()}
               </div>
             </div>
+
+            <div className="panel" style={{ marginTop: 18 }}>
+              <div className="panel-h" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setShowGoldSplit(v => !v)}>
+                <h2>{showGoldSplit ? "\u25BC" : "\u25B6"} Long-term gold vs equity split</h2>
+                <span className="h-meta">MSCI World EUR + Gold (extended history)</span>
+              </div>
+              {showGoldSplit && <div className="panel-body">
+                {(!msciWorldEur || !series.gold) ? (
+                  <div className="dim" style={{ fontSize: 12 }}>Upload MSCI World (USD) and EUR/USD exchange rate in section 1 to enable. Gold data also required.</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, marginBottom: 10 }}>
+                      MSCI World EUR: {msciWorldEur.length} points · Gold: {series.gold?.length || 0} points.
+                      {mergedRates ? `Cash benchmark: merged Bundesbank/ECB rates (${new Date(mergedRates[0].t).getFullYear()}–${new Date(mergedRates[mergedRates.length-1].t).getFullYear()}).` : series.ecb ? "Cash benchmark: ECB rate only (pre-1999 = 0%)." : "No rate data for cash benchmark."}
+                      {" "}The <strong>risk optimal</strong> portfolio is the Pareto knee of score vs h*. All metrics except absolute return and max DD are <strong>cross-validated</strong>: computed on every rolling {CV_WINDOW_YEARS}-year window, showing the worst window.
+                    </div>
+                    <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 11, marginBottom: 8 }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 500 }}>
+                        <input type="checkbox" checked={optRecommendedOnly} onChange={e => setOptRecommendedOnly(e.target.checked)} /> Show recommended only
+                      </label>
+                      <span style={{ color: "var(--ink-mute)", fontSize: 10 }}>|</span>
+                      <span style={{ color: "var(--ink-mute)", fontSize: 10.5 }}>Include:</span>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
+                        <input type="checkbox" checked={optRecommendedOnly || optIncludeGoldSmaFull} disabled={optRecommendedOnly} onChange={e => setOptIncludeGoldSmaFull(e.target.checked)} /> Gold SMA (full)
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
+                        <input type="checkbox" checked={optRecommendedOnly || optIncludeGoldSmaTF} disabled={optRecommendedOnly} onChange={e => setOptIncludeGoldSmaTF(e.target.checked)} /> Gold SMA (tax-free)
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
+                        <input type="checkbox" checked={optRecommendedOnly || optIncludeEqSma} disabled={optRecommendedOnly} onChange={e => setOptIncludeEqSma(e.target.checked)} /> Equity SMA
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
+                        <input type="checkbox" checked={optRecommendedOnly || optIncludeReb} disabled={optRecommendedOnly} onChange={e => setOptIncludeReb(e.target.checked)} /> Rebalancing
+                      </label>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <button ref={goldOptBtnRef} className="btn btn-accent btn-xs" disabled={goldOptRunning} onClick={() => {
+                        setGoldOptRunning(true);
+                        setTimeout(() => {
+                          try {
+                            // Build monthly gold + equity maps
+                            const goldMap = new Map();
+                            for (const r of series.gold) goldMap.set(r.month, r.value);
+                            const equityMap = new Map();
+                            for (const r of msciWorldEur) equityMap.set(r.month, r.value);
+                            const allMonthsRaw = [...goldMap.keys()].filter(m => equityMap.has(m)).sort();
+                            // Start analysis from 1974-12 (gold market liberalized 1974-11-19)
+                            const allMonths = allMonthsRaw.filter(m => m >= "1974-12");
+                            if (allMonths.length < 121) { setGoldOptResult({ error: "Need \u226510 years of overlapping data" }); setGoldOptRunning(false); return; }
+                            const goldArr = allMonths.map(m => goldMap.get(m));
+                            const equityArr = allMonths.map(m => equityMap.get(m));
+
+                            // Use daily gold series for 200-SMA signal
+                            const dailyGold = seriesDaily.gold || null;
+                            // Build monthly SMA signal: for each month, was gold above 200-SMA at month-end?
+                            const smaSignal = {};
+                            let smaDebug = dailyGold ? `daily: ${dailyGold.length} rows` : "no daily data";
+                            if (dailyGold && dailyGold.length > 200) {
+                              // Compute 200-day SMA for each day
+                              const closes = dailyGold.map(d => d.value);
+                              const dates = dailyGold.map(d => d.date);
+                              const sma200 = new Array(closes.length).fill(null);
+                              let sum = 0;
+                              for (let i = 0; i < closes.length; i++) {
+                                sum += closes[i];
+                                if (i >= 200) sum -= closes[i - 200];
+                                if (i >= 199) sma200[i] = sum / 200;
+                              }
+                              // For each month, find the last trading day and check signal
+                              const monthLastDay = new Map();
+                              for (let i = 0; i < dates.length; i++) {
+                                const m = dates[i].slice(0, 7);
+                                monthLastDay.set(m, i);
+                              }
+                              for (const m of allMonths) {
+                                const idx = monthLastDay.get(m);
+                                if (idx != null && sma200[idx] != null) {
+                                  smaSignal[m] = closes[idx] >= sma200[idx];
+                                }
+                              }
+                            }
+                            smaDebug += `, signals: ${Object.keys(smaSignal).length}/${allMonths.length}`;
+
+                            // Compute equity (MSCI World) SMA signal from daily data
+                            const eqSmaSignal = {};
+                            const dailyEq = seriesDaily.msciWorld || null;
+                            if (dailyEq && dailyEq.length > 200) {
+                              const eqCloses = dailyEq.map(d => d.value);
+                              const eqDates = dailyEq.map(d => d.date);
+                              const eqSma200 = new Array(eqCloses.length).fill(null);
+                              let eqSum = 0;
+                              for (let i = 0; i < eqCloses.length; i++) {
+                                eqSum += eqCloses[i];
+                                if (i >= 200) eqSum -= eqCloses[i - 200];
+                                if (i >= 199) eqSma200[i] = eqSum / 200;
+                              }
+                              const eqMonthLastDay = new Map();
+                              for (let i = 0; i < eqDates.length; i++) {
+                                const m = eqDates[i].slice(0, 7);
+                                eqMonthLastDay.set(m, i);
+                              }
+                              for (const m of allMonths) {
+                                const idx = eqMonthLastDay.get(m);
+                                if (idx != null && eqSma200[idx] != null) {
+                                  eqSmaSignal[m] = eqCloses[idx] >= eqSma200[idx];
+                                }
+                              }
+                            }
+                            smaDebug += `, eq signals: ${Object.keys(eqSmaSignal).length}/${allMonths.length}`;
+
+                            const msciOngoing = (ASSETS.find(a => a.id === "msciWorld")?.defaultOngoing ?? 0.20) / 100;
+                            const mDrag = Math.pow(1 - msciOngoing, 1 / 12);
+                            const goldSellSpread = (ASSETS.find(a => a.id === "gold")?.defaultSellSpread ?? 0.20) / 100;
+                            const eqSpread = (ASSETS.find(a => a.id === "msciWorld")?.defaultBuySpread ?? 0.05) / 100;
+                            const ecbChanges = mergedRates || series.ecb || null;
+
+                            const results = [];
+                            const rebOptions = (optRecommendedOnly || optIncludeReb) ? ["never", "monthly", "yearly", "biennial"] : ["never"];
+                            const goldSmaOptions = [false];
+                            if (optRecommendedOnly || optIncludeGoldSmaFull) goldSmaOptions.push("full");
+                            if (optRecommendedOnly || optIncludeGoldSmaTF) goldSmaOptions.push("taxfree");
+                            const eqSmaOptions = ((optRecommendedOnly || optIncludeEqSma) && Object.keys(eqSmaSignal).length > 0) ? [false, true] : [false];
+
+                            const SPEKFRIST_TAX = 0.42;
+                            const EQ_CGT = 0.26375; // AbgSt on equity fund gains
+
+                            for (const useGoldSMA of goldSmaOptions) {
+                              if (useGoldSMA && Object.keys(smaSignal).length === 0) continue;
+                              for (const useEqSMA of eqSmaOptions) {
+                                for (const rebFreq of rebOptions) {
+                                  for (let gPct = 0; gPct <= 100; gPct += 5) {
+                                  const tgtG = gPct / 100;
+                                  // Simulate with position tracking
+                                  let goldVal = 100 * tgtG, eqVal = 100 * (1 - tgtG);
+                                  let goldInCash = false;
+                                  let goldHeldMonths = 0;
+                                  let goldEntryVal = goldVal;
+                                  let eqInCash = false;
+                                  let eqHeldMonths = 0;
+                                  let eqEntryVal = eqVal;
+                                  const up = [goldVal + eqVal];
+                                  for (let i = 1; i < allMonths.length; i++) {
+                                    const m = allMonths[i];
+                                    const prevM = allMonths[i - 1];
+                                    const goldSmaOut = smaSignal[prevM] === false;
+                                    const eqSmaOut = eqSmaSignal[prevM] === false;
+
+                                    // --- Gold return ---
+                                    let gRet;
+                                    if (useGoldSMA && goldVal > 0) {
+                                      if (goldInCash) {
+                                        if (!goldSmaOut) {
+                                          goldVal *= (1 - goldSellSpread);
+                                          goldInCash = false;
+                                          goldHeldMonths = 0;
+                                          goldEntryVal = goldVal;
+                                        }
+                                        const t = Date.parse(m + "-15");
+                                        const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                        gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                      } else {
+                                        if (goldSmaOut) {
+                                          const canSellTaxFree = goldHeldMonths >= 12;
+                                          const shouldSell = useGoldSMA === "full" || (useGoldSMA === "taxfree" && canSellTaxFree);
+                                          if (shouldSell) {
+                                            goldVal *= (1 - goldSellSpread);
+                                            if (!canSellTaxFree && goldVal > goldEntryVal) {
+                                              const gain = goldVal - goldEntryVal;
+                                              goldVal -= gain * SPEKFRIST_TAX;
+                                            }
+                                            goldInCash = true;
+                                            const t = Date.parse(m + "-15");
+                                            const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                            gRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                          } else {
+                                            gRet = goldArr[i] / goldArr[i - 1] - 1;
+                                            goldHeldMonths++;
+                                          }
+                                        } else {
+                                          gRet = goldArr[i] / goldArr[i - 1] - 1;
+                                          goldHeldMonths++;
+                                        }
+                                      }
+                                    } else {
+                                      gRet = goldArr[i] / goldArr[i - 1] - 1;
+                                      goldHeldMonths++;
+                                    }
+
+                                    // --- Equity return ---
+                                    let eRet;
+                                    if (useEqSMA && eqVal > 0) {
+                                      if (eqInCash) {
+                                        if (!eqSmaOut) {
+                                          eqVal *= (1 - eqSpread); // buy spread
+                                          eqInCash = false;
+                                          eqHeldMonths = 0;
+                                          eqEntryVal = eqVal;
+                                        }
+                                        const t = Date.parse(m + "-15");
+                                        const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                        eRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                      } else {
+                                        if (eqSmaOut) {
+                                          // Sell equity — always pay AbgSt on gains
+                                          eqVal *= (1 - eqSpread); // sell spread
+                                          if (eqVal > eqEntryVal) {
+                                            const gain = eqVal - eqEntryVal;
+                                            eqVal -= gain * EQ_CGT;
+                                          }
+                                          eqInCash = true;
+                                          const t = Date.parse(m + "-15");
+                                          const annRate = ecbChanges ? (ecbRateAt(ecbChanges, t) ?? 0) : 0;
+                                          eRet = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+                                        } else {
+                                          eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
+                                          eqHeldMonths++;
+                                        }
+                                      }
+                                    } else {
+                                      eRet = (equityArr[i] / equityArr[i - 1]) * mDrag - 1;
+                                      eqHeldMonths++;
+                                    }
+                                    // Apply returns
+                                    goldVal *= (1 + gRet);
+                                    eqVal *= (1 + eRet);
+                                    // Rebalancing: sell overweight gold only
+                                    const curMonth = parseInt(m.slice(5, 7));
+                                    const curYear = parseInt(m.slice(0, 4));
+                                    const rebDue = rebFreq === "never" ? false :
+                                      rebFreq === "monthly" ? true :
+                                      rebFreq === "yearly" ? (curMonth === 1 && i > 0) :
+                                      rebFreq === "biennial" ? (curMonth === 1 && curYear % 2 === 0 && i > 0) :
+                                      false;
+                                    if (rebDue && tgtG > 0 && tgtG < 1) {
+                                      const total = goldVal + eqVal;
+                                      const goldShare = goldVal / total;
+                                      if (goldShare > tgtG + 0.005) {
+                                        const excess = goldVal - tgtG * total;
+                                        const proceeds = excess * (1 - goldSellSpread); // sell spread on gold
+                                        goldVal -= excess;
+                                        eqVal += proceeds;
+                                      }
+                                    }
+                                    up.push(goldVal + eqVal);
+                                  }
+                                  // Compute metrics
+                                  const cv = minWindowMetrics(up, allMonths, series.cpi, ecbChanges);
+                                  const fullScore = integratedRiskReturn(up, null, null, allMonths, series.cpi, ecbChanges);
+                                  const rets = [];
+                                  for (let i = 1; i < up.length; i++) rets.push(up[i] / up[i - 1] - 1);
+                                  const meanR = rets.reduce((s, r) => s + r, 0) / rets.length;
+                                  const dsDev = Math.sqrt(rets.reduce((s, r) => s + Math.pow(Math.min(0, r), 2), 0) / rets.length);
+                                  const sortino = dsDev > 0 ? (meanR / dsDev) * Math.sqrt(12) : 0;
+                                  let peak = up[0], maxDD = 0;
+                                  for (const u of up) { peak = Math.max(peak, u); maxDD = Math.min(maxDD, u / peak - 1); }
+                                  // h* — smallest horizon where ALL rolling windows preserve real value
+                                  let hStar = null;
+                                  if (series.cpi) {
+                                    const cpMap = new Map(series.cpi.map(x => [x.month, x.value]));
+                                    for (let hy = 1; hy * 12 < up.length; hy++) {
+                                      const hm = hy * 12;
+                                      let allOk = true;
+                                      for (let j = 0; j + hm < up.length; j++) {
+                                        const cpiA = cpMap.get(allMonths[j]), cpiB = cpMap.get(allMonths[j + hm]);
+                                        if (cpiA && cpiB && cpiA > 0) {
+                                          if ((up[j + hm] / up[j]) / (cpiB / cpiA) < 1) { allOk = false; break; }
+                                        }
+                                      }
+                                      if (allOk) { hStar = hy; break; }
+                                    }
+                                  }
+                                  results.push({ goldPct: gPct, sma: useGoldSMA, eqSma: useEqSMA, reb: rebFreq, cvScore: cv?.score ?? null, fullScore, sortino, maxDD, gain: up[up.length - 1] / up[0] - 1, hStar });
+                                }
+                              }
+                            }
+                            }
+                            // Find best by CV score
+                            const valid = results.filter(r => r.cvScore != null);
+                            // Pareto knee: score vs h* — find the point where sacrificing more
+                            // return for a shorter h* becomes disproportionately expensive
+                            let best = null;
+                            const withHStar = valid.filter(r => r.hStar != null);
+                            if (withHStar.length > 0) {
+                              const scoreMin = Math.min(...withHStar.map(r => r.cvScore));
+                              const scoreMax = Math.max(...withHStar.map(r => r.cvScore));
+                              const hMin = Math.min(...withHStar.map(r => r.hStar));
+                              const hMax = Math.max(...withHStar.map(r => r.hStar));
+                              const scoreRange = scoreMax - scoreMin || 1;
+                              const hRange = hMax - hMin || 1;
+                              let bestKnee = -Infinity;
+                              for (const r of withHStar) {
+                                const normScore = (r.cvScore - scoreMin) / scoreRange;
+                                const normH = 1 - (r.hStar - hMin) / hRange; // shorter h* = better
+                                const knee = normScore + normH;
+                                if (knee > bestKnee) { bestKnee = knee; best = r; }
+                              }
+                            } else if (valid.length > 0) {
+                              // No h* found — fall back to best CV score
+                              best = valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
+                            }
+                            const bestCV = valid.length > 0 ? valid.reduce((a, b) => b.cvScore > a.cvScore ? b : a) : null;
+                            const bestFS = valid.filter(r => r.fullScore != null).length > 0 ? valid.filter(r => r.fullScore != null).reduce((a, b) => b.fullScore > a.fullScore ? b : a) : null;
+                            const bestHStar = withHStar.length > 0 ? withHStar.reduce((a, b) => a.hStar < b.hStar ? a : (a.hStar === b.hStar && a.cvScore > b.cvScore ? a : b)) : null;
+                            // Buy-and-hold optimal: Pareto knee among no-SMA, no-rebalancing rows
+                            const bhRows = valid.filter(r => !r.sma && !r.eqSma && r.reb === "never");
+                            let bestBH = null;
+                            const bhWithH = bhRows.filter(r => r.hStar != null);
+                            if (bhWithH.length > 0) {
+                              const sMin = Math.min(...bhWithH.map(r => r.cvScore));
+                              const sMax = Math.max(...bhWithH.map(r => r.cvScore));
+                              const hMin2 = Math.min(...bhWithH.map(r => r.hStar));
+                              const hMax2 = Math.max(...bhWithH.map(r => r.hStar));
+                              const sR = sMax - sMin || 1, hR = hMax2 - hMin2 || 1;
+                              let bestK = -Infinity;
+                              for (const r of bhWithH) {
+                                const k = (r.cvScore - sMin) / sR + (1 - (r.hStar - hMin2) / hR);
+                                if (k > bestK) { bestK = k; bestBH = r; }
+                              }
+                            } else if (bhRows.length > 0) {
+                              bestBH = bhRows.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
+                            }
+                            setGoldOptResult({ results, best, bestCV, bestFS, bestHStar, bestBH, recommendedOnly: optRecommendedOnly, months: allMonths.length, range: `${allMonths[0]} \u2192 ${allMonths[allMonths.length - 1]}`, hasSMA: Object.keys(smaSignal).length > 0, smaDebug });
+                          } catch (e) { setGoldOptResult({ error: e.message }); }
+                          setGoldOptRunning(false);
+                        }, 50);
+                      }}>
+                        {goldOptRunning && <span className="spin"></span>} Run optimization
+                      </button>
+                    </div>
+                    {goldOptResult?.error && <div style={{ color: "var(--neg)", fontSize: 12, marginTop: 8 }}>{goldOptResult.error}</div>}
+                    {goldOptResult?.results && (
+                      <div style={{ marginTop: 12 }}>
+                        <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
+                          {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
+                          {goldOptResult.smaDebug && !goldOptResult.recommendedOnly && <> SMA: {goldOptResult.smaDebug}.</>}
+                          {goldOptResult.recommendedOnly ? (<>
+                            {goldOptResult.bestBH && <><strong> Buy-and-hold optimal: {goldOptResult.bestBH.goldPct}% gold, h*={goldOptResult.bestBH.hStar || "\u2014"}y.</strong></>}
+                            {goldOptResult.best && (goldOptResult.best.sma || goldOptResult.best.eqSma || goldOptResult.best.reb !== "never") && <><strong> Risk optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y.</strong></>}
+                          </>) : (<>
+                            {goldOptResult.best && <strong> Risk optimal (Pareto knee score vs h*): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y. </strong>}
+                            {goldOptResult.bestCV && <> Best worst-decade (CV): {goldOptResult.bestCV.goldPct}% gold{goldOptResult.bestCV.sma === "full" ? " + SMA" : ""}, CV {fmtPct(goldOptResult.bestCV.cvScore)}.</>}
+                            {goldOptResult.bestHStar && <> Shortest h*: {goldOptResult.bestHStar.hStar}y ({goldOptResult.bestHStar.goldPct}% gold{goldOptResult.bestHStar.sma === "full" ? " + SMA" : ""}).</>}
+                            {goldOptResult.bestFS && <> Best full-period: {goldOptResult.bestFS.goldPct}% gold{goldOptResult.bestFS.sma === "full" ? " + SMA" : ""}{goldOptResult.bestFS.reb !== "never" ? ` + ${goldOptResult.bestFS.reb}` : ""}, Full {fmtPct(goldOptResult.bestFS.fullScore)}.</>}
+                            {goldOptResult.hasSMA && (() => {
+                              const bestSMATF = goldOptResult.results.filter(r => r.sma === "taxfree" && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
+                              const bestNoSMA = goldOptResult.results.filter(r => !r.sma && r.cvScore != null).sort((a, b) => b.cvScore - a.cvScore)[0];
+                              return <>
+                                {bestSMATF && <> Best SMA (tax-free): {bestSMATF.goldPct}% gold, CV {fmtPct(bestSMATF.cvScore)}.</>}
+                                {bestNoSMA && <> Best no SMA: {bestNoSMA.goldPct}% gold, CV {fmtPct(bestNoSMA.cvScore)}.</>}
+                              </>;
+                            })()}
+                          </>)}
+                        </div>
+                        {goldOptResult.recommendedOnly && (goldOptResult.bestBH || goldOptResult.best) && (
+                          <div style={{ marginTop: 8, marginBottom: 14 }}>
+                            {(() => {
+                              const bhGold = goldOptResult.bestBH?.goldPct;
+                              if (bhGold == null) return null;
+                              const activeRows = goldOptResult.results.filter(r => r.goldPct === bhGold && (r.sma || r.eqSma || r.reb !== "never") && r.cvScore != null);
+                              let bestActive = null;
+                              const activeWithH = activeRows.filter(r => r.hStar != null);
+                              if (activeWithH.length > 0) {
+                                const sMin = Math.min(...activeWithH.map(r => r.cvScore)), sMax = Math.max(...activeWithH.map(r => r.cvScore));
+                                const hMin = Math.min(...activeWithH.map(r => r.hStar)), hMax = Math.max(...activeWithH.map(r => r.hStar));
+                                let bestK = -Infinity;
+                                for (const r of activeWithH) {
+                                  const k = (r.cvScore - sMin) / (sMax - sMin || 1) + (1 - (r.hStar - hMin) / (hMax - hMin || 1));
+                                  if (k > bestK) { bestK = k; bestActive = r; }
+                                }
+                              } else if (activeRows.length > 0) {
+                                bestActive = activeRows.reduce((a, b) => b.cvScore > a.cvScore ? b : a);
+                              }
+                              const makeUseBtn = (r) => (
+                                <button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
+                                  const gPct = r.goldPct;
+                                  const holdable = ASSETS.filter(a => a.holdable);
+                                  const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
+                                  const eqPer = Math.floor((100 - gPct) / nonGold.length);
+                                  let rem = (100 - gPct) - eqPer * nonGold.length;
+                                  const w = {};
+                                  for (const a of holdable) {
+                                    if (a.id === "gold") w[a.id] = gPct;
+                                    else if (a.id === "silver") w[a.id] = 0;
+                                    else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
+                                  }
+                                  setUserWeights(w);
+                                  setUpperLimits(prev => { const next = { ...prev }; for (const a of ASSETS.filter(a => a.holdable)) { if (a.id !== 'silver') next[a.id] = gPct; } return next; });
+                                  setLockedAssets(prev => ({ ...prev, gold: true }));
+                                  setUserSMA(prev => {
+                                    const u = { ...prev, gold: !!r.sma };
+                                    for (const a of holdable) { if (a.equity) u[a.id] = !!r.eqSma; }
+                                    return u;
+                                  });
+                                  setUserRebalance(prev => ({ ...prev, gold: r.reb !== "never" }));
+                                  if (r.reb !== "never") setRebalance(r.reb);
+                                }}>Use</button>
+                              );
+                              const headerRow = (th) => <thead><tr><th>{th}</th><th style={{ textAlign: "right" }}>Gold %</th><th style={{ textAlign: "center" }}>Gold SMA</th><th style={{ textAlign: "right" }}>h*</th><th style={{ textAlign: "right" }}>CV Score</th><th style={{ textAlign: "right" }}>Max DD</th><th style={{ textAlign: "right" }}>Gain</th><th></th></tr></thead>;
+                              const dataRow = (r, highlight) => (
+                                <tr style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
+                                  <td style={{ fontWeight: 500 }}>
+                                    {r.goldPct}% gold{r.sma === "full" ? " + SMA" : r.sma === "taxfree" ? " + SMA (tf)" : ""}{r.eqSma ? " + eq SMA" : ""}{r.reb !== "never" ? ` + ${r.reb} reb.` : r.sma || r.eqSma ? "" : " (pure buy-and-hold)"}
+                                  </td>
+                                  <td className="num" style={{ textAlign: "right" }}>{r.goldPct}%</td>
+                                  <td style={{ textAlign: "center" }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : "\u2014"}</td>
+                                  <td className="num" style={{ textAlign: "right" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
+                                  <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
+                                  <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
+                                  <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
+                                  <td>{makeUseBtn(r)}</td>
+                                </tr>
+                              );
+                              return <>
+                                <table className="bt" style={{ fontSize: 11.5, marginBottom: 12 }}>
+                                  {headerRow("Buy-and-hold recommendation")}
+                                  <tbody>{dataRow(goldOptResult.bestBH, true)}</tbody>
+                                </table>
+                              </>;
+                            })()}
+                          </div>
+                        )}
+                        {goldOptResult.recommendedOnly && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <div className="dim" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Theoretically risk-optimal allocations <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(warning: likely overfitted to backtest duration)</span></div>
+                          <button className="btn btn-xs btn-ghost" style={{ fontSize: 10 }} onClick={() => setGoldOptTableCollapsed(p => !p)}>{goldOptTableCollapsed ? "Show ▼" : "Hide ▲"}</button>
+                        </div>}
+                        {(!goldOptResult.recommendedOnly || !goldOptTableCollapsed) && <>
+                        <table className="bt" style={{ fontSize: 11 }}>
+                          <thead><tr>
+                            {[
+                              { col: "goldPct", label: "Gold %", align: "right" },
+                              { col: "sma", label: "Gold SMA", align: "center" },
+                              { col: "eqSma", label: "Eq SMA", align: "center" },
+                              { col: "reb", label: "Rebalance", align: "left" },
+                              { col: "hStar", label: "h*", align: "right" },
+                              { col: "cvScore", label: "CV Score", align: "right" },
+                              { col: "fullScore", label: "Full Score", align: "right" },
+                              { col: "sortino", label: "Sortino", align: "right" },
+                              { col: "maxDD", label: "Max DD", align: "right" },
+                              { col: "gain", label: "Gain", align: "right" },
+                              { col: "kneeScore", label: "Score", align: "right" },
+                            ].map(h => (
+                              <th key={h.col} style={{ textAlign: h.align, cursor: "pointer", userSelect: "none" }}
+                                onClick={() => setGoldOptSort(prev => prev.col === h.col ? { col: h.col, asc: !prev.asc } : { col: h.col, asc: false })}>
+                                {h.label}{goldOptSort.col === h.col ? (goldOptSort.asc ? " \u25B2" : " \u25BC") : ""}
+                              </th>
+                            ))}
+                            <th></th>
+                          </tr></thead>
+                          <tbody>
+                            {(() => {
+                              let withScores = goldOptResult.results.filter(r => r.cvScore != null);
+                              // In recommended mode: show only buy-and-hold rows + risk optimal
+                              if (goldOptResult.recommendedOnly) {
+                                const bhOnly = withScores.filter(r => !r.sma && !r.eqSma && r.reb === "never");
+                                // Add risk-optimal row if it uses SMA/rebalancing
+                                const riskOpt = goldOptResult.best;
+                                if (riskOpt && (riskOpt.sma || riskOpt.eqSma || riskOpt.reb !== "never")) {
+                                  bhOnly.push(riskOpt);
+                                }
+                                withScores = bhOnly;
+                              }
+                              // Compute knee scores for default sort
+                              const withH = withScores.filter(r => r.hStar != null);
+                              const noH = withScores.filter(r => r.hStar == null);
+                              let scored;
+                              if (withH.length > 0) {
+                                const scoreMin = Math.min(...withH.map(r => r.cvScore));
+                                const scoreMax = Math.max(...withH.map(r => r.cvScore));
+                                const hMin = Math.min(...withH.map(r => r.hStar));
+                                const hMax = Math.max(...withH.map(r => r.hStar));
+                                const sRange = scoreMax - scoreMin || 1;
+                                const hRange = hMax - hMin || 1;
+                                scored = withH.map(r => ({
+                                  ...r,
+                                  kneeScore: (r.cvScore - scoreMin) / sRange + (1 - (r.hStar - hMin) / hRange),
+                                }));
+                                noH.forEach(r => scored.push({ ...r, kneeScore: -Infinity }));
+                              } else {
+                                scored = withScores.map(r => ({ ...r, kneeScore: r.cvScore ?? -Infinity }));
+                              }
+                              // Apply user sort
+                              const sc = goldOptSort.col;
+                              const dir = goldOptSort.asc ? 1 : -1;
+                              if (sc === "kneeScore") {
+                                scored.sort((a, b) => dir * ((b.kneeScore ?? -Infinity) - (a.kneeScore ?? -Infinity)));
+                              } else {
+                                scored.sort((a, b) => {
+                                  let av = a[sc], bv = b[sc];
+                                  if (av == null) av = sc === "hStar" ? 999 : -Infinity;
+                                  if (bv == null) bv = sc === "hStar" ? 999 : -Infinity;
+                                  if (typeof av === "boolean") { av = av ? 1 : 0; bv = bv ? 1 : 0; }
+                                  if (typeof av === "string") return dir * av.localeCompare(bv);
+                                  return dir * (bv - av);
+                                });
+                              }
+                              const top30 = scored.slice(0, 30);
+                              const bestSMAFull = scored.find(r => r.sma === "full");
+                              const bestSMATF = scored.find(r => r.sma === "taxfree");
+                              const bestNoSMA = scored.find(r => !r.sma && !r.eqSma);
+                              const bestEqSMA = scored.find(r => r.eqSma && !r.sma);
+                              const bestReb = scored.find(r => r.reb !== "never");
+                              const shown = new Set(top30.map(r => `${r.goldPct}-${r.sma}-${r.eqSma}-${r.reb}`));
+                              const extras = [];
+                              for (const x of [bestSMAFull, bestSMATF, bestNoSMA, bestEqSMA, bestReb]) {
+                                if (x && !shown.has(`${x.goldPct}-${x.sma}-${x.eqSma}-${x.reb}`)) { extras.push(x); shown.add(`${x.goldPct}-${x.sma}-${x.eqSma}-${x.reb}`); }
+                              }
+                              return [...top30, ...extras].map((r, i) => (
+                              <tr key={`${r.goldPct}-${r.sma}-${r.eqSma}-${r.reb}`} style={goldOptResult.best && r.goldPct === goldOptResult.best.goldPct && r.sma === goldOptResult.best.sma && r.eqSma === goldOptResult.best.eqSma && r.reb === goldOptResult.best.reb ? { background: "oklch(0.97 0.02 150)" } : {}}>
+                                <td className="num" style={{ textAlign: "right", fontWeight: i === 0 ? 700 : 400 }}>{r.goldPct}%</td>
+                                <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : ""}</td>
+                                <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.eqSma ? "\u2713" : ""}</td>
+                                <td style={{ fontSize: 10.5 }}>{r.reb === "never" ? "\u2014" : r.reb}</td>
+                                <td className="num" style={{ textAlign: "right", fontWeight: r.hStar ? 400 : 300, color: r.hStar ? "var(--ink)" : "var(--ink-mute)" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
+                                <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
+                                <td className="num" style={{ textAlign: "right" }}>{r.fullScore != null ? fmtPct(r.fullScore) : "\u2014"}</td>
+                                <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.sortino, 3)}</td>
+                                <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
+                                <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
+                                <td className="num" style={{ textAlign: "right" }}>{r.kneeScore != null && r.kneeScore > -Infinity ? fmtNum(r.kneeScore, 3) : "\u2014"}</td>
+                                <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
+                                  const gPct = r.goldPct;
+                                  const holdable = ASSETS.filter(a => a.holdable);
+                                  const nonGold = holdable.filter(a => a.id !== "gold" && a.id !== "silver");
+                                  const eqPer = Math.floor((100 - gPct) / nonGold.length);
+                                  let rem = (100 - gPct) - eqPer * nonGold.length;
+                                  const w = {};
+                                  for (const a of holdable) {
+                                    if (a.id === "gold") w[a.id] = gPct;
+                                    else if (a.id === "silver") w[a.id] = 0;
+                                    else { w[a.id] = eqPer + (rem > 0 ? 1 : 0); if (rem > 0) rem--; }
+                                  }
+                                  setUserWeights(w);
+                                  setUpperLimits(prev => { const next = { ...prev }; for (const a of ASSETS.filter(a => a.holdable)) { if (a.id !== 'silver') next[a.id] = gPct; } return next; });
+                                  setLockedAssets(prev => ({ ...prev, gold: true }));
+                                  setUserSMA(prev => ({ ...prev, gold: !!r.sma }));
+                                  // Set equity SMA for all equity assets
+                                  const eqSmaUpdate = {};
+                                  for (const a of holdable) { if (a.equity) eqSmaUpdate[a.id] = !!r.eqSma; }
+                                  setUserSMA(prev => ({ ...prev, gold: !!r.sma, ...eqSmaUpdate }));
+                                  setUserRebalance(prev => ({ ...prev, gold: r.reb !== "never" }));
+                                  setRebalance(r.reb !== "never" ? r.reb : rebalance);
+                                }}>Use</button></td>
+                              </tr>
+                              ));
+                            })()}
+                          </tbody>
+                        </table>
+                        <div className="small-note" style={{ marginTop: 6 }}>
+                          Showing top 30 (plus best of each SMA variant). Gold SMA: ✓ = full (sell always, 42% tax if &lt;12mo), tf = tax-free only (sell only if ≥12mo held). Eq SMA: ✓ = equity sold when below 200-day SMA (26.375% AbgSt on gains, spread cost), cash earns deposit rate.
+                          Rebalancing = sell overweight gold only, proceeds buy equity. Equities are only sold via equity SMA, never via rebalancing.
+                        </div>
+                        </>}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>}
+            </div>
+
+
+            <div className="panel" style={{ marginTop: 18 }}>
+              <div className="panel-h" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setShowPortfolio(v => !v)}>
+                <h2>{showPortfolio ? "\u25BC" : "\u25B6"} Portfolio</h2>
+              </div>
+              {showPortfolio && <div className="panel-body">
+                <div style={{ marginTop: 0 }}>
+                  <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
+                  <div className="seg">
+                    {["never", "monthly", "yearly", "biennial"].map(r =>
+                      <button key={r} className={rebalance === r ? "on" : ""} onClick={() => setRebalance(r)}>
+                        {r === "biennial" ? "every 2 years" : r}
+                      </button>)}
+                  </div>
+                </div>
+
+                <hr style={{ margin: "18px 0" }} />
+                <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>My portfolio &middot; set a % share per asset &middot; total must = 100 &middot; SMA = daily 200-SMA timing of that leg</span>
+                  <span className="mono" style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 4, background: userWeightTotal === 100 ? "oklch(0.94 0.04 155)" : userWeightTotal === 0 ? "var(--hover)" : "oklch(0.95 0.06 60)", color: userWeightTotal === 100 ? "oklch(0.32 0.07 155)" : userWeightTotal === 0 ? "var(--ink-mute)" : "oklch(0.40 0.13 60)" }}>
+                    Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px 36px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }} title="Maximum weight % allowed in the efficient frontier grid search">MAX</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Lock this asset — weight and MAX won't change with bulk buttons, frontier won't vary it">🔒</div>
+                  {ASSETS.filter(a => a.holdable).map(a => {
+                    const w = userWeights[a.id] ?? 0;
+                    const canSMA = true;   // gold + silver SMA now supported
+                    const sma = !!userSMA[a.id];
+                    const reb = !!userRebalance[a.id];
+                    return (
+                      <React.Fragment key={a.id}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: w > 0 ? 500 : 400, color: w > 0 ? "var(--ink)" : "var(--ink-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {a.label}
+                          </div>
+                          <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
+                        </div>
+                        <input type="number" min="0" max="100" step="1" value={w}
+                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
+                               onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          {canSMA
+                            ? <input type="checkbox" checked={sma} disabled={w === 0}
+                                     onChange={e => setUserSMA(s => ({ ...s, [a.id]: e.target.checked }))} />
+                            : <span className="dim" style={{ fontSize: 10 }}>—</span>}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <input type="checkbox" checked={reb} disabled={w === 0}
+                                 onChange={e => setUserRebalance(s => ({ ...s, [a.id]: e.target.checked }))} />
+                        </div>
+                        <input type="number" min="0" max="100" step="5" value={upperLimits[a.id] ?? 100}
+                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 11, width: "100%" }}
+                               onChange={e => setUpperLimits(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <input type="checkbox" checked={!!lockedAssets[a.id]}
+                                 onChange={e => setLockedAssets(s => ({ ...s, [a.id]: e.target.checked }))} />
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                  <button className="btn btn-xs" onClick={() => {
+                    const total = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
+                    if (total <= 0) return;
+                    const lockedTotal = Object.entries(userWeights).filter(([k]) => lockedAssets[k]).reduce((s, [, v]) => s + (v || 0), 0);
+                    const unlocked = Object.keys(userWeights).filter(k => !lockedAssets[k]);
+                    const unlockedTotal = total - lockedTotal;
+                    const target = 100 - lockedTotal;
+                    if (unlockedTotal <= 0 || target <= 0) return;
+                    const scaled = { ...userWeights };
+                    let acc = 0;
+                    unlocked.forEach((k, i) => {
+                      if (i < unlocked.length - 1) { const v = Math.round((userWeights[k] || 0) * target / unlockedTotal); scaled[k] = v; acc += v; }
+                      else { scaled[k] = target - acc; }
+                    });
+                    setUserWeights(scaled);
+                  }}>Normalize to 100</button>
+                  <button className="btn btn-xs" onClick={() => {
+                    const holdable = ASSETS.filter(a => a.holdable);
+                    const lockedTotal = holdable.filter(a => lockedAssets[a.id]).reduce((s, a) => s + (userWeights[a.id] || 0), 0);
+                    const unlocked = holdable.filter(a => !lockedAssets[a.id]);
+                    const remaining = Math.max(0, 100 - lockedTotal);
+                    const n = unlocked.length;
+                    if (n === 0) return;
+                    const base = Math.floor(remaining / n);
+                    let remainder = remaining - base * n;
+                    const eq = { ...userWeights };
+                    for (const a of unlocked) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
+                    setUserWeights(eq);
+                  }}>Equal weight all</button>
+                  <button className="btn btn-xs btn-ghost" onClick={() => {
+                    const kept = {};
+                    for (const [k, v] of Object.entries(userWeights)) { if (lockedAssets[k]) kept[k] = v; }
+                    setUserWeights(kept);
+                    const keptSMA = {};
+                    for (const [k, v] of Object.entries(userSMA)) { if (lockedAssets[k]) keptSMA[k] = v; }
+                    setUserSMA(keptSMA);
+                  }}>Clear</button>
+                  <button className="btn btn-xs btn-ghost"
+                    disabled={userWeightTotal >= 100}
+                    style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
+                    onClick={fillMinCorrelation}
+                    title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
+                  <span style={{ flex: 1 }}></span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
+                    Set all MAX to
+                    <input type="number" min="0" max="100" step="5" value={bulkLimit}
+                      style={{ width: 44, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
+                      onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
+                    <button className="btn btn-xs" onClick={() => setUpperLimits(prev => {
+                      const next = { ...prev };
+                      for (const a of ASSETS.filter(a => a.holdable)) { if (!lockedAssets[a.id]) next[a.id] = bulkLimit; }
+                      return next;
+                    })}>Apply</button>
+                  </span>
+                </div>
+                <div className="small-note" style={{ marginTop: 8 }}>
+                  <strong>SMA</strong> — 200-day simple moving average timing. When ticked, this leg sells to cash when the daily price falls below the 200-day SMA and re-enters when it crosses back above. Reduces drawdowns at the cost of whipsaw losses in trendless markets.<br/>
+                  <strong>REB</strong> — yearly rebalancing. When ticked, if this asset is overweight vs its target at each rebalancing date, the excess is sold (gold: only matured lots, tax-free under Spekulationsfrist; funds: subject to CGT) and proceeds are redistributed to underweight assets.<br/>
+                  <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".<br/>
+                  <strong>🔒</strong> — lock this asset. Locked assets keep their weight and MAX when using Normalize, Equal weight, Clear, or Set all MAX. The frontier fixes locked assets at their current weight instead of varying them.
+                </div>
+              </div>}
+            </div>
+
+
 
             {/* chart */}
 

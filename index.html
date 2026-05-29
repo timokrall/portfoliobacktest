@@ -1971,6 +1971,7 @@ function App() {
   const [goldOptRunning, setGoldOptRunning] = useState(false);
   const [autoOptPending, setAutoOptPending] = useState(false);
   const goldOptBtnRef = useRef(null);
+  const autoBlendRef = useRef(false);
   const [autoApplyGold, setAutoApplyGold] = useState(false);
   // Auto-optimize chain: when gold opt finishes and autoOptPending, apply gold split → run frontier
   useEffect(() => {
@@ -1984,7 +1985,6 @@ function App() {
         const next = {};
         for (const [k, v] of nonGold) next[k] = Math.round(v / oldEqTotal * eqTotal);
         next.gold = goldPct;
-        // Fix rounding: adjust largest equity position
         const total = Object.values(next).reduce((s, v) => s + v, 0);
         if (total !== 100) {
           const largest = Object.entries(next).filter(([k]) => k !== "gold").sort((a, b) => b[1] - a[1])[0];
@@ -1995,9 +1995,37 @@ function App() {
       setUpperLimits(prev => ({ ...prev, gold: goldOptResult.bestBH.goldPct }));
     }
     setAutoOptPending(false);
-    // Small delay to let state settle, then run frontier
+    autoBlendRef.current = true;
     setTimeout(() => runEfficientFrontier(), 100);
   }, [autoOptPending, goldOptRunning, goldOptResult]);
+
+  // After frontier completes from auto-optimize: blend Aggressive + Conservative at lifecycle ratio
+  useEffect(() => {
+    if (!autoBlendRef.current || efRunning || !efResults?.basket) return;
+    if (!efAggrWinner || !efPreserveWinner) return;
+    autoBlendRef.current = false;
+    const basket = efResults.basket;
+    const LIFE_EXP = 80.9, RETIRE_AGE = 67;
+    const age = birthYear ? new Date().getFullYear() - birthYear : null;
+    const remaining = age != null ? Math.max(0, LIFE_EXP - age) : null;
+    const accumYears = age != null ? Math.max(0, RETIRE_AGE - age) : null;
+    const aggrFrac = remaining > 0 && accumYears != null ? accumYears / remaining : 0.5;
+    const presFrac = 1 - aggrFrac;
+    // Blend weights
+    const blended = {};
+    basket.forEach((a, i) => {
+      const w = aggrFrac * (efAggrWinner.weights[i] || 0) + presFrac * (efPreserveWinner.weights[i] || 0);
+      const pct = Math.round(w * 100);
+      if (pct > 0) blended[a] = pct;
+    });
+    // Fix rounding to sum to 100
+    const total = Object.values(blended).reduce((s, v) => s + v, 0);
+    if (total !== 100 && Object.keys(blended).length > 0) {
+      const largest = Object.entries(blended).sort((a, b) => b[1] - a[1])[0];
+      if (largest) blended[largest[0]] += 100 - total;
+    }
+    setUserWeights(blended);
+  }, [efRunning, efResults, efAggrWinner, efPreserveWinner, birthYear]);
   const [optIncludeGoldSmaFull, setOptIncludeGoldSmaFull] = useState(true);
   const [optIncludeGoldSmaTF, setOptIncludeGoldSmaTF] = useState(true);
   const [optIncludeEqSma, setOptIncludeEqSma] = useState(true);
@@ -2286,7 +2314,7 @@ function App() {
       const is404 = /HTTP 404|empty/.test(e.message);
       setFetchStatus(s => ({
         ...s,
-        [asset.id]: { kind: is404 ? "idle" : "bad", msg: is404 ? "no data yet \u2014 do Setup steps 2\u20135" : `./data/${asset.file}: ${e.message}` }
+        [asset.id]: { kind: is404 ? "idle" : "bad", msg: is404 ? "no data yet — do Setup steps 2\u20135" : `./data/${asset.file}: ${e.message}` }
       }));
     }
   };
@@ -3340,19 +3368,20 @@ function App() {
     const lines = [];
     // 1. Current custom portfolio
     if (simResults.user) lines.push({ pid: "user", name: "My Portfolio", src: "sim" });
-    // 2. Market (Prime ACWI)
-    if (simResults.bench_market) lines.push({ pid: "bench_market", name: "Market (Prime ACWI)", src: "sim" });
-    // 3. Best benchmark by gain (excluding market if already shown)
+    // 2. Market (Prime ACWI) = conservative benchmark
+    if (simResults.bench_market) lines.push({ pid: "bench_market", name: "Cons. benchmark (Prime ACWI)", src: "sim" });
+    // 3. Best benchmark by gain (excluding market) = aggressive benchmark
     const benchEntries = Object.entries(simResults).filter(([k, v]) => k.startsWith("bench_") && k !== "bench_market" && v);
     if (benchEntries.length > 0) {
       const best = benchEntries.reduce((a, b) => (b[1].finalValue / b[1].totalInvested) > (a[1].finalValue / a[1].totalInvested) ? b : a);
       const bestPf = getPF(best[0]);
-      lines.push({ pid: best[0], name: bestPf?.name || best[0], src: "sim" });
+      const shortName = bestPf?.name?.replace(/^100% /, "") || best[0];
+      lines.push({ pid: best[0], name: `Aggr. benchmark (${shortName})`, src: "sim" });
     }
-    // 4. Aggressive / Accumulate (from lifecycle sims)
-    if (lifecycleSims?.lc_aggr) lines.push({ pid: "lc_aggr", name: "Aggressive / Accumulate", src: "lc" });
-    // 5. Conservative / Preservation (from lifecycle sims)
-    if (lifecycleSims?.lc_preserve) lines.push({ pid: "lc_preserve", name: "Conservative / Preservation", src: "lc" });
+    // 4. Aggressive (from lifecycle sims)
+    if (lifecycleSims?.lc_aggr) lines.push({ pid: "lc_aggr", name: "Aggressive", src: "lc" });
+    // 5. Conservative (from lifecycle sims)
+    if (lifecycleSims?.lc_preserve) lines.push({ pid: "lc_preserve", name: "Conservative", src: "lc" });
     return lines;
   }, [simResults, lifecycleSims]);
 
@@ -3551,7 +3580,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 8:57 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 9:44 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3729,8 +3758,8 @@ function App() {
                           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-soft)", marginBottom: 4 }}>
                             <span className="spin"></span>
                             {goldOptRunning
-                              ? "Step 1/2 \u2014 Optimizing gold/equity split\u2026"
-                              : `Step 2/2 \u2014 Frontier grid search\u2026 ${efProgress.done} / ${efProgress.total}`}
+                              ? "Step 1/2 — Optimizing gold/equity split\u2026"
+                              : `Step 2/2 — Frontier grid search\u2026 ${efProgress.done} / ${efProgress.total}`}
                           </div>
                           <div style={{ height: 6, borderRadius: 3, background: "var(--line)", overflow: "hidden" }}>
                             <div style={{
@@ -3774,7 +3803,7 @@ function App() {
                       return (<>
                         <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: investAmount > 0 && allocEntries.length > 0 ? 16 : 0 }}>
                           <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 220)" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>Aggressive / Accumulation{aggrEur > 0 ? ` \u2014 ${Math.round(aggrEur).toLocaleString()} \u20ac` : ""}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>Aggressive / Accumulation{aggrEur > 0 ? ` — ${Math.round(aggrEur).toLocaleString()} €` : ""}</div>
                             <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for money-weighted CAGR (full period + worst decade)</div>
                             <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efAggrWinner)}</div>
                             <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
@@ -3782,7 +3811,7 @@ function App() {
                             </div>
                           </div>
                           <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 150)" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Conservative / Preservation{presEur > 0 ? ` \u2014 ${Math.round(presEur).toLocaleString()} \u20ac` : ""}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Conservative / Preservation{presEur > 0 ? ` — ${Math.round(presEur).toLocaleString()} €` : ""}</div>
                             <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for risk-adjusted unit-price metrics (all except mwCAGR/mwCalmar)</div>
                             <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efPreserveWinner)}</div>
                             <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
@@ -3793,15 +3822,15 @@ function App() {
                         {investAmount > 0 && allocEntries.length > 0 && (
                           <div>
                             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, color: "var(--ink-soft)" }}>
-                              Suggested allocation of {investAmount.toLocaleString()} \u20ac
+                              Suggested allocation of {investAmount.toLocaleString()} €
                             </div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                               {allocEntries.map(([a, v]) => (
                                 <div key={a} style={{ flex: "0 0 auto", padding: "8px 14px", borderRadius: 6, background: "var(--panel)", border: "1px solid var(--line)", minWidth: 120 }}>
                                   <div style={{ fontSize: 12, fontWeight: 600 }}>{ASSETS.find(x => x.id === a)?.shortName || a}</div>
-                                  <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{Math.round(v.total).toLocaleString()} \u20ac</div>
+                                  <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{Math.round(v.total).toLocaleString()} €</div>
                                   <div style={{ fontSize: 10, color: "var(--ink-soft)", marginTop: 2 }}>
-                                    {v.dca > 0.5 ? `${Math.round(v.dca).toLocaleString()} DCA` : ""}{v.dca > 0.5 && v.preserve > 0.5 ? " + " : ""}{v.preserve > 0.5 ? `${Math.round(v.preserve).toLocaleString()} Cons.` : ""}
+                                    {v.dca > 0.5 ? `${Math.round(v.dca).toLocaleString()} Aggr.` : ""}{v.dca > 0.5 && v.preserve > 0.5 ? " + " : ""}{v.preserve > 0.5 ? `${Math.round(v.preserve).toLocaleString()} Cons.` : ""}
                                   </div>
                                 </div>
                               ))}
@@ -3810,7 +3839,7 @@ function App() {
                         )}
                       </>);
                     })()}
-                    {!efResults && <div className="dim" style={{ fontSize: 12 }}>Run the efficient frontier to see DCA and Conservative portfolio recommendations.</div>}
+                    {!efResults && <div className="dim" style={{ fontSize: 12 }}>Run the efficient frontier to see Aggressive and Conservative portfolio recommendations.</div>}
                   </>;
                 })()}
               </div>
@@ -4151,10 +4180,10 @@ function App() {
                           {goldOptResult.months} months ({goldOptResult.range}). CV score = min across {CV_WINDOW_YEARS}-year windows.
                           {goldOptResult.smaDebug && !goldOptResult.recommendedOnly && <> SMA: {goldOptResult.smaDebug}.</>}
                           {goldOptResult.recommendedOnly ? (<>
-                            {goldOptResult.bestBH && <><strong> Buy-and-hold optimal: {goldOptResult.bestBH.goldPct}% gold, h*={goldOptResult.bestBH.hStar || "\u2014"}y.</strong></>}
-                            {goldOptResult.best && (goldOptResult.best.sma || goldOptResult.best.eqSma || goldOptResult.best.reb !== "never") && <><strong> Risk optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y.</strong></>}
+                            {goldOptResult.bestBH && <><strong> Buy-and-hold optimal: {goldOptResult.bestBH.goldPct}% gold, h*={goldOptResult.bestBH.hStar || "—"}y.</strong></>}
+                            {goldOptResult.best && (goldOptResult.best.sma || goldOptResult.best.eqSma || goldOptResult.best.reb !== "never") && <><strong> Risk optimal: {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? ` + ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "—"}y.</strong></>}
                           </>) : (<>
-                            {goldOptResult.best && <strong> Risk optimal (Pareto knee score vs h*): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "\u2014"}y. </strong>}
+                            {goldOptResult.best && <strong> Risk optimal (Pareto knee score vs h*): {goldOptResult.best.goldPct}% gold{goldOptResult.best.sma === "full" ? " + gold SMA" : goldOptResult.best.sma === "taxfree" ? " + gold SMA (tf)" : ""}{goldOptResult.best.eqSma ? " + eq SMA" : ""}{goldOptResult.best.reb !== "never" ? `, ${goldOptResult.best.reb} reb.` : ""}, h*={goldOptResult.best.hStar || "—"}y. </strong>}
                             {goldOptResult.bestCV && <> Best worst-decade (CV): {goldOptResult.bestCV.goldPct}% gold{goldOptResult.bestCV.sma === "full" ? " + SMA" : ""}, CV {fmtPct(goldOptResult.bestCV.cvScore)}.</>}
                             {goldOptResult.bestHStar && <> Shortest h*: {goldOptResult.bestHStar.hStar}y ({goldOptResult.bestHStar.goldPct}% gold{goldOptResult.bestHStar.sma === "full" ? " + SMA" : ""}).</>}
                             {goldOptResult.bestFS && <> Best full-period: {goldOptResult.bestFS.goldPct}% gold{goldOptResult.bestFS.sma === "full" ? " + SMA" : ""}{goldOptResult.bestFS.reb !== "never" ? ` + ${goldOptResult.bestFS.reb}` : ""}, Full {fmtPct(goldOptResult.bestFS.fullScore)}.</>}
@@ -4219,8 +4248,8 @@ function App() {
                                     {r.goldPct}% gold{r.sma === "full" ? " + SMA" : r.sma === "taxfree" ? " + SMA (tf)" : ""}{r.eqSma ? " + eq SMA" : ""}{r.reb !== "never" ? ` + ${r.reb} reb.` : r.sma || r.eqSma ? "" : " (pure buy-and-hold)"}
                                   </td>
                                   <td className="num" style={{ textAlign: "right" }}>{r.goldPct}%</td>
-                                  <td style={{ textAlign: "center" }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : "\u2014"}</td>
-                                  <td className="num" style={{ textAlign: "right" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
+                                  <td style={{ textAlign: "center" }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : "—"}</td>
+                                  <td className="num" style={{ textAlign: "right" }}>{r.hStar ? r.hStar + "y" : "—"}</td>
                                   <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
                                   <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
                                   <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
@@ -4326,14 +4355,14 @@ function App() {
                                 <td className="num" style={{ textAlign: "right", fontWeight: i === 0 ? 700 : 400 }}>{r.goldPct}%</td>
                                 <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.sma === "full" ? "\u2713" : r.sma === "taxfree" ? "tf" : ""}</td>
                                 <td style={{ textAlign: "center", fontSize: 10.5 }}>{r.eqSma ? "\u2713" : ""}</td>
-                                <td style={{ fontSize: 10.5 }}>{r.reb === "never" ? "\u2014" : r.reb}</td>
-                                <td className="num" style={{ textAlign: "right", fontWeight: r.hStar ? 400 : 300, color: r.hStar ? "var(--ink)" : "var(--ink-mute)" }}>{r.hStar ? r.hStar + "y" : "\u2014"}</td>
+                                <td style={{ fontSize: 10.5 }}>{r.reb === "never" ? "—" : r.reb}</td>
+                                <td className="num" style={{ textAlign: "right", fontWeight: r.hStar ? 400 : 300, color: r.hStar ? "var(--ink)" : "var(--ink-mute)" }}>{r.hStar ? r.hStar + "y" : "—"}</td>
                                 <td className="num" style={{ textAlign: "right" }}>{fmtPct(r.cvScore)}</td>
-                                <td className="num" style={{ textAlign: "right" }}>{r.fullScore != null ? fmtPct(r.fullScore) : "\u2014"}</td>
+                                <td className="num" style={{ textAlign: "right" }}>{r.fullScore != null ? fmtPct(r.fullScore) : "—"}</td>
                                 <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.sortino, 3)}</td>
                                 <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.maxDD)}</td>
                                 <td className={"num " + (r.gain > 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>{fmtPct(r.gain)}</td>
-                                <td className="num" style={{ textAlign: "right" }}>{r.kneeScore != null && r.kneeScore > -Infinity ? fmtNum(r.kneeScore, 3) : "\u2014"}</td>
+                                <td className="num" style={{ textAlign: "right" }}>{r.kneeScore != null && r.kneeScore > -Infinity ? fmtNum(r.kneeScore, 3) : "—"}</td>
                                 <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "2px 8px" }} onClick={() => {
                                   const gPct = r.goldPct;
                                   const holdable = ASSETS.filter(a => a.holdable);
@@ -4713,22 +4742,22 @@ function App() {
                     <tr key={key} style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
                       <td className="name" style={{ fontWeight: highlight ? 700 : 400 }}>{label}</td>
                       <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullSortino ?? row.sortino, 3)}</td>
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullUpi ?? row.upi, 3)}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
                       <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.fullIrrScore != null ? fmtPct(row.fullIrrScore) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.fullCalmar != null ? fmtNum(row.fullCalmar, 3) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.fullMwCAGR != null ? fmtPct(row.fullMwCAGR) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.fullMwCalmar != null ? fmtNum(row.fullMwCalmar, 3) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullIrrScore != null ? fmtPct(row.fullIrrScore) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullCalmar != null ? fmtNum(row.fullCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullMwCAGR != null ? fmtPct(row.fullMwCAGR) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullMwCalmar != null ? fmtNum(row.fullMwCalmar, 3) : "—"}</td>
                       <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(row.sortino, 3)}</td>
                       <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(row.upi, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.irrScore != null ? fmtPct(row.irrScore) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvCalmar != null ? fmtNum(row.cvCalmar, 3) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvMwCAGR != null ? fmtPct(row.cvMwCAGR) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvMwCalmar != null ? fmtNum(row.cvMwCalmar, 3) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{(() => { const ps = getPrimary(row); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "\u2014"; })()}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.irrScore != null ? fmtPct(row.irrScore) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvCalmar != null ? fmtNum(row.cvCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvMwCAGR != null ? fmtPct(row.cvMwCAGR) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvMwCalmar != null ? fmtNum(row.cvMwCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{(() => { const ps = getPrimary(row); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "—"; })()}</td>
                       <td>{showUse ? <button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => applyWeights(row)}>Use</button> : null}</td>
                     </tr>
                   ) : null;
@@ -4738,22 +4767,22 @@ function App() {
                     <tr key={key}>
                       <td className="name">{bm.label}</td>
                       <td className="mono" style={{ fontSize: 11 }}>{bm.assetId?.includes("_gold") ? bm.label : (ASSETS.find(x => x.id === bm.assetId)?.shortName || bm.assetId) + " 100%"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "—"}</td>
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullSortino ?? bm.sortino, 3)}</td>
                       <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullUpi ?? bm.upi, 3)}</td>
                       <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
                       <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.fullIrrScore != null ? fmtPct(bm.fullIrrScore) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.fullCalmar != null ? fmtNum(bm.fullCalmar, 3) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.fullMwCAGR != null ? fmtPct(bm.fullMwCAGR) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.fullMwCalmar != null ? fmtNum(bm.fullMwCalmar, 3) : "\u2014"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullIrrScore != null ? fmtPct(bm.fullIrrScore) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullCalmar != null ? fmtNum(bm.fullCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullMwCAGR != null ? fmtPct(bm.fullMwCAGR) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullMwCalmar != null ? fmtNum(bm.fullMwCalmar, 3) : "—"}</td>
                       <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.sortino, 3)}</td>
                       <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.upi, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvCalmar != null ? fmtNum(bm.cvCalmar, 3) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvMwCAGR != null ? fmtPct(bm.cvMwCAGR) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvMwCalmar != null ? fmtNum(bm.cvMwCalmar, 3) : "\u2014"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{(() => { const ps = getPrimary(bm); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "\u2014"; })()}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvCalmar != null ? fmtNum(bm.cvCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvMwCAGR != null ? fmtPct(bm.cvMwCAGR) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvMwCalmar != null ? fmtNum(bm.cvMwCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{(() => { const ps = getPrimary(bm); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "—"; })()}</td>
                       <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => setUserWeights({ [bm.assetId]: 100 })}>Use</button></td>
                     </tr>
                   ) : null;
@@ -4951,7 +4980,7 @@ function App() {
                           {ddCorrelation.basket.map(b => {
                             const v = ddCorrelation.matrix[a][b];
                             const bg = a === b ? "transparent" : v > 0.7 ? "oklch(0.92 0.06 25)" : v > 0.4 ? "oklch(0.95 0.03 60)" : v < 0 ? "oklch(0.92 0.06 150)" : "oklch(0.95 0.02 150)";
-                            return <td key={b} className="num" style={{ textAlign: "right", background: bg }}>{a === b ? "\u2014" : fmtNum(v, 2)}</td>;
+                            return <td key={b} className="num" style={{ textAlign: "right", background: bg }}>{a === b ? "—" : fmtNum(v, 2)}</td>;
                           })}
                         </tr>
                       ))}

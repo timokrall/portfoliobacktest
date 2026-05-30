@@ -2095,13 +2095,18 @@ function App() {
     if (pid === "user") return userPortfolio;
     return PORTFOLIOS.find(p => p.id === pid);
   }, [userPortfolio]);
-  const collectState = useCallback(() => ({
-    csvText, series, seriesDaily, spreads, orderFee,
-    taxRate, allowance, teilfreistellung, basiszins,
-    starting, monthly, rebalance, selectedPortfolios, goldWeights,
-    portfolioTiming, ownNativeHistory, mc,
-    birthYear, investAmount, userWeights, upperLimits,
-  }), [csvText, series, seriesDaily, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, portfolioTiming, ownNativeHistory, mc, birthYear, investAmount, userWeights, upperLimits]);
+  const collectState = useCallback(() => {
+    const LARGE_KEYS = new Set(["msciWorld", "eurusd"]);
+    const filterLarge = (obj) => obj ? Object.fromEntries(Object.entries(obj).filter(([k]) => !LARGE_KEYS.has(k))) : obj;
+    return {
+      csvText: filterLarge(csvText), series: filterLarge(series), seriesDaily: filterLarge(seriesDaily),
+      spreads, orderFee,
+      taxRate, allowance, teilfreistellung, basiszins,
+      starting, monthly, rebalance, selectedPortfolios, goldWeights,
+      portfolioTiming, ownNativeHistory, mc,
+      birthYear, investAmount, userWeights, upperLimits,
+    };
+  }, [csvText, series, seriesDaily, spreads, orderFee, taxRate, allowance, teilfreistellung, basiszins, starting, monthly, rebalance, selectedPortfolios, goldWeights, portfolioTiming, ownNativeHistory, mc, birthYear, investAmount, userWeights, upperLimits]);
 
   const applyState = (s) => {
     if (!s) return;
@@ -2287,7 +2292,10 @@ function App() {
     // Skip if the user has uploaded their own CSV for this asset — their
     // version always wins over the committed-CSV bootstrap. Use the ref so
     // we read the live value (not the closure-captured one).
-    if (userUploadedIdsRef.current.has(asset.id)) {
+    // Exception: msciWorld and eurusd are too large for localStorage persistence,
+    // so always reload them from committed files.
+    const ALWAYS_RELOAD = new Set(["msciWorld", "eurusd"]);
+    if (userUploadedIdsRef.current.has(asset.id) && !ALWAYS_RELOAD.has(asset.id)) {
       setFetchStatus(s => ({ ...s, [asset.id]: { kind: "info", msg: "user upload preserved" } }));
       return;
     }
@@ -2320,6 +2328,13 @@ function App() {
   useEffect(() => {
     if (bootstrappedRef.current) return;
     bootstrappedRef.current = true;
+    // Clean up stale entries for assets too large to persist
+    setUserUploadedIds(prev => {
+      const next = new Set(prev);
+      next.delete("msciWorld");
+      next.delete("eurusd");
+      return next.size !== prev.size ? next : prev;
+    });
     reloadAll();
     // eslint-disable-next-line
   }, []);
@@ -3649,7 +3664,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 11:20 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 12:21 PM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>

@@ -1979,7 +1979,8 @@ function App() {
   const goldOptBtnRef = useRef(null);
   const autoBlendRef = useRef(false);
   const [autoApplyGold, setAutoApplyGold] = useState(false);
-  // Auto-optimize chain: when gold opt finishes and autoOptPending, apply gold split → run frontier
+  const [pendingFrontierRun, setPendingFrontierRun] = useState(false);
+  // Auto-optimize chain: when gold opt finishes and autoOptPending, apply gold split → trigger frontier
   useEffect(() => {
     if (!autoOptPending || goldOptRunning) return;
     if (goldOptResult?.bestBH) {
@@ -2002,8 +2003,16 @@ function App() {
     }
     setAutoOptPending(false);
     autoBlendRef.current = true;
-    setTimeout(() => runEfficientFrontier(), 100);
+    setPendingFrontierRun(true); // will trigger frontier in next render via useEffect below
   }, [autoOptPending, goldOptRunning, goldOptResult]);
+
+  // Run frontier after state has settled (gold weights + upper limits applied)
+  useEffect(() => {
+    if (pendingFrontierRun && !efRunning && !goldOptRunning) {
+      setPendingFrontierRun(false);
+      runEfficientFrontier();
+    }
+  }, [pendingFrontierRun, efRunning, goldOptRunning, upperLimits, userWeights]);
 
   // After frontier completes from auto-optimize: blend Aggressive + Conservative at lifecycle ratio
   useEffect(() => {
@@ -3600,7 +3609,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-29, 10:53 PM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 6:39 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>

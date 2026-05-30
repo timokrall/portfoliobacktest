@@ -2014,33 +2014,6 @@ function App() {
     }
   }, [pendingFrontierRun, efRunning, goldOptRunning, upperLimits, userWeights]);
 
-  // After frontier completes from auto-optimize: blend Aggressive + Conservative at lifecycle ratio
-  useEffect(() => {
-    if (!autoBlendRef.current || efRunning || !efResults?.basket) return;
-    if (!efAggrWinner || !efPreserveWinner) return;
-    autoBlendRef.current = false;
-    const basket = efResults.basket;
-    const LIFE_EXP = 80.9, RETIRE_AGE = 67;
-    const age = birthYear ? new Date().getFullYear() - birthYear : null;
-    const remaining = age != null ? Math.max(0, LIFE_EXP - age) : null;
-    const accumYears = age != null ? Math.max(0, RETIRE_AGE - age) : null;
-    const aggrFrac = remaining > 0 && accumYears != null ? accumYears / remaining : 0.5;
-    const presFrac = 1 - aggrFrac;
-    // Blend weights
-    const blended = {};
-    basket.forEach((a, i) => {
-      const w = aggrFrac * (efAggrWinner.weights[i] || 0) + presFrac * (efPreserveWinner.weights[i] || 0);
-      const pct = Math.round(w * 100);
-      if (pct > 0) blended[a] = pct;
-    });
-    // Fix rounding to sum to 100
-    const total = Object.values(blended).reduce((s, v) => s + v, 0);
-    if (total !== 100 && Object.keys(blended).length > 0) {
-      const largest = Object.entries(blended).sort((a, b) => b[1] - a[1])[0];
-      if (largest) blended[largest[0]] += 100 - total;
-    }
-    setUserWeights(blended);
-  }, [efRunning, efResults, efAggrWinner, efPreserveWinner, birthYear]);
   const [optIncludeGoldSmaFull, setOptIncludeGoldSmaFull] = useState(true);
   const [optIncludeGoldSmaTF, setOptIncludeGoldSmaTF] = useState(true);
   const [optIncludeEqSma, setOptIncludeEqSma] = useState(true);
@@ -2658,6 +2631,7 @@ function App() {
   }, [efResults?.samples, efResults?.benchmarks, efPrimaryCols]);
 
   // Helper: find best portfolio for a fixed set of extractors
+  // Tolerates null values — skips that dimension rather than invalidating the sample
   const findBestForProfile = (rs, extractorDefs) => {
     if (!rs || rs.length === 0 || extractorDefs.length === 0) return null;
     const vals = extractorDefs.map(([, get]) => rs.map(get).filter(v => v != null && isFinite(v)));
@@ -2666,14 +2640,17 @@ function App() {
     const ranges = mins.map((mn, i) => maxs[i] - mn || 1);
     let best = null, bestS = -Infinity;
     for (const r of rs) {
-      let score = 0, valid = true;
+      let score = 0, dims = 0;
       for (let i = 0; i < extractorDefs.length; i++) {
         const raw = extractorDefs[i][1](r);
-        if (raw == null || !isFinite(raw)) { valid = false; break; }
+        if (raw == null || !isFinite(raw)) continue; // skip this dimension
         const norm = (raw - mins[i]) / ranges[i];
         score += extractorDefs[i][2] ? norm : (1 - norm);
+        dims++;
       }
-      if (valid && score > bestS) { bestS = score; best = r; }
+      // Normalize by number of valid dimensions so samples with fewer metrics aren't penalized
+      const avg = dims > 0 ? score / dims : -Infinity;
+      if (avg > bestS) { bestS = avg; best = r; }
     }
     return best;
   };
@@ -3140,6 +3117,48 @@ function App() {
 
         setEfResults({ basket, samples: results, benchmarks: benchResults, winners, winnerSim, includesUserSMA: efIncludeUserSMA });
         setEfRunning(false);
+
+        // Auto-blend: if triggered by the global optimizer button, compute lifecycle blend immediately
+        if (autoBlendRef.current) {
+          autoBlendRef.current = false;
+          const aggrW = findBestForProfile(results, [
+            ["fMwCAGR", r => r.fullMwCAGR, true],
+            ["cvMwCAGR", r => r.cvMwCAGR, true],
+          ]);
+          const presW = findBestForProfile(results, [
+            ["hStar", r => r.histHStar ?? r.hStar, false],
+            ["fSortino", r => r.fullSortino, true],
+            ["fUpi", r => r.fullUpi, true],
+            ["fMaxDD", r => r.maxDD, true],
+            ["fGain", r => r.finalRatio - 1, true],
+            ["fScore", r => r.fullIrrScore, true],
+            ["fCalmar", r => r.fullCalmar, true],
+            ["cvSortino", r => r.sortino, true],
+            ["cvUpi", r => r.upi, true],
+            ["cvScore", r => r.irrScore, true],
+            ["cvCalmar", r => r.cvCalmar, true],
+          ]);
+          if (aggrW && presW) {
+            const LIFE_EXP = 80.9, RETIRE_AGE = 67;
+            const age = birthYear ? new Date().getFullYear() - birthYear : null;
+            const remaining = age != null ? Math.max(0, LIFE_EXP - age) : null;
+            const accumYears = age != null ? Math.max(0, RETIRE_AGE - age) : null;
+            const aggrFrac = remaining > 0 && accumYears != null ? accumYears / remaining : 0.5;
+            const presFrac = 1 - aggrFrac;
+            const blended = {};
+            basket.forEach((a, i) => {
+              const w = aggrFrac * (aggrW.weights[i] || 0) + presFrac * (presW.weights[i] || 0);
+              const pct = Math.round(w * 100);
+              if (pct > 0) blended[a] = pct;
+            });
+            const total = Object.values(blended).reduce((s, v) => s + v, 0);
+            if (total !== 100 && Object.keys(blended).length > 0) {
+              const largest = Object.entries(blended).sort((a, b) => b[1] - a[1])[0];
+              if (largest) blended[largest[0]] += 100 - total;
+            }
+            setUserWeights(blended);
+          }
+        }
       }
     };
 
@@ -3609,7 +3628,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 6:39 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 7:17 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>

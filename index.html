@@ -3482,6 +3482,7 @@ function App() {
   const [chartMode, setChartMode] = useState("value");   // "value" | "unit" | "dd"
   const [visiblePortfolios, setVisiblePortfolios] = useState(new Set(["user", "bench_market", "bench_coIQ", "lc_aggr", "lc_balanced", "lc_preserve"]));
   const togglePortfolio = (pid) => setVisiblePortfolios(prev => { const next = new Set(prev); next.has(pid) ? next.delete(pid) : next.add(pid); return next; });
+  const [chartRange, setChartRange] = useState([0, 1]); // [startFrac, endFrac] as 0..1
 
   // ---- winners ----
   const winners = useMemo(() => {
@@ -3648,7 +3649,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 10:55 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 11:20 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -4003,8 +4004,13 @@ function App() {
                 </div>
               )}
               <div className="panel-body" style={{ height: 380 }}>
-                {chartData && <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
+                {chartData && (() => {
+                  const n = chartData.length;
+                  const i0 = Math.floor(chartRange[0] * (n - 1));
+                  const i1 = Math.ceil(chartRange[1] * (n - 1));
+                  const sliced = chartData.slice(i0, i1 + 1);
+                  return <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={sliced} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
                     <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="label" tickMargin={10} minTickGap={40} stroke="oklch(0.7 0.008 240)" />
                     <YAxis tickFormatter={v => chartMode === "dd" ? v.toFixed(0) + "%" : chartMode === "value" ? (v >= 1000 ? (v / 1000).toFixed(0) + "k" : v.toFixed(0)) + " €" : v.toFixed(0)} stroke="oklch(0.7 0.008 240)" width={56} domain={chartMode === "dd" ? [-60, 5] : ["auto", "auto"]} />
@@ -4033,8 +4039,27 @@ function App() {
                                    stroke={allColors[origIdx % allColors.length]} dot={false} strokeWidth={cp.pid === "user" ? 3 : 1.5} isAnimationActive={false} />;
                     })}
                   </LineChart>
-                </ResponsiveContainer>}
+                </ResponsiveContainer>;
+                })()}
               </div>
+              {chartData && chartData.length > 12 && (
+                <div style={{ padding: "8px 14px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="mono" style={{ fontSize: 10, minWidth: 52, color: "var(--ink-soft)" }}>{chartData[Math.floor(chartRange[0] * (chartData.length - 1))]?.month || ""}</span>
+                  <input type="range" min="0" max="1000" value={Math.round(chartRange[0] * 1000)}
+                    style={{ flex: 1 }}
+                    onChange={e => {
+                      const v = +e.target.value / 1000;
+                      setChartRange(prev => [Math.min(v, prev[1] - 0.02), prev[1]]);
+                    }} />
+                  <input type="range" min="0" max="1000" value={Math.round(chartRange[1] * 1000)}
+                    style={{ flex: 1 }}
+                    onChange={e => {
+                      const v = +e.target.value / 1000;
+                      setChartRange(prev => [prev[0], Math.max(v, prev[0] + 0.02)]);
+                    }} />
+                  <span className="mono" style={{ fontSize: 10, minWidth: 52, textAlign: "right", color: "var(--ink-soft)" }}>{chartData[Math.ceil(chartRange[1] * (chartData.length - 1))]?.month || ""}</span>
+                </div>
+              )}
             </div>
 
             {/* comparison table */}
@@ -4073,6 +4098,31 @@ function App() {
                         <td className="num" style={{ textAlign: "right" }}>{r.metrics.monthsBelow30}</td>
                         <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.totalInvested)}</td>
                         <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.finalValue)}</td>
+                        <td className={"num " + (gain >= 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>
+                          {fmtEUR(gain)} · {fmtPct(gainPct)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {lifecycleSims && [
+                    { key: "lc_aggr", name: "Aggressive", sim: lifecycleSims.lc_aggr },
+                    { key: "lc_balanced", name: "Balanced", sim: lifecycleSims.lc_balanced },
+                    { key: "lc_preserve", name: "Conservative", sim: lifecycleSims.lc_preserve },
+                  ].filter(x => x.sim).map(({ key, name, sim }) => {
+                    const gain = sim.finalValue - sim.totalInvested;
+                    const gainPct = sim.finalValue / sim.totalInvested - 1;
+                    const fg = sim.finalGoldWeight != null ? sim.finalGoldWeight * 100 : null;
+                    return (
+                      <tr key={key}>
+                        <td className="name">{name}</td>
+                        <td className="num" style={{ textAlign: "right" }}>—</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fg != null ? fmtNum(fg, 1) + "%" : "—"}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtNum(sim.metrics.sortino, 3)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtNum(sim.metrics.upi, 3)}</td>
+                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(sim.metrics.maxDD)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{sim.metrics.monthsBelow30}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtEUR(sim.totalInvested)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtEUR(sim.finalValue)}</td>
                         <td className={"num " + (gain >= 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>
                           {fmtEUR(gain)} · {fmtPct(gainPct)}
                         </td>

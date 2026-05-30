@@ -3481,7 +3481,7 @@ function App() {
 
   const [chartMode, setChartMode] = useState("value");   // "value" | "unit" | "dd"
   const [visiblePortfolios, setVisiblePortfolios] = useState(new Set(["user", "bench_market", "bench_coIQ", "lc_aggr", "lc_balanced", "lc_preserve"]));
-  const togglePortfolio = (pid) => setVisiblePortfolios(prev => { const next = new Set(prev); next.has(pid) ? next.delete(pid) : next.add(pid); return next; }); | "excess"
+  const togglePortfolio = (pid) => setVisiblePortfolios(prev => { const next = new Set(prev); next.has(pid) ? next.delete(pid) : next.add(pid); return next; });
 
   // ---- winners ----
   const winners = useMemo(() => {
@@ -3648,7 +3648,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 10:50 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 10:55 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>

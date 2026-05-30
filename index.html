@@ -1927,7 +1927,6 @@ function App() {
   const [showCosts, setShowCosts] = useState(false);
   const [showTaxes, setShowTaxes] = useState(false);
   const [showData, setShowData] = useState(false);
-  const [showPortfolio, setShowPortfolio] = useState(false);
   const [showGoldSplit, setShowGoldSplit] = useState(false);
 
   // --- taxes ---
@@ -3628,7 +3627,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 7:17 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 7:31 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -4452,139 +4451,6 @@ function App() {
             </div>
 
 
-            <div className="panel" style={{ marginTop: 18 }}>
-              <div className="panel-h" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setShowPortfolio(v => !v)}>
-                <h2>{showPortfolio ? "\u25BC" : "\u25B6"} Portfolio</h2>
-              </div>
-              {showPortfolio && <div className="panel-body">
-                <div style={{ marginTop: 0 }}>
-                  <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
-                  <div className="seg">
-                    {["never", "monthly", "yearly", "biennial"].map(r =>
-                      <button key={r} className={rebalance === r ? "on" : ""} onClick={() => setRebalance(r)}>
-                        {r === "biennial" ? "every 2 years" : r}
-                      </button>)}
-                  </div>
-                </div>
-
-                <hr style={{ margin: "18px 0" }} />
-                <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>My portfolio &middot; set a % share per asset &middot; total must = 100 &middot; SMA = daily 200-SMA timing of that leg</span>
-                  <span className="mono" style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 4, background: userWeightTotal === 100 ? "oklch(0.94 0.04 155)" : userWeightTotal === 0 ? "var(--hover)" : "oklch(0.95 0.06 60)", color: userWeightTotal === 100 ? "oklch(0.32 0.07 155)" : userWeightTotal === 0 ? "var(--ink-mute)" : "oklch(0.40 0.13 60)" }}>
-                    Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
-                  </span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px 36px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }} title="Maximum weight % allowed in the efficient frontier grid search">MAX</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Lock this asset — weight and MAX won't change with bulk buttons, frontier won't vary it">🔒</div>
-                  {ASSETS.filter(a => a.holdable).map(a => {
-                    const w = userWeights[a.id] ?? 0;
-                    const canSMA = true;   // gold + silver SMA now supported
-                    const sma = !!userSMA[a.id];
-                    const reb = !!userRebalance[a.id];
-                    return (
-                      <React.Fragment key={a.id}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: w > 0 ? 500 : 400, color: w > 0 ? "var(--ink)" : "var(--ink-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {a.label}
-                          </div>
-                          <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
-                        </div>
-                        <input type="number" min="0" max="100" step="1" value={w}
-                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
-                               onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
-                        <div style={{ display: "flex", justifyContent: "center" }}>
-                          {canSMA
-                            ? <input type="checkbox" checked={sma} disabled={w === 0}
-                                     onChange={e => setUserSMA(s => ({ ...s, [a.id]: e.target.checked }))} />
-                            : <span className="dim" style={{ fontSize: 10 }}>—</span>}
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "center" }}>
-                          <input type="checkbox" checked={reb} disabled={w === 0}
-                                 onChange={e => setUserRebalance(s => ({ ...s, [a.id]: e.target.checked }))} />
-                        </div>
-                        <input type="number" min="0" max="100" step="5" value={upperLimits[a.id] ?? 100}
-                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 11, width: "100%" }}
-                               onChange={e => setUpperLimits(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
-                        <div style={{ display: "flex", justifyContent: "center" }}>
-                          <input type="checkbox" checked={!!lockedAssets[a.id]}
-                                 onChange={e => setLockedAssets(s => ({ ...s, [a.id]: e.target.checked }))} />
-                        </div>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-                  <button className="btn btn-xs" onClick={() => {
-                    const total = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
-                    if (total <= 0) return;
-                    const lockedTotal = Object.entries(userWeights).filter(([k]) => lockedAssets[k]).reduce((s, [, v]) => s + (v || 0), 0);
-                    const unlocked = Object.keys(userWeights).filter(k => !lockedAssets[k]);
-                    const unlockedTotal = total - lockedTotal;
-                    const target = 100 - lockedTotal;
-                    if (unlockedTotal <= 0 || target <= 0) return;
-                    const scaled = { ...userWeights };
-                    let acc = 0;
-                    unlocked.forEach((k, i) => {
-                      if (i < unlocked.length - 1) { const v = Math.round((userWeights[k] || 0) * target / unlockedTotal); scaled[k] = v; acc += v; }
-                      else { scaled[k] = target - acc; }
-                    });
-                    setUserWeights(scaled);
-                  }}>Normalize to 100</button>
-                  <button className="btn btn-xs" onClick={() => {
-                    const holdable = ASSETS.filter(a => a.holdable);
-                    const lockedTotal = holdable.filter(a => lockedAssets[a.id]).reduce((s, a) => s + (userWeights[a.id] || 0), 0);
-                    const unlocked = holdable.filter(a => !lockedAssets[a.id]);
-                    const remaining = Math.max(0, 100 - lockedTotal);
-                    const n = unlocked.length;
-                    if (n === 0) return;
-                    const base = Math.floor(remaining / n);
-                    let remainder = remaining - base * n;
-                    const eq = { ...userWeights };
-                    for (const a of unlocked) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
-                    setUserWeights(eq);
-                  }}>Equal weight all</button>
-                  <button className="btn btn-xs btn-ghost" onClick={() => {
-                    const kept = {};
-                    for (const [k, v] of Object.entries(userWeights)) { if (lockedAssets[k]) kept[k] = v; }
-                    setUserWeights(kept);
-                    const keptSMA = {};
-                    for (const [k, v] of Object.entries(userSMA)) { if (lockedAssets[k]) keptSMA[k] = v; }
-                    setUserSMA(keptSMA);
-                  }}>Clear</button>
-                  <button className="btn btn-xs btn-ghost"
-                    disabled={userWeightTotal >= 100}
-                    style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
-                    onClick={fillMinCorrelation}
-                    title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
-                  <span style={{ flex: 1 }}></span>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
-                    Set all MAX to
-                    <input type="number" min="0" max="100" step="5" value={bulkLimit}
-                      style={{ width: 44, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
-                      onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
-                    <button className="btn btn-xs" onClick={() => setUpperLimits(prev => {
-                      const next = { ...prev };
-                      for (const a of ASSETS.filter(a => a.holdable)) { if (!lockedAssets[a.id]) next[a.id] = bulkLimit; }
-                      return next;
-                    })}>Apply</button>
-                  </span>
-                </div>
-                <div className="small-note" style={{ marginTop: 8 }}>
-                  <strong>SMA</strong> — 200-day simple moving average timing. When ticked, this leg sells to cash when the daily price falls below the 200-day SMA and re-enters when it crosses back above. Reduces drawdowns at the cost of whipsaw losses in trendless markets.<br/>
-                  <strong>REB</strong> — yearly rebalancing. When ticked, if this asset is overweight vs its target at each rebalancing date, the excess is sold (gold: only matured lots, tax-free under Spekulationsfrist; funds: subject to CGT) and proceeds are redistributed to underweight assets.<br/>
-                  <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".<br/>
-                  <strong>🔒</strong> — lock this asset. Locked assets keep their weight and MAX when using Normalize, Equal weight, Clear, or Set all MAX. The frontier fixes locked assets at their current weight instead of varying them.
-                </div>
-              </div>}
-            </div>
-
-
-
             {/* chart */}
 
             <div className="panel" style={{ marginBottom: 18 }}>
@@ -5010,6 +4876,140 @@ function App() {
                 })()}
               </div>
             </div>
+
+
+            <div className="panel" style={{ marginTop: 18 }}>
+              <div className="panel-h">
+                <h2>Portfolio</h2>
+              </div>
+              <div className="panel-body">
+                <div style={{ marginTop: 0 }}>
+                  <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
+                  <div className="seg">
+                    {["never", "monthly", "yearly", "biennial"].map(r =>
+                      <button key={r} className={rebalance === r ? "on" : ""} onClick={() => setRebalance(r)}>
+                        {r === "biennial" ? "every 2 years" : r}
+                      </button>)}
+                  </div>
+                </div>
+
+                <hr style={{ margin: "18px 0" }} />
+                <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>My portfolio &middot; set a % share per asset &middot; total must = 100 &middot; SMA = daily 200-SMA timing of that leg</span>
+                  <span className="mono" style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 4, background: userWeightTotal === 100 ? "oklch(0.94 0.04 155)" : userWeightTotal === 0 ? "var(--hover)" : "oklch(0.95 0.06 60)", color: userWeightTotal === 100 ? "oklch(0.32 0.07 155)" : userWeightTotal === 0 ? "var(--ink-mute)" : "oklch(0.40 0.13 60)" }}>
+                    Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px 36px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }} title="Maximum weight % allowed in the efficient frontier grid search">MAX</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Lock this asset — weight and MAX won't change with bulk buttons, frontier won't vary it">🔒</div>
+                  {ASSETS.filter(a => a.holdable).map(a => {
+                    const w = userWeights[a.id] ?? 0;
+                    const canSMA = true;   // gold + silver SMA now supported
+                    const sma = !!userSMA[a.id];
+                    const reb = !!userRebalance[a.id];
+                    return (
+                      <React.Fragment key={a.id}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: w > 0 ? 500 : 400, color: w > 0 ? "var(--ink)" : "var(--ink-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {a.label}
+                          </div>
+                          <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
+                        </div>
+                        <input type="number" min="0" max="100" step="1" value={w}
+                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
+                               onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          {canSMA
+                            ? <input type="checkbox" checked={sma} disabled={w === 0}
+                                     onChange={e => setUserSMA(s => ({ ...s, [a.id]: e.target.checked }))} />
+                            : <span className="dim" style={{ fontSize: 10 }}>—</span>}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <input type="checkbox" checked={reb} disabled={w === 0}
+                                 onChange={e => setUserRebalance(s => ({ ...s, [a.id]: e.target.checked }))} />
+                        </div>
+                        <input type="number" min="0" max="100" step="5" value={upperLimits[a.id] ?? 100}
+                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 11, width: "100%" }}
+                               onChange={e => setUpperLimits(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <input type="checkbox" checked={!!lockedAssets[a.id]}
+                                 onChange={e => setLockedAssets(s => ({ ...s, [a.id]: e.target.checked }))} />
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                  <button className="btn btn-xs" onClick={() => {
+                    const total = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
+                    if (total <= 0) return;
+                    const lockedTotal = Object.entries(userWeights).filter(([k]) => lockedAssets[k]).reduce((s, [, v]) => s + (v || 0), 0);
+                    const unlocked = Object.keys(userWeights).filter(k => !lockedAssets[k]);
+                    const unlockedTotal = total - lockedTotal;
+                    const target = 100 - lockedTotal;
+                    if (unlockedTotal <= 0 || target <= 0) return;
+                    const scaled = { ...userWeights };
+                    let acc = 0;
+                    unlocked.forEach((k, i) => {
+                      if (i < unlocked.length - 1) { const v = Math.round((userWeights[k] || 0) * target / unlockedTotal); scaled[k] = v; acc += v; }
+                      else { scaled[k] = target - acc; }
+                    });
+                    setUserWeights(scaled);
+                  }}>Normalize to 100</button>
+                  <button className="btn btn-xs" onClick={() => {
+                    const holdable = ASSETS.filter(a => a.holdable);
+                    const lockedTotal = holdable.filter(a => lockedAssets[a.id]).reduce((s, a) => s + (userWeights[a.id] || 0), 0);
+                    const unlocked = holdable.filter(a => !lockedAssets[a.id]);
+                    const remaining = Math.max(0, 100 - lockedTotal);
+                    const n = unlocked.length;
+                    if (n === 0) return;
+                    const base = Math.floor(remaining / n);
+                    let remainder = remaining - base * n;
+                    const eq = { ...userWeights };
+                    for (const a of unlocked) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
+                    setUserWeights(eq);
+                  }}>Equal weight all</button>
+                  <button className="btn btn-xs btn-ghost" onClick={() => {
+                    const kept = {};
+                    for (const [k, v] of Object.entries(userWeights)) { if (lockedAssets[k]) kept[k] = v; }
+                    setUserWeights(kept);
+                    const keptSMA = {};
+                    for (const [k, v] of Object.entries(userSMA)) { if (lockedAssets[k]) keptSMA[k] = v; }
+                    setUserSMA(keptSMA);
+                  }}>Clear</button>
+                  <button className="btn btn-xs btn-ghost"
+                    disabled={userWeightTotal >= 100}
+                    style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
+                    onClick={fillMinCorrelation}
+                    title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
+                  <span style={{ flex: 1 }}></span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
+                    Set all MAX to
+                    <input type="number" min="0" max="100" step="5" value={bulkLimit}
+                      style={{ width: 44, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
+                      onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
+                    <button className="btn btn-xs" onClick={() => setUpperLimits(prev => {
+                      const next = { ...prev };
+                      for (const a of ASSETS.filter(a => a.holdable)) { if (!lockedAssets[a.id]) next[a.id] = bulkLimit; }
+                      return next;
+                    })}>Apply</button>
+                  </span>
+                </div>
+                <div className="small-note" style={{ marginTop: 8 }}>
+                  <strong>SMA</strong> — 200-day simple moving average timing. When ticked, this leg sells to cash when the daily price falls below the 200-day SMA and re-enters when it crosses back above. Reduces drawdowns at the cost of whipsaw losses in trendless markets.<br/>
+                  <strong>REB</strong> — yearly rebalancing. When ticked, if this asset is overweight vs its target at each rebalancing date, the excess is sold (gold: only matured lots, tax-free under Spekulationsfrist; funds: subject to CGT) and proceeds are redistributed to underweight assets.<br/>
+                  <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".<br/>
+                  <strong>🔒</strong> — lock this asset. Locked assets keep their weight and MAX when using Normalize, Equal weight, Clear, or Set all MAX. The frontier fixes locked assets at their current weight instead of varying them.
+                </div>
+              </div>
+            </div>
+
+
 
             {/* drawdown correlation matrix */}
             {ddCorrelation && (

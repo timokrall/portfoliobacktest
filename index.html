@@ -1988,14 +1988,8 @@ function App() {
         const nonGold = Object.entries(prev).filter(([k]) => k !== "gold" && k !== "silver");
         const eqTotal = 100 - goldPct;
         const oldEqTotal = nonGold.reduce((s, [, v]) => s + v, 0) || 100;
-        const next = {};
+        const next = { gold: goldPct };
         for (const [k, v] of nonGold) next[k] = Math.round(v / oldEqTotal * eqTotal);
-        next.gold = goldPct;
-        const total = Object.values(next).reduce((s, v) => s + v, 0);
-        if (total !== 100) {
-          const largest = Object.entries(next).filter(([k]) => k !== "gold").sort((a, b) => b[1] - a[1])[0];
-          if (largest) next[largest[0]] += 100 - total;
-        }
         return next;
       });
       setUpperLimits(prev => ({ ...prev, gold: goldOptResult.bestBH.goldPct }));
@@ -2681,6 +2675,15 @@ function App() {
     ]);
   }, [efResults?.samples]);
 
+  // Balanced: Pareto knee of Sortino (full) × Sortino (CV)
+  const efBalancedWinner = useMemo(() => {
+    if (!efResults?.samples) return null;
+    return findBestForProfile(efResults.samples, [
+      ["fSortino", r => r.fullSortino, true],
+      ["cvSortino", r => r.sortino, true],
+    ]);
+  }, [efResults?.samples]);
+
   // Simulate DCA and Preserve winner portfolios for charting
   const lifecycleSims = useMemo(() => {
     if (!efResults?.basket || !commonWindow?.ok || (!efAggrWinner && !efPreserveWinner)) return null;
@@ -2715,10 +2718,11 @@ function App() {
       });
     };
     return {
-      lc_aggr: runFor(efAggrWinner, "lc_aggr", "Aggressive / Accumulate"),
-      lc_preserve: runFor(efPreserveWinner, "lc_preserve", "Conservative / Preservation"),
+      lc_aggr: runFor(efAggrWinner, "lc_aggr", "Aggressive"),
+      lc_preserve: runFor(efPreserveWinner, "lc_preserve", "Conservative"),
+      lc_balanced: runFor(efBalancedWinner, "lc_balanced", "Balanced"),
     };
-  }, [efAggrWinner, efPreserveWinner, efResults?.basket, efResults?.includesUserSMA, commonWindow, pfAssetSeries, series, seriesType, userSMA, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, userRebalance]);
+  }, [efAggrWinner, efPreserveWinner, efBalancedWinner, efResults?.basket, efResults?.includesUserSMA, commonWindow, pfAssetSeries, series, seriesType, userSMA, ongoingCost, spreads, orderFee, taxRate, teilfreistellung, allowance, basiszins, starting, monthly, rebalance, userRebalance]);
 
   const cancelEfficientFrontier = () => { efCancelRef.current = true; };
 
@@ -3147,14 +3151,9 @@ function App() {
             const blended = {};
             basket.forEach((a, i) => {
               const w = aggrFrac * (aggrW.weights[i] || 0) + presFrac * (presW.weights[i] || 0);
-              const pct = Math.round(w * 100);
+              const pct = Math.round(w * 10000) / 100; // 2 decimal places
               if (pct > 0) blended[a] = pct;
             });
-            const total = Object.values(blended).reduce((s, v) => s + v, 0);
-            if (total !== 100 && Object.keys(blended).length > 0) {
-              const largest = Object.entries(blended).sort((a, b) => b[1] - a[1])[0];
-              if (largest) blended[largest[0]] += 100 - total;
-            }
             setUserWeights(blended);
           }
         }
@@ -3427,7 +3426,9 @@ function App() {
     }
     // 4. Aggressive (from lifecycle sims)
     if (lifecycleSims?.lc_aggr) lines.push({ pid: "lc_aggr", name: "Aggressive", src: "lc" });
-    // 5. Conservative (from lifecycle sims)
+    // 5. Balanced (from lifecycle sims)
+    if (lifecycleSims?.lc_balanced) lines.push({ pid: "lc_balanced", name: "Balanced", src: "lc" });
+    // 6. Conservative (from lifecycle sims)
     if (lifecycleSims?.lc_preserve) lines.push({ pid: "lc_preserve", name: "Conservative", src: "lc" });
     return lines;
   }, [simResults, lifecycleSims]);
@@ -3439,6 +3440,7 @@ function App() {
     const allSims = { ...simResults };
     if (lifecycleSims?.lc_aggr) allSims.lc_aggr = lifecycleSims.lc_aggr;
     if (lifecycleSims?.lc_preserve) allSims.lc_preserve = lifecycleSims.lc_preserve;
+    if (lifecycleSims?.lc_balanced) allSims.lc_balanced = lifecycleSims.lc_balanced;
     const pfMaps = {};
     for (const pid of Object.keys(allSims)) {
       const r = allSims[pid];
@@ -3627,7 +3629,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 7:53 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 9:26 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3748,9 +3750,9 @@ function App() {
             </div>
 
 
-            {/* Lifecycle recommendation */}
+            {/* Portfolio recommendation */}
             <div className="panel" style={{ marginBottom: 18 }}>
-              <div className="panel-h"><h2>Lifecycle recommendation</h2><span className="h-meta">aggressive → conservative glide path</span></div>
+              <div className="panel-h"><h2>Portfolio recommendation</h2><span className="h-meta">aggressive · balanced · conservative</span></div>
               <div className="panel-body">
                 {(() => {
                   const LIFE_EXP = 80.9;
@@ -3847,23 +3849,53 @@ function App() {
                         if (d + p > 0.5) assetAlloc[a] = { dca: d, preserve: p, total: d + p };
                       });
                       const allocEntries = Object.entries(assetAlloc).sort((a, b) => b[1].total - a[1].total);
+                      const winnerToWeights = (winner) => {
+                        const w = {};
+                        basket.forEach((a, i) => {
+                          const pct = Math.round((winner.weights[i] || 0) * 10000) / 100;
+                          if (pct > 0) w[a] = pct;
+                        });
+                        return w;
+                      };
                       return (<>
-                        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: investAmount > 0 && allocEntries.length > 0 ? 16 : 0 }}>
-                          <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 220)" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>Aggressive / Accumulation{aggrEur > 0 ? ` — ${Math.round(aggrEur).toLocaleString()} €` : ""}</div>
-                            <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for money-weighted CAGR (full period + worst decade)</div>
+                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
+                          <div style={{ flex: "1 1 220px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 220)" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 220)" }}>Aggressive{aggrEur > 0 ? ` — ${Math.round(aggrEur).toLocaleString()} €` : ""}</div>
+                            <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for money-weighted CAGR (full + worst decade)</div>
                             <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efAggrWinner)}</div>
                             <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
                               mwCAGR {fmtPct(efAggrWinner.fullMwCAGR)} · Max DD {fmtPct(efAggrWinner.maxDD)} · Gain {fmtPct(efAggrWinner.finalRatio - 1)}
                             </div>
+                            <button className="btn btn-xs" style={{ marginTop: 8, fontSize: 11 }}
+                              onClick={() => setUserWeights(winnerToWeights(efAggrWinner))}>
+                              Apply to My Portfolio
+                            </button>
                           </div>
-                          <div style={{ flex: "1 1 320px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 150)" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Conservative / Preservation{presEur > 0 ? ` — ${Math.round(presEur).toLocaleString()} €` : ""}</div>
+                          {efBalancedWinner && (
+                            <div style={{ flex: "1 1 220px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 270)" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 270)" }}>Balanced</div>
+                              <div style={{ fontSize: 12, marginBottom: 4 }}>Pareto knee of Sortino (full period) × Sortino (worst decade)</div>
+                              <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efBalancedWinner)}</div>
+                              <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
+                                Sortino {fmtNum(efBalancedWinner.fullSortino, 3)} / {fmtNum(efBalancedWinner.sortino, 3)} (CV) · Max DD {fmtPct(efBalancedWinner.maxDD)} · mwCAGR {fmtPct(efBalancedWinner.fullMwCAGR)}
+                              </div>
+                              <button className="btn btn-xs" style={{ marginTop: 8, fontSize: 11 }}
+                                onClick={() => setUserWeights(winnerToWeights(efBalancedWinner))}>
+                                Apply to My Portfolio
+                              </button>
+                            </div>
+                          )}
+                          <div style={{ flex: "1 1 220px", padding: 14, borderRadius: 8, background: "oklch(0.97 0.02 150)" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, color: "oklch(0.45 0.08 150)" }}>Conservative{presEur > 0 ? ` — ${Math.round(presEur).toLocaleString()} €` : ""}</div>
                             <div style={{ fontSize: 12, marginBottom: 4 }}>Optimized for risk-adjusted unit-price metrics (all except mwCAGR/mwCalmar)</div>
                             <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{fmtW(efPreserveWinner)}</div>
                             <div style={{ fontSize: 11, marginTop: 6, color: "var(--ink-soft)" }}>
                               Sortino {fmtNum(efPreserveWinner.fullSortino, 3)} · UPI {fmtNum(efPreserveWinner.fullUpi, 3)} · Max DD {fmtPct(efPreserveWinner.maxDD)} · Calmar {fmtNum(efPreserveWinner.fullCalmar, 3)}
                             </div>
+                            <button className="btn btn-xs" style={{ marginTop: 8, fontSize: 11 }}
+                              onClick={() => setUserWeights(winnerToWeights(efPreserveWinner))}>
+                              Apply to My Portfolio
+                            </button>
                           </div>
                         </div>
                         {investAmount > 0 && allocEntries.length > 0 && (
@@ -3880,7 +3912,7 @@ function App() {
                                     {v.dca > 0.5 ? `${Math.round(v.dca).toLocaleString()} Aggr.` : ""}{v.dca > 0.5 && v.preserve > 0.5 ? " + " : ""}{v.preserve > 0.5 ? `${Math.round(v.preserve).toLocaleString()} Cons.` : ""}
                                   </div>
                                   <div style={{ fontSize: 10, fontWeight: 600, color: "oklch(0.45 0.08 220)", marginTop: 2 }}>
-                                    {Math.round(v.total / investAmount * 100)}%
+                                    {(v.total / investAmount * 100).toFixed(2)}%
                                   </div>
                                 </div>
                               ))}
@@ -3893,20 +3925,15 @@ function App() {
                           const blendPcts = {};
                           basket.forEach((a, i) => {
                             const w = af * (efAggrWinner.weights[i] || 0) + pf * (efPreserveWinner.weights[i] || 0);
-                            const pct = Math.round(w * 100);
+                            const pct = Math.round(w * 10000) / 100; // 2 decimal places
                             if (pct > 0) blendPcts[a] = pct;
                           });
-                          const pctTotal = Object.values(blendPcts).reduce((s, v) => s + v, 0);
-                          if (pctTotal !== 100 && Object.keys(blendPcts).length > 0) {
-                            const largest = Object.entries(blendPcts).sort((a, b) => b[1] - a[1])[0];
-                            if (largest) blendPcts[largest[0]] += 100 - pctTotal;
-                          }
-                          const blendStr = Object.entries(blendPcts).sort((a, b) => b[1] - a[1]).map(([a, p]) => `${ASSETS.find(x => x.id === a)?.shortName || a} ${p}%`).join(" · ");
+                          const blendStr = Object.entries(blendPcts).sort((a, b) => b[1] - a[1]).map(([a, p]) => `${ASSETS.find(x => x.id === a)?.shortName || a} ${p.toFixed(2)}%`).join(" · ");
                           const finalTotal = Object.values(blendPcts).reduce((s, v) => s + v, 0);
                           return (
                             <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 6, background: "oklch(0.97 0.015 220)", border: "1px solid oklch(0.90 0.03 220)" }}>
                               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, color: "oklch(0.45 0.08 220)" }}>
-                                Blended portfolio ({aggrPct}% Aggr. + {preservePct}% Cons.) = {finalTotal}%
+                                Blended portfolio ({aggrPct}% Aggr. + {preservePct}% Cons.) = {finalTotal.toFixed(2)}%
                               </div>
                               <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{blendStr}</div>
                               <button className="btn btn-accent" style={{ marginTop: 8, fontSize: 12, padding: "6px 16px" }}
@@ -3918,7 +3945,7 @@ function App() {
                         })()}
                       </>);
                     })()}
-                    {!efResults && <div className="dim" style={{ fontSize: 12 }}>Run the efficient frontier to see Aggressive and Conservative portfolio recommendations.</div>}
+                    {!efResults && <div className="dim" style={{ fontSize: 12 }}>Run the efficient frontier to see Aggressive, Balanced, and Conservative portfolio recommendations.</div>}
                   </>;
                 })()}
               </div>
@@ -4515,7 +4542,7 @@ function App() {
                       return cp?.name || getPF(cleanPid)?.name || cleanPid;
                     }} />
                     {chartPortfolios.map((cp, i) => {
-                      const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.09 155)", "oklch(0.55 0.13 60)", "oklch(0.50 0.10 260)", "oklch(0.50 0.13 320)"];
+                      const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.09 155)", "oklch(0.55 0.13 60)", "oklch(0.50 0.10 260)", "oklch(0.45 0.12 30)", "oklch(0.50 0.13 320)"];
                       const dk = chartMode === "unit" ? cp.pid : chartMode === "dd" ? cp.pid + "_dd" : cp.pid + "_val";
                       return <Line key={cp.pid} type="monotone" dataKey={dk}
                                    stroke={colors[i % colors.length]} dot={false} strokeWidth={i === 0 ? 2 : 1.4} isAnimationActive={false} />;
@@ -4952,7 +4979,7 @@ function App() {
                           </div>
                           <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
                         </div>
-                        <input type="number" min="0" max="100" step="1" value={w}
+                        <input type="number" min="0" max="100" step="0.01" value={w}
                                style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
                                onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
                         <div style={{ display: "flex", justifyContent: "center" }}>

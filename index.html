@@ -2007,11 +2007,11 @@ function App() {
     }
   }, [pendingFrontierRun, efRunning, goldOptRunning, upperLimits, userWeights]);
 
-  const [optIncludeGoldSmaFull, setOptIncludeGoldSmaFull] = useState(true);
-  const [optIncludeGoldSmaTF, setOptIncludeGoldSmaTF] = useState(true);
-  const [optIncludeEqSma, setOptIncludeEqSma] = useState(true);
-  const [optIncludeReb, setOptIncludeReb] = useState(true);
-  const [optRecommendedOnly, setOptRecommendedOnly] = useState(true);
+  const [optIncludeGoldSmaFull, setOptIncludeGoldSmaFull] = useState(false);
+  const [optIncludeGoldSmaTF, setOptIncludeGoldSmaTF] = useState(false);
+  const [optIncludeEqSma, setOptIncludeEqSma] = useState(false);
+  const [optIncludeReb, setOptIncludeReb] = useState(false);
+  const [optRecommendedOnly, setOptRecommendedOnly] = useState(false);
   const [goldOptSort, setGoldOptSort] = useState({ col: "kneeScore", asc: false });
   const [goldOptTableCollapsed, setGoldOptTableCollapsed] = useState(true);
 
@@ -3442,12 +3442,26 @@ function App() {
     if (lifecycleSims?.lc_preserve) allSims.lc_preserve = lifecycleSims.lc_preserve;
     if (lifecycleSims?.lc_balanced) allSims.lc_balanced = lifecycleSims.lc_balanced;
     const pfMaps = {};
+    const cpiMap = series.cpi ? new Map(series.cpi.map(r => [r.month, r.value])) : null;
     for (const pid of Object.keys(allSims)) {
       const r = allSims[pid];
       if (!r || !r.months) continue;
       const m = new Map();
       for (let i = 0; i < r.months.length; i++) {
-        m.set(r.months[i], { unit: r.unitPriceSeries[i], dd: r.ddSeries[i] * 100, val: r.valueSeries ? r.valueSeries[i] : null });
+        let excess = null;
+        if (i > 0 && cpiMap) {
+          const cpiPrev = cpiMap.get(r.months[i - 1]);
+          const cpiCur = cpiMap.get(r.months[i]);
+          if (cpiPrev && cpiCur && cpiPrev > 0) {
+            const rPf = r.unitPriceSeries[i] / r.unitPriceSeries[i - 1] - 1;
+            const t = Date.parse(r.months[i] + "-15");
+            const annRate = series.ecb ? (ecbRateAt(series.ecb, t) ?? 0) : 0;
+            const rCash = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
+            const infl = cpiCur / cpiPrev - 1;
+            excess = (((1 + rPf) / (1 + infl) - 1) - ((1 + rCash) / (1 + infl) - 1)) * 100;
+          }
+        }
+        m.set(r.months[i], { unit: r.unitPriceSeries[i], dd: r.ddSeries[i] * 100, val: r.valueSeries ? r.valueSeries[i] : null, excess });
       }
       pfMaps[pid] = m;
     }
@@ -3455,14 +3469,19 @@ function App() {
       const row = { month: m, label: m };
       for (const pid of Object.keys(pfMaps)) {
         const pt = pfMaps[pid].get(m);
-        if (pt) { row[pid] = pt.unit; row[pid + "_dd"] = pt.dd; row[pid + "_val"] = pt.val; }
+        if (pt) {
+          row[pid] = pt.unit; row[pid + "_dd"] = pt.dd; row[pid + "_val"] = pt.val;
+          if (pt.excess != null) { row[pid + "_exPos"] = pt.excess >= 0 ? pt.excess : 0; row[pid + "_exNeg"] = pt.excess < 0 ? pt.excess : 0; }
+        }
       }
       return row;
     });
     return rows;
-  }, [simResults, lifecycleSims, commonWindow]);
+  }, [simResults, lifecycleSims, commonWindow, series.cpi, series.ecb]);
 
   const [chartMode, setChartMode] = useState("value");   // "value" | "unit" | "dd"
+  const [visiblePortfolios, setVisiblePortfolios] = useState(new Set(["user", "bench_market", "bench_coIQ", "lc_aggr", "lc_balanced", "lc_preserve"]));
+  const togglePortfolio = (pid) => setVisiblePortfolios(prev => { const next = new Set(prev); next.has(pid) ? next.delete(pid) : next.add(pid); return next; }); | "excess"
 
   // ---- winners ----
   const winners = useMemo(() => {
@@ -3629,7 +3648,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 9:26 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 10:50 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3951,9 +3970,534 @@ function App() {
               </div>
             </div>
 
+
+
+            {/* chart */}
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h">
+                <h2>Chart</h2>
+                <div className="seg">
+                  <button className={chartMode === "value" ? "on" : ""} onClick={() => setChartMode("value")}>EUR value</button>
+                  <button className={chartMode === "unit" ? "on" : ""} onClick={() => setChartMode("unit")}>Unit price</button>
+                  <button className={chartMode === "dd" ? "on" : ""} onClick={() => setChartMode("dd")}>Drawdown %</button>
+                </div>
+              </div>
+              {chartPortfolios.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "6px 14px", borderBottom: "1px solid var(--line)" }}>
+                  {chartPortfolios.map((cp, i) => {
+                    const colors = ["#000000", "#0000FF", "#FF0000", "#00AA00", "#FF00FF", "#FF8800"];
+                    const on = visiblePortfolios.has(cp.pid);
+                    return (
+                      <button key={cp.pid} className="btn btn-xs" style={{
+                        fontSize: 10, padding: "2px 8px",
+                        background: on ? colors[i % colors.length] : "transparent",
+                        color: on ? "#fff" : colors[i % colors.length],
+                        border: `1.5px solid ${colors[i % colors.length]}`,
+                        fontWeight: cp.pid === "user" ? 700 : 400,
+                        opacity: on ? 1 : 0.5,
+                      }} onClick={() => togglePortfolio(cp.pid)}>
+                        {cp.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="panel-body" style={{ height: 380 }}>
+                {chartData && <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
+                    <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tickMargin={10} minTickGap={40} stroke="oklch(0.7 0.008 240)" />
+                    <YAxis tickFormatter={v => chartMode === "dd" ? v.toFixed(0) + "%" : chartMode === "value" ? (v >= 1000 ? (v / 1000).toFixed(0) + "k" : v.toFixed(0)) + " €" : v.toFixed(0)} stroke="oklch(0.7 0.008 240)" width={56} domain={chartMode === "dd" ? [-60, 5] : ["auto", "auto"]} />
+                    <Tooltip
+                      contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                      formatter={(v, name) => {
+                        const cleanPid = name.replace("_dd", "").replace("_val", "");
+                        if (!visiblePortfolios.has(cleanPid)) return [null, null];
+                        const cp = chartPortfolios.find(c => c.pid === cleanPid);
+                        const isUser = cleanPid === "user";
+                        const label = cp?.name || getPF(cleanPid)?.name || cleanPid;
+                        const val = chartMode === "dd" ? fmtNum(+v, 2) + "%" : chartMode === "value" ? Math.round(+v).toLocaleString() + " €" : fmtNum(+v, 2);
+                        return [isUser ? React.createElement("strong", null, val) : val, isUser ? React.createElement("strong", null, label) : label];
+                      }}
+                    />
+                    <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => {
+                      const cleanPid = v.replace("_dd", "").replace("_val", "");
+                      const cp = chartPortfolios.find(c => c.pid === cleanPid);
+                      return cp?.name || getPF(cleanPid)?.name || cleanPid;
+                    }} />
+                    {chartPortfolios.filter(cp => visiblePortfolios.has(cp.pid)).map((cp) => {
+                      const allColors = ["#000000", "#0000FF", "#FF0000", "#00AA00", "#FF00FF", "#FF8800"];
+                      const origIdx = chartPortfolios.indexOf(cp);
+                      const dk = chartMode === "unit" ? cp.pid : chartMode === "dd" ? cp.pid + "_dd" : cp.pid + "_val";
+                      return <Line key={cp.pid} type="monotone" dataKey={dk}
+                                   stroke={allColors[origIdx % allColors.length]} dot={false} strokeWidth={cp.pid === "user" ? 3 : 1.5} isAnimationActive={false} />;
+                    })}
+                  </LineChart>
+                </ResponsiveContainer>}
+              </div>
+            </div>
+
+            {/* comparison table */}
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h"><h2>Comparison</h2><span className="h-meta">money-weighted gain · unit-price risk metrics</span></div>
+              <table className="bt">
+                <thead><tr>
+                  <th>Portfolio</th>
+                  <th style={{ textAlign: "right" }}>Target gold</th>
+                  <th style={{ textAlign: "right" }}>Final gold</th>
+                  <th style={{ textAlign: "right" }}>Sortino</th>
+                  <th style={{ textAlign: "right" }}>UPI</th>
+                  <th style={{ textAlign: "right" }}>Max DD</th>
+                  <th style={{ textAlign: "right" }}>Months &lt;−30%</th>
+                  <th style={{ textAlign: "right" }}>Total invested</th>
+                  <th style={{ textAlign: "right" }}>Final value</th>
+                  <th style={{ textAlign: "right" }}>Gain</th>
+                </tr></thead>
+                <tbody>
+                  {selectedPortfolios.map(pid => {
+                    const r = simResults && simResults[pid];
+                    const pf = getPF(pid);
+                    if (!r) return null;
+                    const tg = pf.isMarket ? null : pid === "user" ? Math.round((pf.weights.gold || 0) * 100) : (goldWeights[pid] ?? 0);
+                    const fg = pf.isMarket ? null : r.finalGoldWeight * 100;
+                    const gain = r.finalValue - r.totalInvested;
+                    const gainPct = r.finalValue / r.totalInvested - 1;
+                    return (
+                      <tr key={pid}>
+                        <td className="name">{pf.name}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{tg == null ? "—" : tg + "%"}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fg == null ? "—" : fmtNum(fg, 1) + "%"}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.metrics.sortino, 3)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.metrics.upi, 3)}</td>
+                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.metrics.maxDD)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{r.metrics.monthsBelow30}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.totalInvested)}</td>
+                        <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.finalValue)}</td>
+                        <td className={"num " + (gain >= 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>
+                          {fmtEUR(gain)} · {fmtPct(gainPct)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* V2 · Gold-share optimizer charts (one panel per two-asset portfolio) */}
+            {selectedPortfolios.filter(pid => getPF(pid) && !getPF(pid).isMarket).map(pid => {
+              const sw = sweepResults[pid];
+              if (!sw || !sw.perH || !sw.cpiOk) return null;
+              const pf = getPF(pid);
+              const target = goldWeights[pid];
+              const data = [];
+              for (let h = 1; h <= H_MAX; h++) {
+                const at = sw.perH[h]; if (!at) continue;
+                data.push({
+                  h, target,
+                  w_safe:   at.w_safe   ? at.w_safe.w   : null,
+                  w_return: at.w_return ? at.w_return.w : null,
+                });
+              }
+              return (
+                <div className="panel" style={{ marginBottom: 18 }} key={"opt_" + pid}>
+                  <div className="panel-h">
+                    <h2>{pf.name} &middot; optimal gold share vs horizon</h2>
+                    <span className="h-meta">your target {target}% &middot; w_safe = buffer-max &middot; w_return = least gold to stay real-admissible &middot; Monte Carlo</span>
+                  </div>
+                  <div className="panel-body" style={{ height: 320 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={data} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
+                        <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="h" tickFormatter={v => v + "y"} stroke="oklch(0.7 0.008 240)" />
+                        <YAxis tickFormatter={v => v + "%"} stroke="oklch(0.7 0.008 240)" width={56} domain={[0, 100]} />
+                        <Tooltip contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
+                                 formatter={(v, name) => [v == null ? "—" : v + "%", name]} />
+                        <Legend wrapperStyle={{ paddingTop: 8 }} />
+                        <RC.ReferenceLine y={target} stroke="oklch(0.4 0.01 240)" strokeDasharray="4 2" label={{ value: `target ${target}%`, position: "insideTopRight", fontSize: 10 }} />
+                        <Line type="monotone" dataKey="w_safe"   stroke="oklch(0.55 0.13 60)"  dot={false} strokeWidth={1.8} isAnimationActive={false} name="w_safe (buffer-max)" />
+                        <Line type="monotone" dataKey="w_return" stroke="oklch(0.55 0.09 155)" dot={false} strokeWidth={1.8} isAnimationActive={false} name="w_return (least gold)" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <table className="bt" style={{ borderTop: "1px solid var(--line)" }}>
+                    <thead><tr>
+                      <th>h</th>
+                      <th style={{ textAlign: "right" }}>w_safe</th>
+                      <th style={{ textAlign: "right" }}>worst CAGR @ w_safe</th>
+                      <th style={{ textAlign: "right" }}>w_return</th>
+                      <th style={{ textAlign: "right" }}>worst CAGR @ w_return</th>
+                      <th style={{ textAlign: "right" }}>worst CAGR @ target {target}%</th>
+                    </tr></thead>
+                    <tbody>
+                      {[1, 3, 5, 10, 15, 20, 30].filter(h => h <= H_MAX).map(h => {
+                        const at = sw.perH[h]; if (!at) return null;
+                        const atTarget = sw.samples.find(s => s.w === target)?.realCurve?.find(x => x.h === h);
+                        return (
+                          <tr key={h}>
+                            <td className="num">{h}y</td>
+                            <td className="num" style={{ textAlign: "right" }}>{at.w_safe ? at.w_safe.w + "%" : "—"}</td>
+                            <td className="num" style={{ textAlign: "right", color: at.w_safe && at.w_safe.worst < 0 ? "var(--neg)" : "inherit" }}>{at.w_safe ? fmtPct(at.w_safe.worst) : "—"}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{at.w_return ? at.w_return.w + "%" : <span className="tag warn">none</span>}</td>
+                            <td className="num" style={{ textAlign: "right" }}>{at.w_return ? fmtPct(at.w_return.worst) : "—"}</td>
+                            <td className="num" style={{ textAlign: "right", color: atTarget && atTarget.worstRealCAGR < 0 ? "var(--neg)" : "inherit" }}>{atTarget && atTarget.worstRealCAGR != null ? fmtPct(atTarget.worstRealCAGR) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div className="panel-body tight footnote">
+                    Both lines from Monte Carlo paired bootstrap. w_safe (buffer-max) is fitted to the worst path and is unstable; w_return is the decision-relevant line: the smallest gold weight that keeps the worst-case real return at or above CPI break-even.
+                  </div>
+                </div>
+              );
+            })}
+
+
+            {/* v3 · Efficient Frontier */}
+            <div className="panel" style={{ marginBottom: 18 }}>
+              <div className="panel-h">
+                <h2>Efficient Frontier · grid search on my-portfolio basket</h2>
+              </div>
+              <div className="panel-body">
+                <div className="small-note" style={{ marginBottom: 12 }}>
+                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). <strong>Primary</strong> = sum of min-max normalized selected metrics (toggle checkboxes). Sortino, UPI, Score, Calmar, mwCAGR, and mwCalmar are shown for both the full period and cross-validated (worst rolling {CV_WINDOW_YEARS}-year window). Calmar = unit-price CAGR / |Max DD|. mwCAGR = money-weighted CAGR (DCA return). Score = median permutation integral of real portfolio vs real cash (ECB/CPI).
+                </div>
+                {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
+                {efResults && (() => {
+                  const fmtWeights = (sample) => efResults.basket.map((a, i) => {
+                    const w = sample.weights[i] * 100;
+                    if (w < 0.5) return null;
+                    const meta = ASSETS.find(x => x.id === a);
+                    return `${meta?.shortName || meta?.label.split(" ")[0] || a} ${w.toFixed(0)}%`;
+                  }).filter(Boolean).join(" \u00b7 ");
+                  const applyWeights = (row) => {
+                    const w = {};
+                    efResults.basket.forEach((a, i) => {
+                      const pct = Math.round(row.weights[i] * 100);
+                      if (pct > 0) w[a] = pct;
+                    });
+                    setUserWeights(w);
+                  };
+                  const getPrimary = (row) => efPrimaryScores?.scores?.get(row);
+                  const cvBg = "oklch(0.99 0.01 60)";
+                  const renderRow = (key, label, row, highlight, showUse) => row ? (
+                    <tr key={key} style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
+                      <td className="name" style={{ fontWeight: highlight ? 700 : 400 }}>{label}</td>
+                      <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullSortino ?? row.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullUpi ?? row.upi, 3)}</td>
+                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
+                      <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullIrrScore != null ? fmtPct(row.fullIrrScore) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullCalmar != null ? fmtNum(row.fullCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullMwCAGR != null ? fmtPct(row.fullMwCAGR) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{row.fullMwCalmar != null ? fmtNum(row.fullMwCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(row.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(row.upi, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.irrScore != null ? fmtPct(row.irrScore) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvCalmar != null ? fmtNum(row.cvCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvMwCAGR != null ? fmtPct(row.cvMwCAGR) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvMwCalmar != null ? fmtNum(row.cvMwCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{(() => { const ps = getPrimary(row); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "—"; })()}</td>
+                      <td>{showUse ? <button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => applyWeights(row)}>Use</button> : null}</td>
+                    </tr>
+                  ) : null;
+                  const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "world");
+                  const bmCoIQ = (efResults.benchmarks || []).find(b => b.assetId === "coIQ");
+                  const renderBench = (key, bm) => bm ? (
+                    <tr key={key}>
+                      <td className="name">{bm.label}</td>
+                      <td className="mono" style={{ fontSize: 11 }}>{bm.assetId?.includes("_gold") ? bm.label : (ASSETS.find(x => x.id === bm.assetId)?.shortName || bm.assetId) + " 100%"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullSortino ?? bm.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullUpi ?? bm.upi, 3)}</td>
+                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
+                      <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullIrrScore != null ? fmtPct(bm.fullIrrScore) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullCalmar != null ? fmtNum(bm.fullCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullMwCAGR != null ? fmtPct(bm.fullMwCAGR) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{bm.fullMwCalmar != null ? fmtNum(bm.fullMwCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.sortino, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.upi, 3)}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvCalmar != null ? fmtNum(bm.cvCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvMwCAGR != null ? fmtPct(bm.cvMwCAGR) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvMwCalmar != null ? fmtNum(bm.cvMwCalmar, 3) : "—"}</td>
+                      <td className="num" style={{ textAlign: "right" }}>{(() => { const ps = getPrimary(bm); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "—"; })()}</td>
+                      <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => setUserWeights({ [bm.assetId]: 100 })}>Use</button></td>
+                    </tr>
+                  ) : null;
+                  return (
+                    <>
+                      <div style={{ marginBottom: 18 }}>
+                        <table className="bt">
+                          <thead>
+                          <tr>
+                            <th rowSpan="3">Portfolio</th>
+                            <th rowSpan="3">Composition</th>
+                            <th colSpan="9" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
+                            <th colSpan="6" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
+                            <th rowSpan="3" style={{ textAlign: "right" }}>Primary</th>
+                            <th rowSpan="3"></th>
+                          </tr>
+                          <tr>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>h*</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Sortino</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>UPI</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Max DD</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Gain</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Score</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Calmar</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>mwCAGR</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>mwCalmar</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Sortino</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>UPI</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Score</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Calmar</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>mwCAGR</th>
+                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>mwCalmar</th>
+                          </tr>
+                          <tr>
+                            {[
+                              ["hStar","oklch(0.97 0.01 220)"],["fSortino","oklch(0.97 0.01 220)"],["fUpi","oklch(0.97 0.01 220)"],
+                              ["fMaxDD","oklch(0.97 0.01 220)"],["fGain","oklch(0.97 0.01 220)"],["fScore","oklch(0.97 0.01 220)"],["fCalmar","oklch(0.97 0.01 220)"],
+                              ["fMwCAGR","oklch(0.97 0.01 220)"],["fMwCalmar","oklch(0.97 0.01 220)"],
+                              ["cvSortino","oklch(0.97 0.02 60)"],["cvUpi","oklch(0.97 0.02 60)"],["cvScore","oklch(0.97 0.02 60)"],["cvCalmar","oklch(0.97 0.02 60)"],
+                              ["cvMwCAGR","oklch(0.97 0.02 60)"],["cvMwCalmar","oklch(0.97 0.02 60)"],
+                            ].map(([col, bg]) => (
+                              <th key={col} style={{ textAlign: "center", background: bg, padding: "2px 4px" }}>
+                                <input type="checkbox" checked={efPrimaryCols[col]} onChange={() => togglePrimaryCol(col)} title={"Include in Primary"} style={{ margin: 0 }} />
+                              </th>
+                            ))}
+                          </tr>
+                          </thead>
+                          <tbody>
+                            {(() => {
+                              const dynPrimary = efPrimaryScores?.primaryWinner;
+                              const rows = [
+                                dynPrimary ? { key: "primary", label: "Largest Primary", row: dynPrimary } : null,
+                                { key: "combined", label: "Largest Score (CV)", row: efResults.winners.combined },
+                                { key: "riskOptimal", label: "Risk optimal (Score vs h*)", row: efResults.winners.riskOptimal },
+                                { key: "sortino", label: "Largest Sortino (CV)", row: efResults.winners.sortino },
+                                { key: "upiPure", label: "Largest UPI (CV)", row: efResults.winners.upiPure },
+                                { key: "fullScore", label: "Largest Score (full)", row: efResults.winners.fullScore },
+                                { key: "fullCalmar", label: "Largest Calmar (full)", row: efResults.winners.fullCalmar },
+                                { key: "cvCalmar", label: "Largest Calmar (CV)", row: efResults.winners.cvCalmar },
+                                { key: "finalReturn", label: "Largest absolute return", row: efResults.winners.finalReturn },
+                              ].filter(r => r != null && r.row != null);
+                              // Deduplicate: keep first occurrence of each weight vector
+                              const seen = new Set();
+                              const unique = rows.filter(r => {
+                                const k = r.row.weights.map(w => w.toFixed(4)).join(",");
+                                if (seen.has(k)) return false;
+                                seen.add(k);
+                                return true;
+                              });
+                              return unique.map((r, i) => renderRow(
+                                r.key,
+                                i === 0 ? "\u2b24 " + r.label : r.label,
+                                r.row,
+                                i === 0,
+                                true
+                              ));
+                            })()}
+                          </tbody>
+                        </table>
+
+                        <div className="small-note" style={{ marginTop: 8 }}>
+                          <strong>{"\u2b24"}</strong> marks the portfolio with the highest <strong>Primary</strong> — the Pareto-knee optimum (sum of min-max normalized selected metrics). Toggle checkboxes to choose which metrics feed into Primary. Metrics are computed on the full period and on every rolling {CV_WINDOW_YEARS}-year window (showing the worst decade). Calmar = unit-price CAGR / |Max DD|. mwCAGR = money-weighted CAGR (actual DCA return). mwCalmar = mwCAGR / |Max DD|. Score = median permutation integral of real portfolio vs real cash (ECB/CPI).
+                        </div>
+
+                        <div style={{ marginTop: 18 }}>
+                          <div className="dim" style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Benchmarks</div>
+                          <table className="bt">
+                            <thead>
+                            <tr>
+                              <th rowSpan="2">Portfolio</th>
+                              <th rowSpan="2">Composition</th>
+                              <th colSpan="9" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
+                              <th colSpan="6" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
+                              <th rowSpan="2" style={{ textAlign: "right" }}>Primary</th>
+                              <th rowSpan="2"></th>
+                            </tr>
+                            <tr>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>h*</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Sortino</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>UPI</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Max DD</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Gain</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Score</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Calmar</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>mwCAGR</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>mwCalmar</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Sortino</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>UPI</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Score</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Calmar</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>mwCAGR</th>
+                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>mwCalmar</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                              {renderRow("user", "Your current weights", efResults.winners.user, false, false)}
+                              {renderBench("acwi", bmACWI)}
+                              {renderBench("coiq", bmCoIQ)}
+                              {(efResults.benchmarks || []).filter(b => b.assetId === "world_gold" || b.assetId === "coIQ_gold").map(b =>
+                                renderBench(b.assetId, b)
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="footnote" style={{ marginTop: 6, fontSize: 10.5 }}>
+                          {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => ASSETS.find(x => x.id === a)?.shortName || a).join(" \u00b7 ")}.
+                          {efResults.includesUserSMA ? " SMA toggles applied." : " SMA off — all legs buy-and-hold."}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+
+
+            <div className="panel" style={{ marginTop: 18 }}>
+              <div className="panel-h">
+                <h2>Portfolio</h2>
+              </div>
+              <div className="panel-body">
+                <div style={{ marginTop: 0 }}>
+                  <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
+                  <div className="seg">
+                    {["never", "monthly", "yearly", "biennial"].map(r =>
+                      <button key={r} className={rebalance === r ? "on" : ""} onClick={() => setRebalance(r)}>
+                        {r === "biennial" ? "every 2 years" : r}
+                      </button>)}
+                  </div>
+                </div>
+
+                <hr style={{ margin: "18px 0" }} />
+                <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>My portfolio &middot; set a % share per asset &middot; total must = 100 &middot; SMA = daily 200-SMA timing of that leg</span>
+                  <span className="mono" style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 4, background: userWeightTotal === 100 ? "oklch(0.94 0.04 155)" : userWeightTotal === 0 ? "var(--hover)" : "oklch(0.95 0.06 60)", color: userWeightTotal === 100 ? "oklch(0.32 0.07 155)" : userWeightTotal === 0 ? "var(--ink-mute)" : "oklch(0.40 0.13 60)" }}>
+                    Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px 36px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }} title="Maximum weight % allowed in the efficient frontier grid search">MAX</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Lock this asset — weight and MAX won't change with bulk buttons, frontier won't vary it">🔒</div>
+                  {ASSETS.filter(a => a.holdable).map(a => {
+                    const w = userWeights[a.id] ?? 0;
+                    const canSMA = true;   // gold + silver SMA now supported
+                    const sma = !!userSMA[a.id];
+                    const reb = !!userRebalance[a.id];
+                    return (
+                      <React.Fragment key={a.id}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: w > 0 ? 500 : 400, color: w > 0 ? "var(--ink)" : "var(--ink-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {a.label}
+                          </div>
+                          <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
+                        </div>
+                        <input type="number" min="0" max="100" step="0.01" value={w}
+                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
+                               onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          {canSMA
+                            ? <input type="checkbox" checked={sma} disabled={w === 0}
+                                     onChange={e => setUserSMA(s => ({ ...s, [a.id]: e.target.checked }))} />
+                            : <span className="dim" style={{ fontSize: 10 }}>—</span>}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <input type="checkbox" checked={reb} disabled={w === 0}
+                                 onChange={e => setUserRebalance(s => ({ ...s, [a.id]: e.target.checked }))} />
+                        </div>
+                        <input type="number" min="0" max="100" step="5" value={upperLimits[a.id] ?? 100}
+                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 11, width: "100%" }}
+                               onChange={e => setUpperLimits(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <input type="checkbox" checked={!!lockedAssets[a.id]}
+                                 onChange={e => setLockedAssets(s => ({ ...s, [a.id]: e.target.checked }))} />
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                  <button className="btn btn-xs" onClick={() => {
+                    const total = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
+                    if (total <= 0) return;
+                    const lockedTotal = Object.entries(userWeights).filter(([k]) => lockedAssets[k]).reduce((s, [, v]) => s + (v || 0), 0);
+                    const unlocked = Object.keys(userWeights).filter(k => !lockedAssets[k]);
+                    const unlockedTotal = total - lockedTotal;
+                    const target = 100 - lockedTotal;
+                    if (unlockedTotal <= 0 || target <= 0) return;
+                    const scaled = { ...userWeights };
+                    let acc = 0;
+                    unlocked.forEach((k, i) => {
+                      if (i < unlocked.length - 1) { const v = Math.round((userWeights[k] || 0) * target / unlockedTotal); scaled[k] = v; acc += v; }
+                      else { scaled[k] = target - acc; }
+                    });
+                    setUserWeights(scaled);
+                  }}>Normalize to 100</button>
+                  <button className="btn btn-xs" onClick={() => {
+                    const holdable = ASSETS.filter(a => a.holdable);
+                    const lockedTotal = holdable.filter(a => lockedAssets[a.id]).reduce((s, a) => s + (userWeights[a.id] || 0), 0);
+                    const unlocked = holdable.filter(a => !lockedAssets[a.id]);
+                    const remaining = Math.max(0, 100 - lockedTotal);
+                    const n = unlocked.length;
+                    if (n === 0) return;
+                    const base = Math.floor(remaining / n);
+                    let remainder = remaining - base * n;
+                    const eq = { ...userWeights };
+                    for (const a of unlocked) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
+                    setUserWeights(eq);
+                  }}>Equal weight all</button>
+                  <button className="btn btn-xs btn-ghost" onClick={() => {
+                    const kept = {};
+                    for (const [k, v] of Object.entries(userWeights)) { if (lockedAssets[k]) kept[k] = v; }
+                    setUserWeights(kept);
+                    const keptSMA = {};
+                    for (const [k, v] of Object.entries(userSMA)) { if (lockedAssets[k]) keptSMA[k] = v; }
+                    setUserSMA(keptSMA);
+                  }}>Clear</button>
+                  <button className="btn btn-xs btn-ghost"
+                    disabled={userWeightTotal >= 100}
+                    style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
+                    onClick={fillMinCorrelation}
+                    title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
+                  <span style={{ flex: 1 }}></span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
+                    Set all MAX to
+                    <input type="number" min="0" max="100" step="5" value={bulkLimit}
+                      style={{ width: 44, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
+                      onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
+                    <button className="btn btn-xs" onClick={() => setUpperLimits(prev => {
+                      const next = { ...prev };
+                      for (const a of ASSETS.filter(a => a.holdable)) { if (!lockedAssets[a.id]) next[a.id] = bulkLimit; }
+                      return next;
+                    })}>Apply</button>
+                  </span>
+                </div>
+                <div className="small-note" style={{ marginTop: 8 }}>
+                  <strong>SMA</strong> — 200-day simple moving average timing. When ticked, this leg sells to cash when the daily price falls below the 200-day SMA and re-enters when it crosses back above. Reduces drawdowns at the cost of whipsaw losses in trendless markets.<br/>
+                  <strong>REB</strong> — yearly rebalancing. When ticked, if this asset is overweight vs its target at each rebalancing date, the excess is sold (gold: only matured lots, tax-free under Spekulationsfrist; funds: subject to CGT) and proceeds are redistributed to underweight assets.<br/>
+                  <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".<br/>
+                  <strong>🔒</strong> — lock this asset. Locked assets keep their weight and MAX when using Normalize, Equal weight, Clear, or Set all MAX. The frontier fixes locked assets at their current weight instead of varying them.
+                </div>
+              </div>
+            </div>
+
+
+
+
             <div className="panel" style={{ marginTop: 18 }}>
               <div className="panel-h" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setShowGoldSplit(v => !v)}>
-                <h2>{showGoldSplit ? "\u25BC" : "\u25B6"} Long-term gold vs equity split</h2>
+                <h2>{showGoldSplit ? "\u25BC" : "\u25B6"} Comparison of buy-and-hold gold allocations</h2>
                 <span className="h-meta">MSCI World EUR + Gold (extended history)</span>
               </div>
               {showGoldSplit && <div className="panel-body">
@@ -3966,26 +4510,7 @@ function App() {
                       {mergedRates ? `Cash benchmark: merged Bundesbank/ECB rates (${new Date(mergedRates[0].t).getFullYear()}–${new Date(mergedRates[mergedRates.length-1].t).getFullYear()}).` : series.ecb ? "Cash benchmark: ECB rate only (pre-1999 = 0%)." : "No rate data for cash benchmark."}
                       {" "}The <strong>risk optimal</strong> portfolio is the Pareto knee of score vs h*. All metrics except absolute return and max DD are <strong>cross-validated</strong>: computed on every rolling {CV_WINDOW_YEARS}-year window, showing the worst window.
                     </div>
-                    <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", fontSize: 11, marginBottom: 8 }}>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 500 }}>
-                        <input type="checkbox" checked={optRecommendedOnly} onChange={e => setOptRecommendedOnly(e.target.checked)} /> Show recommended only
-                      </label>
-                      <span style={{ color: "var(--ink-mute)", fontSize: 10 }}>|</span>
-                      <span style={{ color: "var(--ink-mute)", fontSize: 10.5 }}>Include:</span>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
-                        <input type="checkbox" checked={optRecommendedOnly || optIncludeGoldSmaFull} disabled={optRecommendedOnly} onChange={e => setOptIncludeGoldSmaFull(e.target.checked)} /> Gold SMA (full)
-                      </label>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
-                        <input type="checkbox" checked={optRecommendedOnly || optIncludeGoldSmaTF} disabled={optRecommendedOnly} onChange={e => setOptIncludeGoldSmaTF(e.target.checked)} /> Gold SMA (tax-free)
-                      </label>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
-                        <input type="checkbox" checked={optRecommendedOnly || optIncludeEqSma} disabled={optRecommendedOnly} onChange={e => setOptIncludeEqSma(e.target.checked)} /> Equity SMA
-                      </label>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, opacity: optRecommendedOnly ? 0.4 : 1 }}>
-                        <input type="checkbox" checked={optRecommendedOnly || optIncludeReb} disabled={optRecommendedOnly} onChange={e => setOptIncludeReb(e.target.checked)} /> Rebalancing
-                      </label>
-                    </div>
-                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ display: "none" }}>
                       <button ref={goldOptBtnRef} className="btn btn-accent btn-xs" disabled={goldOptRunning} onClick={() => {
                         setGoldOptRunning(true);
                         setTimeout(() => {
@@ -4508,566 +5033,6 @@ function App() {
                 )}
               </div>}
             </div>
-
-
-            {/* chart */}
-
-            <div className="panel" style={{ marginBottom: 18 }}>
-              <div className="panel-h">
-                <h2>Chart</h2>
-                <div className="seg">
-                  <button className={chartMode === "value" ? "on" : ""} onClick={() => setChartMode("value")}>EUR value</button>
-                  <button className={chartMode === "unit" ? "on" : ""} onClick={() => setChartMode("unit")}>Unit price</button>
-                  <button className={chartMode === "dd" ? "on" : ""} onClick={() => setChartMode("dd")}>Drawdown %</button>
-                </div>
-              </div>
-              <div className="panel-body" style={{ height: 380 }}>
-                {chartData && <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
-                    <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" tickMargin={10} minTickGap={40} stroke="oklch(0.7 0.008 240)" />
-                    <YAxis tickFormatter={v => chartMode === "dd" ? v.toFixed(0) + "%" : chartMode === "value" ? (v >= 1000 ? (v / 1000).toFixed(0) + "k" : v.toFixed(0)) + " €" : v.toFixed(0)} stroke="oklch(0.7 0.008 240)" width={56} domain={chartMode === "dd" ? [-60, 5] : ["auto", "auto"]} />
-                    <Tooltip
-                      contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                      formatter={(v, name) => {
-                        const cleanPid = name.replace("_dd", "").replace("_val", "");
-                        const cp = chartPortfolios.find(c => c.pid === cleanPid);
-                        const label = cp?.name || getPF(cleanPid)?.name || cleanPid;
-                        return [chartMode === "dd" ? fmtNum(+v, 2) + "%" : chartMode === "value" ? fmtNum(+v, 0) + " €" : fmtNum(+v, 2), label];
-                      }}
-                    />
-                    <Legend wrapperStyle={{ paddingTop: 8 }} formatter={(v) => {
-                      const cleanPid = v.replace("_dd", "").replace("_val", "");
-                      const cp = chartPortfolios.find(c => c.pid === cleanPid);
-                      return cp?.name || getPF(cleanPid)?.name || cleanPid;
-                    }} />
-                    {chartPortfolios.map((cp, i) => {
-                      const colors = ["oklch(0.45 0.05 220)", "oklch(0.55 0.09 155)", "oklch(0.55 0.13 60)", "oklch(0.50 0.10 260)", "oklch(0.45 0.12 30)", "oklch(0.50 0.13 320)"];
-                      const dk = chartMode === "unit" ? cp.pid : chartMode === "dd" ? cp.pid + "_dd" : cp.pid + "_val";
-                      return <Line key={cp.pid} type="monotone" dataKey={dk}
-                                   stroke={colors[i % colors.length]} dot={false} strokeWidth={i === 0 ? 2 : 1.4} isAnimationActive={false} />;
-                    })}
-                  </LineChart>
-                </ResponsiveContainer>}
-              </div>
-            </div>
-
-            {/* comparison table */}
-            <div className="panel" style={{ marginBottom: 18 }}>
-              <div className="panel-h"><h2>Comparison</h2><span className="h-meta">money-weighted gain · unit-price risk metrics</span></div>
-              <table className="bt">
-                <thead><tr>
-                  <th>Portfolio</th>
-                  <th style={{ textAlign: "right" }}>Target gold</th>
-                  <th style={{ textAlign: "right" }}>Final gold</th>
-                  <th style={{ textAlign: "right" }}>Sortino</th>
-                  <th style={{ textAlign: "right" }}>UPI</th>
-                  <th style={{ textAlign: "right" }}>Max DD</th>
-                  <th style={{ textAlign: "right" }}>Months &lt;−30%</th>
-                  <th style={{ textAlign: "right" }}>Total invested</th>
-                  <th style={{ textAlign: "right" }}>Final value</th>
-                  <th style={{ textAlign: "right" }}>Gain</th>
-                </tr></thead>
-                <tbody>
-                  {selectedPortfolios.map(pid => {
-                    const r = simResults && simResults[pid];
-                    const pf = getPF(pid);
-                    if (!r) return null;
-                    const tg = pf.isMarket ? null : pid === "user" ? Math.round((pf.weights.gold || 0) * 100) : (goldWeights[pid] ?? 0);
-                    const fg = pf.isMarket ? null : r.finalGoldWeight * 100;
-                    const gain = r.finalValue - r.totalInvested;
-                    const gainPct = r.finalValue / r.totalInvested - 1;
-                    return (
-                      <tr key={pid}>
-                        <td className="name">{pf.name}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{tg == null ? "—" : tg + "%"}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{fg == null ? "—" : fmtNum(fg, 1) + "%"}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.metrics.sortino, 3)}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{fmtNum(r.metrics.upi, 3)}</td>
-                        <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(r.metrics.maxDD)}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{r.metrics.monthsBelow30}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.totalInvested)}</td>
-                        <td className="num" style={{ textAlign: "right" }}>{fmtEUR(r.finalValue)}</td>
-                        <td className={"num " + (gain >= 0 ? "pos" : "neg")} style={{ textAlign: "right" }}>
-                          {fmtEUR(gain)} · {fmtPct(gainPct)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* V2 · Gold-share optimizer charts (one panel per two-asset portfolio) */}
-            {selectedPortfolios.filter(pid => getPF(pid) && !getPF(pid).isMarket).map(pid => {
-              const sw = sweepResults[pid];
-              if (!sw || !sw.perH || !sw.cpiOk) return null;
-              const pf = getPF(pid);
-              const target = goldWeights[pid];
-              const data = [];
-              for (let h = 1; h <= H_MAX; h++) {
-                const at = sw.perH[h]; if (!at) continue;
-                data.push({
-                  h, target,
-                  w_safe:   at.w_safe   ? at.w_safe.w   : null,
-                  w_return: at.w_return ? at.w_return.w : null,
-                });
-              }
-              return (
-                <div className="panel" style={{ marginBottom: 18 }} key={"opt_" + pid}>
-                  <div className="panel-h">
-                    <h2>{pf.name} &middot; optimal gold share vs horizon</h2>
-                    <span className="h-meta">your target {target}% &middot; w_safe = buffer-max &middot; w_return = least gold to stay real-admissible &middot; Monte Carlo</span>
-                  </div>
-                  <div className="panel-body" style={{ height: 320 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={data} margin={{ top: 8, right: 20, bottom: 24, left: 8 }}>
-                        <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="h" tickFormatter={v => v + "y"} stroke="oklch(0.7 0.008 240)" />
-                        <YAxis tickFormatter={v => v + "%"} stroke="oklch(0.7 0.008 240)" width={56} domain={[0, 100]} />
-                        <Tooltip contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                                 formatter={(v, name) => [v == null ? "—" : v + "%", name]} />
-                        <Legend wrapperStyle={{ paddingTop: 8 }} />
-                        <RC.ReferenceLine y={target} stroke="oklch(0.4 0.01 240)" strokeDasharray="4 2" label={{ value: `target ${target}%`, position: "insideTopRight", fontSize: 10 }} />
-                        <Line type="monotone" dataKey="w_safe"   stroke="oklch(0.55 0.13 60)"  dot={false} strokeWidth={1.8} isAnimationActive={false} name="w_safe (buffer-max)" />
-                        <Line type="monotone" dataKey="w_return" stroke="oklch(0.55 0.09 155)" dot={false} strokeWidth={1.8} isAnimationActive={false} name="w_return (least gold)" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <table className="bt" style={{ borderTop: "1px solid var(--line)" }}>
-                    <thead><tr>
-                      <th>h</th>
-                      <th style={{ textAlign: "right" }}>w_safe</th>
-                      <th style={{ textAlign: "right" }}>worst CAGR @ w_safe</th>
-                      <th style={{ textAlign: "right" }}>w_return</th>
-                      <th style={{ textAlign: "right" }}>worst CAGR @ w_return</th>
-                      <th style={{ textAlign: "right" }}>worst CAGR @ target {target}%</th>
-                    </tr></thead>
-                    <tbody>
-                      {[1, 3, 5, 10, 15, 20, 30].filter(h => h <= H_MAX).map(h => {
-                        const at = sw.perH[h]; if (!at) return null;
-                        const atTarget = sw.samples.find(s => s.w === target)?.realCurve?.find(x => x.h === h);
-                        return (
-                          <tr key={h}>
-                            <td className="num">{h}y</td>
-                            <td className="num" style={{ textAlign: "right" }}>{at.w_safe ? at.w_safe.w + "%" : "—"}</td>
-                            <td className="num" style={{ textAlign: "right", color: at.w_safe && at.w_safe.worst < 0 ? "var(--neg)" : "inherit" }}>{at.w_safe ? fmtPct(at.w_safe.worst) : "—"}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{at.w_return ? at.w_return.w + "%" : <span className="tag warn">none</span>}</td>
-                            <td className="num" style={{ textAlign: "right" }}>{at.w_return ? fmtPct(at.w_return.worst) : "—"}</td>
-                            <td className="num" style={{ textAlign: "right", color: atTarget && atTarget.worstRealCAGR < 0 ? "var(--neg)" : "inherit" }}>{atTarget && atTarget.worstRealCAGR != null ? fmtPct(atTarget.worstRealCAGR) : "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  <div className="panel-body tight footnote">
-                    Both lines from Monte Carlo paired bootstrap. w_safe (buffer-max) is fitted to the worst path and is unstable; w_return is the decision-relevant line: the smallest gold weight that keeps the worst-case real return at or above CPI break-even.
-                  </div>
-                </div>
-              );
-            })}
-
-
-            {/* v3 · Efficient Frontier */}
-            <div className="panel" style={{ marginBottom: 18 }}>
-              <div className="panel-h">
-                <h2>Efficient Frontier · grid search on my-portfolio basket</h2>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <label style={{ fontSize: 11, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <input type="checkbox" checked={efIncludeUserSMA} onChange={e => setEfIncludeUserSMA(e.target.checked)} />
-                    use my SMA toggles
-                  </label>
-                  {efRunning && (
-                    <span className="mono" style={{ fontSize: 11 }}>
-                      <span className="spin"></span> {efProgress.done} / {efProgress.total} ({Math.round(100 * efProgress.done / Math.max(1, efProgress.total))}%)
-                    </span>
-                  )}
-                  {efRunning
-                    ? <button className="btn btn-xs" onClick={cancelEfficientFrontier}>Cancel</button>
-                    : <button className="btn btn-accent" disabled={userWeightTotal === 0} onClick={runEfficientFrontier}>
-                        Run frontier
-                      </button>}
-                </div>
-              </div>
-              <div className="panel-body">
-                <div className="small-note" style={{ marginBottom: 12 }}>
-                  Enumerates every weight vector on your <strong>{userPortfolio.assets.length}-asset basket</strong> (5% steps, 10% for &gt;6 assets). <strong>Primary</strong> = sum of min-max normalized selected metrics (toggle checkboxes). Sortino, UPI, Score, Calmar, mwCAGR, and mwCalmar are shown for both the full period and cross-validated (worst rolling {CV_WINDOW_YEARS}-year window). Calmar = unit-price CAGR / |Max DD|. mwCAGR = money-weighted CAGR (DCA return). Score = median permutation integral of real portfolio vs real cash (ECB/CPI).
-                </div>
-                {!efResults && <div className="footnote">No frontier run yet. Adjust your basket above (≥ 2 assets), then press <strong>Run frontier</strong>.</div>}
-                {efResults && (() => {
-                  const fmtWeights = (sample) => efResults.basket.map((a, i) => {
-                    const w = sample.weights[i] * 100;
-                    if (w < 0.5) return null;
-                    const meta = ASSETS.find(x => x.id === a);
-                    return `${meta?.shortName || meta?.label.split(" ")[0] || a} ${w.toFixed(0)}%`;
-                  }).filter(Boolean).join(" \u00b7 ");
-                  const applyWeights = (row) => {
-                    const w = {};
-                    efResults.basket.forEach((a, i) => {
-                      const pct = Math.round(row.weights[i] * 100);
-                      if (pct > 0) w[a] = pct;
-                    });
-                    setUserWeights(w);
-                  };
-                  const getPrimary = (row) => efPrimaryScores?.scores?.get(row);
-                  const cvBg = "oklch(0.99 0.01 60)";
-                  const renderRow = (key, label, row, highlight, showUse) => row ? (
-                    <tr key={key} style={highlight ? { background: "oklch(0.97 0.02 150)" } : {}}>
-                      <td className="name" style={{ fontWeight: highlight ? 700 : 400 }}>{label}</td>
-                      <td className="mono" style={{ fontSize: 11 }}>{fmtWeights(row)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.hStar != null ? row.hStar + "y" : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullSortino ?? row.sortino, 3)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(row.fullUpi ?? row.upi, 3)}</td>
-                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(row.maxDD)}</td>
-                      <td className={"num " + (row.finalRatio > 1 ? "pos" : row.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(row.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.fullIrrScore != null ? fmtPct(row.fullIrrScore) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.fullCalmar != null ? fmtNum(row.fullCalmar, 3) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.fullMwCAGR != null ? fmtPct(row.fullMwCAGR) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{row.fullMwCalmar != null ? fmtNum(row.fullMwCalmar, 3) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(row.sortino, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(row.upi, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.irrScore != null ? fmtPct(row.irrScore) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvCalmar != null ? fmtNum(row.cvCalmar, 3) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvMwCAGR != null ? fmtPct(row.cvMwCAGR) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{row.cvMwCalmar != null ? fmtNum(row.cvMwCalmar, 3) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", fontWeight: highlight ? 700 : 400 }}>{(() => { const ps = getPrimary(row); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "—"; })()}</td>
-                      <td>{showUse ? <button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => applyWeights(row)}>Use</button> : null}</td>
-                    </tr>
-                  ) : null;
-                  const bmACWI = (efResults.benchmarks || []).find(b => b.assetId === "world");
-                  const bmCoIQ = (efResults.benchmarks || []).find(b => b.assetId === "coIQ");
-                  const renderBench = (key, bm) => bm ? (
-                    <tr key={key}>
-                      <td className="name">{bm.label}</td>
-                      <td className="mono" style={{ fontSize: 11 }}>{bm.assetId?.includes("_gold") ? bm.label : (ASSETS.find(x => x.id === bm.assetId)?.shortName || bm.assetId) + " 100%"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.hStar != null ? bm.hStar + "y" : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullSortino ?? bm.sortino, 3)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{fmtNum(bm.fullUpi ?? bm.upi, 3)}</td>
-                      <td className="num neg" style={{ textAlign: "right" }}>{fmtPct(bm.maxDD)}</td>
-                      <td className={"num " + (bm.finalRatio > 1 ? "pos" : bm.finalRatio < 1 ? "neg" : "")} style={{ textAlign: "right" }}>{fmtPct(bm.finalRatio - 1)}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.fullIrrScore != null ? fmtPct(bm.fullIrrScore) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.fullCalmar != null ? fmtNum(bm.fullCalmar, 3) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.fullMwCAGR != null ? fmtPct(bm.fullMwCAGR) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{bm.fullMwCalmar != null ? fmtNum(bm.fullMwCalmar, 3) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.sortino, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{fmtNum(bm.upi, 3)}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.irrScore != null ? fmtPct(bm.irrScore) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvCalmar != null ? fmtNum(bm.cvCalmar, 3) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvMwCAGR != null ? fmtPct(bm.cvMwCAGR) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right", background: cvBg }}>{bm.cvMwCalmar != null ? fmtNum(bm.cvMwCalmar, 3) : "—"}</td>
-                      <td className="num" style={{ textAlign: "right" }}>{(() => { const ps = getPrimary(bm); return ps != null && ps > -Infinity ? fmtNum(ps, 3) : "—"; })()}</td>
-                      <td><button className="btn btn-xs" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => setUserWeights({ [bm.assetId]: 100 })}>Use</button></td>
-                    </tr>
-                  ) : null;
-                  return (
-                    <>
-                      {/* Monthly real excess return chart */}
-                      {efResults.winnerSim && series.cpi && (() => {
-                        const ws = efResults.winnerSim;
-                        const cpiMap = new Map(series.cpi.map(r => [r.month, r.value]));
-                        const chartData = [];
-                        for (let i = 1; i < ws.months.length; i++) {
-                          const cpiPrev = cpiMap.get(ws.months[i - 1]);
-                          const cpiCur = cpiMap.get(ws.months[i]);
-                          if (!cpiPrev || !cpiCur || cpiPrev <= 0) continue;
-                          const rPf = ws.unitPriceSeries[i] / ws.unitPriceSeries[i - 1] - 1;
-                          const t = Date.parse(ws.months[i] + "-15");
-                          const annRate = series.ecb ? (ecbRateAt(series.ecb, t) ?? 0) : 0;
-                          const rCash = Math.pow(1 + Math.max(0, annRate / 100), 1 / 12) - 1;
-                          const infl = cpiCur / cpiPrev - 1;
-                          const excess = ((1 + rPf) / (1 + infl) - 1) - ((1 + rCash) / (1 + infl) - 1);
-                          chartData.push({
-                            month: ws.months[i],
-                            label: ws.months[i].slice(0, 4),
-                            pos: excess >= 0 ? excess * 100 : 0,
-                            neg: excess < 0 ? excess * 100 : 0,
-                          });
-                        }
-                        if (chartData.length < 12) return null;
-                        return (
-                          <div style={{ height: 280, marginBottom: 18 }}>
-                            <div className="dim" style={{ fontSize: 10.5, marginBottom: 4 }}>
-                              Monthly real excess return over real cash (%) — <span style={{ color: "oklch(0.50 0.14 150)" }}>■</span> outperformance
-                              {" "}<span style={{ color: "oklch(0.60 0.16 25)" }}>■</span> underperformance
-                            </div>
-                            <ResponsiveContainer width="100%" height="100%">
-                              <RC.ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 24, left: 8 }}>
-                                <CartesianGrid stroke="oklch(0.93 0.005 240)" strokeDasharray="3 3" vertical={false} />
-                                <XAxis dataKey="label" stroke="oklch(0.7 0.008 240)" interval={Math.max(1, Math.floor(chartData.length / 12))} />
-                                <YAxis tickFormatter={v => v.toFixed(1) + "%"} stroke="oklch(0.7 0.008 240)" width={52} />
-                                <Tooltip contentStyle={{ background: "var(--panel)", border: "1px solid var(--line-strong)", borderRadius: 8, fontSize: 11 }}
-                                  formatter={(v, name) => [(typeof v === "number" ? v.toFixed(2) + "%" : v), name === "pos" ? "Excess" : "Deficit"]}
-                                  labelFormatter={l => chartData.find(d => d.label === l)?.month || l} />
-                                <RC.ReferenceLine y={0} stroke="oklch(0.25 0 0)" strokeWidth={1} />
-                                <RC.Bar dataKey="pos" fill="oklch(0.50 0.14 150)" fillOpacity={0.6} isAnimationActive={false} />
-                                <RC.Bar dataKey="neg" fill="oklch(0.60 0.16 25)" fillOpacity={0.6} isAnimationActive={false} />
-                              </RC.ComposedChart>
-                            </ResponsiveContainer>
-                          </div>
-                        );
-                      })()}
-                      <div style={{ marginBottom: 18 }}>
-                        <table className="bt">
-                          <thead>
-                          <tr>
-                            <th rowSpan="3">Portfolio</th>
-                            <th rowSpan="3">Composition</th>
-                            <th colSpan="9" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
-                            <th colSpan="6" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
-                            <th rowSpan="3" style={{ textAlign: "right" }}>Primary</th>
-                            <th rowSpan="3"></th>
-                          </tr>
-                          <tr>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>h*</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Sortino</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>UPI</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Max DD</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Gain</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Score</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Calmar</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>mwCAGR</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>mwCalmar</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Sortino</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>UPI</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Score</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Calmar</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>mwCAGR</th>
-                            <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>mwCalmar</th>
-                          </tr>
-                          <tr>
-                            {[
-                              ["hStar","oklch(0.97 0.01 220)"],["fSortino","oklch(0.97 0.01 220)"],["fUpi","oklch(0.97 0.01 220)"],
-                              ["fMaxDD","oklch(0.97 0.01 220)"],["fGain","oklch(0.97 0.01 220)"],["fScore","oklch(0.97 0.01 220)"],["fCalmar","oklch(0.97 0.01 220)"],
-                              ["fMwCAGR","oklch(0.97 0.01 220)"],["fMwCalmar","oklch(0.97 0.01 220)"],
-                              ["cvSortino","oklch(0.97 0.02 60)"],["cvUpi","oklch(0.97 0.02 60)"],["cvScore","oklch(0.97 0.02 60)"],["cvCalmar","oklch(0.97 0.02 60)"],
-                              ["cvMwCAGR","oklch(0.97 0.02 60)"],["cvMwCalmar","oklch(0.97 0.02 60)"],
-                            ].map(([col, bg]) => (
-                              <th key={col} style={{ textAlign: "center", background: bg, padding: "2px 4px" }}>
-                                <input type="checkbox" checked={efPrimaryCols[col]} onChange={() => togglePrimaryCol(col)} title={"Include in Primary"} style={{ margin: 0 }} />
-                              </th>
-                            ))}
-                          </tr>
-                          </thead>
-                          <tbody>
-                            {(() => {
-                              const dynPrimary = efPrimaryScores?.primaryWinner;
-                              const rows = [
-                                dynPrimary ? { key: "primary", label: "Largest Primary", row: dynPrimary } : null,
-                                { key: "combined", label: "Largest Score (CV)", row: efResults.winners.combined },
-                                { key: "riskOptimal", label: "Risk optimal (Score vs h*)", row: efResults.winners.riskOptimal },
-                                { key: "sortino", label: "Largest Sortino (CV)", row: efResults.winners.sortino },
-                                { key: "upiPure", label: "Largest UPI (CV)", row: efResults.winners.upiPure },
-                                { key: "fullScore", label: "Largest Score (full)", row: efResults.winners.fullScore },
-                                { key: "fullCalmar", label: "Largest Calmar (full)", row: efResults.winners.fullCalmar },
-                                { key: "cvCalmar", label: "Largest Calmar (CV)", row: efResults.winners.cvCalmar },
-                                { key: "finalReturn", label: "Largest absolute return", row: efResults.winners.finalReturn },
-                              ].filter(r => r != null && r.row != null);
-                              // Deduplicate: keep first occurrence of each weight vector
-                              const seen = new Set();
-                              const unique = rows.filter(r => {
-                                const k = r.row.weights.map(w => w.toFixed(4)).join(",");
-                                if (seen.has(k)) return false;
-                                seen.add(k);
-                                return true;
-                              });
-                              return unique.map((r, i) => renderRow(
-                                r.key,
-                                i === 0 ? "\u2b24 " + r.label : r.label,
-                                r.row,
-                                i === 0,
-                                true
-                              ));
-                            })()}
-                          </tbody>
-                        </table>
-
-                        <div className="small-note" style={{ marginTop: 8 }}>
-                          <strong>{"\u2b24"}</strong> marks the portfolio with the highest <strong>Primary</strong> — the Pareto-knee optimum (sum of min-max normalized selected metrics). Toggle checkboxes to choose which metrics feed into Primary. Metrics are computed on the full period and on every rolling {CV_WINDOW_YEARS}-year window (showing the worst decade). Calmar = unit-price CAGR / |Max DD|. mwCAGR = money-weighted CAGR (actual DCA return). mwCalmar = mwCAGR / |Max DD|. Score = median permutation integral of real portfolio vs real cash (ECB/CPI).
-                        </div>
-
-                        <div style={{ marginTop: 18 }}>
-                          <div className="dim" style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Benchmarks</div>
-                          <table className="bt">
-                            <thead>
-                            <tr>
-                              <th rowSpan="2">Portfolio</th>
-                              <th rowSpan="2">Composition</th>
-                              <th colSpan="9" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.01 220)", fontSize: 10 }}>All periods</th>
-                              <th colSpan="6" style={{ textAlign: "center", borderBottom: "2px solid var(--border)", background: "oklch(0.97 0.02 60)", fontSize: 10 }}>Worst decade (CV)</th>
-                              <th rowSpan="2" style={{ textAlign: "right" }}>Primary</th>
-                              <th rowSpan="2"></th>
-                            </tr>
-                            <tr>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>h*</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Sortino</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>UPI</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Max DD</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Gain</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Score</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>Calmar</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>mwCAGR</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.01 220)" }}>mwCalmar</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Sortino</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>UPI</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Score</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>Calmar</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>mwCAGR</th>
-                              <th style={{ textAlign: "right", background: "oklch(0.97 0.02 60)" }}>mwCalmar</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                              {renderRow("user", "Your current weights", efResults.winners.user, false, false)}
-                              {renderBench("acwi", bmACWI)}
-                              {renderBench("coiq", bmCoIQ)}
-                              {(efResults.benchmarks || []).filter(b => b.assetId === "world_gold" || b.assetId === "coIQ_gold").map(b =>
-                                renderBench(b.assetId, b)
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div className="footnote" style={{ marginTop: 6, fontSize: 10.5 }}>
-                          {efResults.samples.length} weight vectors on basket: {efResults.basket.map(a => ASSETS.find(x => x.id === a)?.shortName || a).join(" \u00b7 ")}.
-                          {efResults.includesUserSMA ? " SMA toggles applied." : " SMA off — all legs buy-and-hold."}
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-
-
-            <div className="panel" style={{ marginTop: 18 }}>
-              <div className="panel-h">
-                <h2>Portfolio</h2>
-              </div>
-              <div className="panel-body">
-                <div style={{ marginTop: 0 }}>
-                  <div className="lbl"  style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6 }}>Rebalancing frequency</div>
-                  <div className="seg">
-                    {["never", "monthly", "yearly", "biennial"].map(r =>
-                      <button key={r} className={rebalance === r ? "on" : ""} onClick={() => setRebalance(r)}>
-                        {r === "biennial" ? "every 2 years" : r}
-                      </button>)}
-                  </div>
-                </div>
-
-                <hr style={{ margin: "18px 0" }} />
-                <div className="lbl" style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>My portfolio &middot; set a % share per asset &middot; total must = 100 &middot; SMA = daily 200-SMA timing of that leg</span>
-                  <span className="mono" style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 4, background: userWeightTotal === 100 ? "oklch(0.94 0.04 155)" : userWeightTotal === 0 ? "var(--hover)" : "oklch(0.95 0.06 60)", color: userWeightTotal === 100 ? "oklch(0.32 0.07 155)" : userWeightTotal === 0 ? "var(--ink-mute)" : "oklch(0.40 0.13 60)" }}>
-                    Σ = {userWeightTotal}% {userWeightTotal === 100 ? "✓" : userWeightTotal > 100 ? "(over)" : "(under)"}
-                  </span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 76px 60px 60px 56px 36px", gap: "4px 10px", alignItems: "center", fontSize: 11.5, marginTop: 6 }}>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)" }}>asset</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }}>weight %</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }}>SMA</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Sell this asset annually when it overperforms, redistribute proceeds to underperforming assets (subject to spreads, fees, and tax).">REB</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "right" }} title="Maximum weight % allowed in the efficient frontier grid search">MAX</div>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--ink-mute)", textAlign: "center" }} title="Lock this asset — weight and MAX won't change with bulk buttons, frontier won't vary it">🔒</div>
-                  {ASSETS.filter(a => a.holdable).map(a => {
-                    const w = userWeights[a.id] ?? 0;
-                    const canSMA = true;   // gold + silver SMA now supported
-                    const sma = !!userSMA[a.id];
-                    const reb = !!userRebalance[a.id];
-                    return (
-                      <React.Fragment key={a.id}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: w > 0 ? 500 : 400, color: w > 0 ? "var(--ink)" : "var(--ink-soft)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {a.label}
-                          </div>
-                          <div className="dim mono" style={{ fontSize: 10 }}>{a.isin}</div>
-                        </div>
-                        <input type="number" min="0" max="100" step="0.01" value={w}
-                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 12 }}
-                               onChange={e => setUserWeights(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
-                        <div style={{ display: "flex", justifyContent: "center" }}>
-                          {canSMA
-                            ? <input type="checkbox" checked={sma} disabled={w === 0}
-                                     onChange={e => setUserSMA(s => ({ ...s, [a.id]: e.target.checked }))} />
-                            : <span className="dim" style={{ fontSize: 10 }}>—</span>}
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "center" }}>
-                          <input type="checkbox" checked={reb} disabled={w === 0}
-                                 onChange={e => setUserRebalance(s => ({ ...s, [a.id]: e.target.checked }))} />
-                        </div>
-                        <input type="number" min="0" max="100" step="5" value={upperLimits[a.id] ?? 100}
-                               style={{ textAlign: "right", padding: "4px 6px", fontSize: 11, width: "100%" }}
-                               onChange={e => setUpperLimits(s => ({ ...s, [a.id]: clamp(+e.target.value || 0, 0, 100) }))} />
-                        <div style={{ display: "flex", justifyContent: "center" }}>
-                          <input type="checkbox" checked={!!lockedAssets[a.id]}
-                                 onChange={e => setLockedAssets(s => ({ ...s, [a.id]: e.target.checked }))} />
-                        </div>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-                  <button className="btn btn-xs" onClick={() => {
-                    const total = Object.values(userWeights).reduce((s, v) => s + (v || 0), 0);
-                    if (total <= 0) return;
-                    const lockedTotal = Object.entries(userWeights).filter(([k]) => lockedAssets[k]).reduce((s, [, v]) => s + (v || 0), 0);
-                    const unlocked = Object.keys(userWeights).filter(k => !lockedAssets[k]);
-                    const unlockedTotal = total - lockedTotal;
-                    const target = 100 - lockedTotal;
-                    if (unlockedTotal <= 0 || target <= 0) return;
-                    const scaled = { ...userWeights };
-                    let acc = 0;
-                    unlocked.forEach((k, i) => {
-                      if (i < unlocked.length - 1) { const v = Math.round((userWeights[k] || 0) * target / unlockedTotal); scaled[k] = v; acc += v; }
-                      else { scaled[k] = target - acc; }
-                    });
-                    setUserWeights(scaled);
-                  }}>Normalize to 100</button>
-                  <button className="btn btn-xs" onClick={() => {
-                    const holdable = ASSETS.filter(a => a.holdable);
-                    const lockedTotal = holdable.filter(a => lockedAssets[a.id]).reduce((s, a) => s + (userWeights[a.id] || 0), 0);
-                    const unlocked = holdable.filter(a => !lockedAssets[a.id]);
-                    const remaining = Math.max(0, 100 - lockedTotal);
-                    const n = unlocked.length;
-                    if (n === 0) return;
-                    const base = Math.floor(remaining / n);
-                    let remainder = remaining - base * n;
-                    const eq = { ...userWeights };
-                    for (const a of unlocked) { eq[a.id] = base + (remainder > 0 ? 1 : 0); if (remainder > 0) remainder--; }
-                    setUserWeights(eq);
-                  }}>Equal weight all</button>
-                  <button className="btn btn-xs btn-ghost" onClick={() => {
-                    const kept = {};
-                    for (const [k, v] of Object.entries(userWeights)) { if (lockedAssets[k]) kept[k] = v; }
-                    setUserWeights(kept);
-                    const keptSMA = {};
-                    for (const [k, v] of Object.entries(userSMA)) { if (lockedAssets[k]) keptSMA[k] = v; }
-                    setUserSMA(keptSMA);
-                  }}>Clear</button>
-                  <button className="btn btn-xs btn-ghost"
-                    disabled={userWeightTotal >= 100}
-                    style={{ opacity: userWeightTotal >= 100 ? 0.4 : 1 }}
-                    onClick={fillMinCorrelation}
-                    title="Distribute unallocated weight across assets that minimize total portfolio correlation during drawdowns">+ Add assets with minimum correlation</button>
-                  <span style={{ flex: 1 }}></span>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-soft)" }}>
-                    Set all MAX to
-                    <input type="number" min="0" max="100" step="5" value={bulkLimit}
-                      style={{ width: 44, textAlign: "center", fontSize: 11, padding: "2px 4px", border: "1px solid var(--border)", borderRadius: 4 }}
-                      onChange={e => setBulkLimit(clamp(+e.target.value || 0, 0, 100))} />%
-                    <button className="btn btn-xs" onClick={() => setUpperLimits(prev => {
-                      const next = { ...prev };
-                      for (const a of ASSETS.filter(a => a.holdable)) { if (!lockedAssets[a.id]) next[a.id] = bulkLimit; }
-                      return next;
-                    })}>Apply</button>
-                  </span>
-                </div>
-                <div className="small-note" style={{ marginTop: 8 }}>
-                  <strong>SMA</strong> — 200-day simple moving average timing. When ticked, this leg sells to cash when the daily price falls below the 200-day SMA and re-enters when it crosses back above. Reduces drawdowns at the cost of whipsaw losses in trendless markets.<br/>
-                  <strong>REB</strong> — yearly rebalancing. When ticked, if this asset is overweight vs its target at each rebalancing date, the excess is sold (gold: only matured lots, tax-free under Spekulationsfrist; funds: subject to CGT) and proceeds are redistributed to underweight assets.<br/>
-                  <strong>MAX</strong> — upper weight limit for the efficient frontier grid search. Portfolios exceeding this cap for any asset are excluded from the search. Does not affect the main simulation of "Your current weights".<br/>
-                  <strong>🔒</strong> — lock this asset. Locked assets keep their weight and MAX when using Normalize, Equal weight, Clear, or Set all MAX. The frontier fixes locked assets at their current weight instead of varying them.
-                </div>
-              </div>
-            </div>
-
 
 
             {/* drawdown correlation matrix */}

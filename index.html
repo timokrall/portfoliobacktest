@@ -3627,7 +3627,7 @@ function App() {
           <div className="brand-mark"></div>
           <div>
             <h1>Portfolio Backtest</h1>
-            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 7:31 AM</div>
+            <div className="dim" style={{ fontSize: 10.5 }}>Version 2026-05-30, 7:53 AM</div>
             <div className="sub">German tax-aware · DCA · lot-tracked gold · Monte Carlo</div>
           </div>
         </div>
@@ -3879,11 +3879,43 @@ function App() {
                                   <div style={{ fontSize: 10, color: "var(--ink-soft)", marginTop: 2 }}>
                                     {v.dca > 0.5 ? `${Math.round(v.dca).toLocaleString()} Aggr.` : ""}{v.dca > 0.5 && v.preserve > 0.5 ? " + " : ""}{v.preserve > 0.5 ? `${Math.round(v.preserve).toLocaleString()} Cons.` : ""}
                                   </div>
+                                  <div style={{ fontSize: 10, fontWeight: 600, color: "oklch(0.45 0.08 220)", marginTop: 2 }}>
+                                    {Math.round(v.total / investAmount * 100)}%
+                                  </div>
                                 </div>
                               ))}
                             </div>
                           </div>
                         )}
+                        {(() => {
+                          const af = (aggrPct || 0) / 100;
+                          const pf = (preservePct || 0) / 100;
+                          const blendPcts = {};
+                          basket.forEach((a, i) => {
+                            const w = af * (efAggrWinner.weights[i] || 0) + pf * (efPreserveWinner.weights[i] || 0);
+                            const pct = Math.round(w * 100);
+                            if (pct > 0) blendPcts[a] = pct;
+                          });
+                          const pctTotal = Object.values(blendPcts).reduce((s, v) => s + v, 0);
+                          if (pctTotal !== 100 && Object.keys(blendPcts).length > 0) {
+                            const largest = Object.entries(blendPcts).sort((a, b) => b[1] - a[1])[0];
+                            if (largest) blendPcts[largest[0]] += 100 - pctTotal;
+                          }
+                          const blendStr = Object.entries(blendPcts).sort((a, b) => b[1] - a[1]).map(([a, p]) => `${ASSETS.find(x => x.id === a)?.shortName || a} ${p}%`).join(" · ");
+                          const finalTotal = Object.values(blendPcts).reduce((s, v) => s + v, 0);
+                          return (
+                            <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 6, background: "oklch(0.97 0.015 220)", border: "1px solid oklch(0.90 0.03 220)" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, color: "oklch(0.45 0.08 220)" }}>
+                                Blended portfolio ({aggrPct}% Aggr. + {preservePct}% Cons.) = {finalTotal}%
+                              </div>
+                              <div className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{blendStr}</div>
+                              <button className="btn btn-accent" style={{ marginTop: 8, fontSize: 12, padding: "6px 16px" }}
+                                onClick={() => setUserWeights(blendPcts)}>
+                                Apply to My Portfolio
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </>);
                     })()}
                     {!efResults && <div className="dim" style={{ fontSize: 12 }}>Run the efficient frontier to see Aggressive and Conservative portfolio recommendations.</div>}
